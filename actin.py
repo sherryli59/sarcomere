@@ -43,6 +43,7 @@ class SarcomereModel():
         self.e_am = -10.0
         self.e_al = -1.0
         self.f_myosin = 1.0
+        self.energy = self.compute_energy()
     
     def compute_energy(self):
         return self.myosin_self_energy()  + self.actin_myosin_energy() + self.actin_alpha_energy()
@@ -63,7 +64,7 @@ class SarcomereModel():
     
     def actin_myosin_energy(self):
         segments = self.actin.filament_length*np.array([np.cos(self.actin.thetas), np.sin(self.actin.thetas)]).T
-        actin_endpts = np.concat([self.actin.xs + 0.5*segments, self.actin.xs - 0.5*segments], axis=0)
+        actin_endpts = np.concatenate([self.actin.xs + 0.5*segments, self.actin.xs - 0.5*segments], axis=0)
         n_bundles = self.myosin.n_bundles
         energy = 0.0
         for i in range(n_bundles):
@@ -88,9 +89,9 @@ class SarcomereModel():
             for j in range(n_filaments):
                 # compute distance between crosslink and actin filament
                 thetas = self.actin.thetas[j]
-                actin_endpt = self.actin.xs[j] + 0.5 * la * np.array([np.cos(thetas[j]), np.sin(thetas[j])])
+                actin_endpt = self.actin.xs[j] + 0.5 * la * np.array([np.cos(thetas), np.sin(thetas)])
                 x_alpha = crosslink - actin_endpt
-                x_actin = -la * np.array([np.cos(thetas[j]), np.sin(thetas[j])])
+                x_actin = -la * np.array([np.cos(thetas), np.sin(thetas)])
                 dx = x_alpha - x_actin
             
                 # check if crosslink is between the two ends of the actin filament
@@ -101,7 +102,9 @@ class SarcomereModel():
                         pass
                     
         return energy
-        
+
+    #def actin_myosin_force(self):
+
 
     def run_simulation(self, dt, D, n_steps, frame_dir="frames", make_animation=False):
         import os
@@ -122,33 +125,34 @@ class SarcomereModel():
     # TODO: use stokes einstein equation to compute diffusion coefficient for each component
     def mala_step(self, dt, D):
         # update actin filaments
-        xs_new = self.actin.xs + np.sqrt(2*D*dt)*np.random.randn(self.actin.n_filaments, 2)
-        thetas_new = self.actin.thetas + np.sqrt(2*D*dt)*np.random.randn(self.actin.n_filaments)
-        delta_energy = 0. #self.compute_energy(xs_new, thetas_new) - self.energy
+        xs_old = self.actin.xs.copy()
+        thetas_old = self.actin.thetas.copy()
+        self.actin.xs = self.pbc(self.actin.xs + np.sqrt(2*D*dt)*np.random.randn(self.actin.n_filaments, 2))
+        self.actin.thetas += np.sqrt(2*D*dt)*np.random.randn(self.actin.n_filaments)
+        delta_energy = self.compute_energy() - self.energy
         if np.random.rand() < np.exp(-delta_energy):
-            self.actin.xs = self.pbc(xs_new)
-            self.actin.thetas = thetas_new
-            self.actin.energy = self.compute_energy()
+            self.energy+=delta_energy
         else:
-            pass
+            self.actin.xs = xs_old
+            self.actin.thetas = thetas_old
 
         # update myosin bundles
-        xs_new = self.myosin.xs + np.sqrt(2*D*dt)*np.random.randn(self.myosin.n_bundles, 2)
-        delta_energy =  0. #self.compute_energy(xs_new) - self.energy
+        xs_old = self.myosin.xs.copy()
+        self.myosin.xs = self.pbc(self.myosin.xs + np.sqrt(2*D*dt)*np.random.randn(self.myosin.n_bundles, 2))
+        delta_energy = self.compute_energy() - self.energy
         if np.random.rand() < np.exp(-delta_energy):
-            self.myosin.xs = self.pbc(xs_new)
-            self.myosin.energy = self.compute_energy()
+            self.energy += delta_energy
         else:
-            pass
+            self.myosin.xs = xs_old
 
         # update alpha-actinin
-        xs_new = self.alpha_actinin.xs + np.sqrt(2*D*dt)*np.random.randn(self.alpha_actinin.n_crosslinks, 2)
-        delta_energy = 0. #self.compute_energy(xs_new) - self.energy
+        xs_old = self.alpha_actinin.xs.copy()
+        self.alpha_actinin.xs = self.pbc(self.alpha_actinin.xs + np.sqrt(2*D*dt)*np.random.randn(self.alpha_actinin.n_crosslinks, 2))
+        delta_energy = self.compute_energy() - self.energy
         if np.random.rand() < np.exp(-delta_energy):
-            self.alpha_actinin.xs = self.pbc(xs_new)
-            self.alpha_actinin.energy = self.compute_energy()
+            self.energy += delta_energy
         else:
-            pass
+            self.alpha_actinin.xs = xs_old
 
     def pbc(self, xs):
         xs[:,0] = xs[:,0] + self.Lx * (xs[:,0] < 0) - self.Lx * (xs[:,0] >= self.Lx)
