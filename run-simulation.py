@@ -2,28 +2,37 @@ import actin_gpu as actin
 import matplotlib.pyplot as plt
 import torch
 import numpy as np
+import argparse
+
+def parse():
+    argparser = argparse.ArgumentParser()
+    argparser.add_argument("--n_filaments", type=int, default=100)
+    argparser.add_argument("--n_bundles", type=int, default=10)
+    argparser.add_argument("--n_crosslinks", type=int, default=50)
+    argparser.add_argument("--boxL", type=float, default=30.)
+    argparser.add_argument("--n_steps", type=int, default=100000)
+    argparser.add_argument("--dt", type=float, default=1e-3)
+    argparser.add_argument("--D", type=float, default=1.)
+    argparser.add_argument("--frame_dir", type=str, default="frames")
+    argparser.add_argument("--seed", type=int, default=42)
+    argparser.add_argument("--resume", action="store_true")
+    return argparser.parse_args()
+
 if __name__ == "__main__":
-
-    # n_filaments = 100
-    # n_bundles = 10
-    # n_crosslinks = 50
-    # boxL = 30.
-
-    # n_filaments = 10
-    # n_bundles = 2
-    # n_crosslinks = 5
-    # boxL = 10.
-
-    n_filaments = 20
-    n_bundles = 4
-    n_crosslinks = 10
-    boxL = 15
-    #fix random seed
-    torch.manual_seed(42)
+    args = parse()
+    n_filaments = args.n_filaments
+    n_bundles = args.n_bundles
+    n_crosslinks = args.n_crosslinks
+    n_steps = args.n_steps
+    boxL = args.boxL
+    seed = args.seed   
+    dt = args.dt     
+    D = args.D
+    frame_dir = args.frame_dir
+    torch.manual_seed(seed)
     sarcomere = actin.SarcomereModel(n_filaments, n_bundles, n_crosslinks, boxL, boxL)
-    traj = np.load("frames_medium/trajectory.npy",allow_pickle=True).item()
-    # #access the 'myosin' key in the dictionary traj
-    sarcomere.load_traj(traj)
-    #sarcomere.run_simulation(1e-3, 1., 100000, make_animation=True, frame_dir="frames_small")
-    sarcomere.run_simulation(1e-3, 1., 200000, make_animation=True, frame_dir="frames_medium")
-    #sarcomere.run_simulation(1e-3, 1., 200000, make_animation=True, frame_dir="frames")
+    if args.resume:
+        traj = np.load("{}/trajectory.npy".format(frame_dir),allow_pickle=True).item()
+        sarcomere.load_traj(traj)
+
+    sarcomere.run_simulation(dt, D, n_steps, make_animation=True, frame_dir=frame_dir)

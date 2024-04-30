@@ -61,7 +61,7 @@ class MyosinBundle():
         self.radius = radius
 
 class AlphaActinin():
-    def __init__(self, n_crosslinks, Lx, Ly, radius=0.3, device="cuda"):
+    def __init__(self, n_crosslinks, Lx, Ly, radius=0.2, device="cuda"):
         self.n_crosslinks = n_crosslinks
         self.Lx = Lx  
         self.Ly = Ly
@@ -72,16 +72,19 @@ class AlphaActinin():
 
 
 class SarcomereModel():
-    def __init__(self, n_filaments, n_bundles, n_crosslinks, Lx, Ly, device="cuda"):
-        self.actin = Filaments(n_filaments, Lx, Ly, device=device)
-        self.myosin = MyosinBundle(n_bundles, Lx, Ly, device=device)
-        self.alpha_actinin = AlphaActinin(n_crosslinks, Lx, Ly, device=device)
+    def __init__(self, n_filaments, n_bundles, n_crosslinks, Lx, Ly,
+                 e_am = -10.0, e_al = -5.0, f_myosin = 1.0,
+                 len_actin = 3.0, r_myosin = 1.0, r_alpha_actinin = 0.2,
+                  device="cuda"):
+        self.actin = Filaments(n_filaments, Lx, Ly, length=len_actin,device=device )
+        self.myosin = MyosinBundle(n_bundles, Lx, Ly,radius=r_myosin, device=device)
+        self.alpha_actinin = AlphaActinin(n_crosslinks, Lx, Ly,radius=r_alpha_actinin, device=device)
         self.Lx = Lx
         self.Ly = Ly
         self.box = torch.tensor([Lx, Ly]).to(device)
-        self.e_am = -10.0
-        self.e_al = -5.0
-        self.f_myosin = 1.0
+        self.e_am = e_am
+        self.e_al = e_al
+        self.f_myosin = f_myosin
         #self.sarcomeric_structure()
         self.energy = self.compute_energy()
         self.trajectory = None
@@ -89,35 +92,6 @@ class SarcomereModel():
         print("number of actin filaments: ", self.actin.n_filaments)
         print("number of myosin bundles: ", self.myosin.n_bundles)
         print("number of alpha-actinin crosslinks: ", self.alpha_actinin.n_crosslinks)
-    
-    def sarcomeric_structure(self):
-        radius = self.myosin.radius*0.8
-        unit_length = 2*(radius+self.actin.filament_length)
-        n_cols = self.Lx//unit_length
-        n_rows = self.myosin.n_bundles//n_cols
-        self.myosin.n_bundles = int(n_cols*n_rows)
-        x_coord = 0.5*unit_length+unit_length*torch.arange(n_cols).to(self.myosin.xs.device)
-        
-        am_dist = radius + self.actin.filament_length/2
-        actin_x_coord = torch.cat([x_coord + am_dist, x_coord - am_dist], axis=-1)
-        n_actin_rows = self.actin.n_filaments//(n_cols*2)
-        n_filaments_per_bundle = int(n_actin_rows//n_rows)
-        self.actin.n_filaments = int(n_filaments_per_bundle*2*self.myosin.n_bundles)
-
-        y_coord = self.Ly/n_rows*(torch.arange(n_rows).to(self.myosin.xs.device)+0.5)
-        
-        self.myosin.xs = torch.meshgrid(x_coord,y_coord)
-        self.myosin.xs = torch.stack(self.myosin.xs, axis=-1).reshape(-1,2) 
-        #introduce offset to every other column
-        self.myosin.xs[1::2,1] += radius/n_filaments_per_bundle
-        
-        actin_y_coord = y_coord[:,None] + radius*torch.linspace(-0.5,0.5,n_filaments_per_bundle)[None,:].to(self.myosin.xs.device)
-        actin_y_coord = actin_y_coord.flatten()
-        self.actin.xs = torch.stack(torch.meshgrid(actin_x_coord, actin_y_coord), axis=-1).reshape(-1,2)
-        self.actin.thetas = torch.zeros(self.actin.xs.shape[-2]).to(self.myosin.xs.device)
-        alpha_x_coord = x_coord + unit_length/2
-        self.alpha_actinin.xs = torch.stack(torch.meshgrid(alpha_x_coord, actin_y_coord), axis=-1).reshape(-1,2)
-        self.alpha_actinin.n_crosslinks = self.alpha_actinin.xs.shape[-2]
 
     def load_traj(self,traj):
         for key in traj.keys():
@@ -138,8 +112,8 @@ class SarcomereModel():
         distances = pairwise_distances(self.myosin.xs,box=self.box,remove_diag=True)
         energy = 100 * (distances<2*self.myosin.radius).sum()
         #aa-aa repulsion
-        # distances = pairwise_distances(self.alpha_actinin.xs,box=self.box,remove_diag=True)
-        # energy += 100 * (distances<self.alpha_actinin.radius).sum()
+        distances = pairwise_distances(self.alpha_actinin.xs,box=self.box,remove_diag=True)
+        energy += 10 * (distances<0.3*self.alpha_actinin.radius).sum()
         #aa-myosin repulsion
         distances = pairwise_distances(self.myosin.xs,self.alpha_actinin.xs,box=self.box)
         energy += 100 * (distances<self.myosin.radius+self.alpha_actinin.radius).sum()
@@ -176,6 +150,7 @@ class SarcomereModel():
         orientation = torch.stack([torch.cos(thetas), torch.sin(thetas)], axis=-1)
         orientation = orientation.unsqueeze(-3)
         force = self.f_myosin * mask.float().unsqueeze(-1) * orientation
+        #force_on_actin = -force.sum(dim=-3)   
         force = force.sum(dim=-2)
         return force
 
@@ -218,6 +193,7 @@ class SarcomereModel():
                 plt.close(fig)
                 if i>0:
                     acc_rate = acc/save_every
+                    print("Step: ", i)
                     print("Acceptance rate: ", acc_rate)
                     print("Step size: ", dt)
                     print("Energy: ", self.energy)
@@ -226,15 +202,14 @@ class SarcomereModel():
                         dt = dt*acc_rate/0.2
                     elif acc_rate > 0.6:
                         dt = dt*acc_rate/0.6
-
-        print("Energy: ")
-        print(self.energy)
-        # save frames as an animation
-        if make_animation:
-            os.system("ffmpeg -r 10 -i "+file_format+" -vcodec mpeg4 -y movie.mp4".format(frame_dir))
         for key in traj:
             traj[key] = torch.stack(traj[key], axis=0).cpu().numpy()
+        print("Saving trajectory...")
         np.save(frame_dir+"/trajectory.npy", traj)
+        # save frames as an animation
+        if make_animation:
+            os.system("ffmpeg -r 10 -i {}/frame_{%0".format(frame_dir)+str(n_digits)+"d}.png -vcodec mpeg4 -y movie.mp4")
+        
 
     # TODO: use stokes einstein equation to compute diffusion coefficient for each component
     def mala_step(self, dt, D):
