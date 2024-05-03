@@ -199,7 +199,7 @@ class SarcomereModel():
                     print("Energy: ", self.energy)
                     acc = 0
                     if acc_rate < 0.2:
-                        dt = dt*acc_rate/0.2
+                        dt = dt*max(acc_rate/0.2,0.1)
                     elif acc_rate > 0.6:
                         dt = dt*acc_rate/0.6
         for key in traj:
