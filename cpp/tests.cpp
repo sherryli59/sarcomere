@@ -1,0 +1,44 @@
+//write an example google test
+#include "gtest/gtest.h"
+#include "include/mc.h"
+#include "include/utils.h"
+
+// TEST(MC, Constructor){
+//     double dt = 0.01;
+//     double beta = 1;
+//     double D = 0.1;
+//     int update_dt_every = 100;
+//     int save_every = 1000;
+//     bool resume = false;
+//     Sarcomere model;
+//     MC mc(model, beta, dt, D, update_dt_every, save_every, resume);
+//     EXPECT_EQ(mc.dt, dt);
+//     EXPECT_EQ(mc.beta, beta);
+//     EXPECT_EQ(mc.D, D);
+//     EXPECT_EQ(mc.update_dt_every, update_dt_every);
+//     EXPECT_EQ(mc.save_every, save_every);
+//     EXPECT_EQ(mc.acc_rate, 0);
+// }
+
+
+TEST(UTILS, point_segment_distance)
+{
+    using namespace utils;
+    double p[2] = {0.193261 -1.670936};
+    double p1[2] = {-6,-0.5};
+    double p2[2] = {-3,0.5};
+    double box[2] = {10,4};
+    double d1 = point_segment_distance(p, p1, p2, box);
+    double d = point_segment_distance_new(p, p1, p2, box);
+    // distance should be smaller than 1  
+    printf("Distance: %f\n", d1);  
+    EXPECT_EQ(d1, d);
+    EXPECT_LT(d, 0.7);
+
+}
+
+int main(int argc, char **argv)
+{
+    testing::InitGoogleTest(&argc, argv);
+    return RUN_ALL_TESTS();
+}
