@@ -2,6 +2,8 @@
 #include "gtest/gtest.h"
 #include "include/mc.h"
 #include "include/utils.h"
+#include <vector>
+
 
 // TEST(MC, Constructor){
 //     double dt = 0.01;
@@ -27,7 +29,7 @@ TEST(UTILS, point_segment_distance)
     double p[2] = {0.193261 -1.670936};
     double p1[2] = {-6,-0.5};
     double p2[2] = {-3,0.5};
-    double box[2] = {10,4};
+    std::vector<double> box = {10,10};
     double d1 = point_segment_distance(p, p1, p2, box);
     double d = point_segment_distance_new(p, p1, p2, box);
     // distance should be smaller than 1  

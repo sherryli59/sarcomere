@@ -1,6 +1,7 @@
 #ifndef UTILS_H
 #define UTILS_H
 #include <cmath>
+#include <vector>
 
 namespace utils {
 
@@ -12,7 +13,7 @@ double norm(double * x, int dim){
     return sqrt(norm);
 }
 
-void pbc_wrap(double * x, double * box){
+void pbc_wrap(double * x, std::vector <double> box){
     x[0] = x[0] - box[0]*round(x[0]/box[0]);
     x[1] = x[1] - box[1]*round(x[1]/box[1]);
 }
@@ -21,7 +22,7 @@ void angle_wrap(double& theta){
     theta = theta - 2*M_PI*round(theta/(2*M_PI));
 }
 
-double point_point_distance(double * x, double * y, double * box){
+double point_point_distance(double * x, double * y, std::vector <double> box){
     double r[2];
     r[0] = x[0] - y[0];
     r[1] = x[1] - y[1];
@@ -29,7 +30,7 @@ double point_point_distance(double * x, double * y, double * box){
     return norm(r, 2);
 }
 
-double point_segment_distance(double * x, double * a, double * b, double * box){
+double point_segment_distance(double * x, double * a, double * b, std::vector <double> box){
     // compute the shortest distance between a point x and a segment ab
     double ab[2];
     ab[0] = b[0] - a[0];
@@ -55,7 +56,7 @@ double distance(double* p1, double* p2) {
 }
 
 // Function to calculate the distance between a point and a line segment 
-double point_segment_distance_new(double* p, double* p1, double* p2, double* box) {
+double point_segment_distance_new(double* p, double* p1, double* p2, std::vector <double> box) {
     double l2 = (p2[0] - p1[0]) * (p2[0] - p1[0]) + (p2[1] - p1[1]) * (p2[1] - p1[1]);
     if (l2 == 0) return distance(p, p1);  // Segment is actually a point
     double t = ((p[0] - p1[0]) * (p2[0] - p1[0]) + (p[1] - p1[1]) * (p2[1] - p1[1])) / l2;
@@ -77,7 +78,7 @@ int orientation(double * p, double * q, double * r){
     }
 }
 
-double segment_segment_distance(double * a, double * b, double * c, double * d, double * box){
+double segment_segment_distance(double * a, double * b, double * c, double * d, std::vector <double> box){
     double a_cd = point_segment_distance(a, c, d, box);
     double b_cd = point_segment_distance(b, c, d, box);
     double c_ab = point_segment_distance(c, a, b, box);

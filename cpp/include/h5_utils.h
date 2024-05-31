@@ -41,7 +41,6 @@ void create_empty_dataset(H5::H5File& file, const std::string& groupName,
         // Create the dataset.
         H5::FloatType datatype(H5::PredType::IEEE_F64LE);
         H5::DataSet dataset = group.createDataSet(datasetName, datatype, dataspace, prop);
-        std::cout << "Empty n-dimensional dataset created successfully: " << datasetName << std::endl;
     } catch (H5::FileIException& error) {
         error.printErrorStack();
         std::cerr << "Error creating empty dataset: " << datasetName << std::endl;

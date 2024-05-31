@@ -6,6 +6,7 @@
 #endif
 
 #include <cmath>
+#include <vector>
 #include <iostream>
 #include <gsl/gsl_rng.h>
 #include <gsl/gsl_randist.h>
@@ -15,13 +16,13 @@ class Filament
 {
     public:
         int n;
-        double * box;
+        std::vector <double> box;
         double length;
         double ** xs;
         double * thetas;
         double ** left_endpts;
         double ** right_endpts;
-        double ** force;
+        double ** forces;
 
         Filament(){
             n = 0;
@@ -30,12 +31,12 @@ class Filament
             thetas = NULL;
 
         }
-        Filament(int n0, double length0, double* box0, gsl_rng * rng){
+        Filament(int n0, double length0, std::vector <double> box0, gsl_rng * rng){
             n = n0;
             length = length0;
             xs = new double*[n];
             thetas = new double[n];
-            force = new double*[n];
+            forces = new double*[n];
             left_endpts = new double*[n];
             right_endpts = new double*[n];
             box = box0;
@@ -46,9 +47,9 @@ class Filament
                 thetas[i] = gsl_ran_flat(rng, 0, 2*M_PI);
                 left_endpts[i] = new double[2];
                 right_endpts[i] = new double[2];
-                force[i] = new double[2];
-                force[i][0] = 0;
-                force[i][1] = 0;
+                forces[i] = new double[2];
+                forces[i][0] = 0;
+                forces[i][1] = 0;
             }
             update_endpoints();
         }
@@ -56,7 +57,7 @@ class Filament
         virtual ~Filament(){
             for (int i = 0; i < n; i++){
                 delete[] xs[i];
-                delete[] force[i];
+                delete[] forces[i];
                 delete[] left_endpts[i];
                 delete[] right_endpts[i];
 
@@ -75,9 +76,9 @@ class Filament
                 xs[i][0] = other.xs[i][0];
                 xs[i][1] = other.xs[i][1];
                 thetas[i] = other.thetas[i];
-                force[i] = new double[2];
-                force[i][0] = other.force[i][0];
-                force[i][1] = other.force[i][1];
+                forces[i] = new double[2];
+                forces[i][0] = other.forces[i][0];
+                forces[i][1] = other.forces[i][1];
             }
         }
 
@@ -98,14 +99,13 @@ class Filament
         }
 
         void update_endpoints_i(int& i){
-            double * segments = new double[2];
+            std::vector <double> segments(2);
             segments[0] = length*cos(thetas[i]);
             segments[1] = length*sin(thetas[i]);
             left_endpts[i][0] = xs[i][0] - 0.5*segments[0];
             left_endpts[i][1] = xs[i][1] - 0.5*segments[1];
             right_endpts[i][0] = xs[i][0] + 0.5*segments[0];
             right_endpts[i][1] = xs[i][1] + 0.5*segments[1];
-            delete[] segments;
         }
         
         void update_endpoints(){
@@ -138,7 +138,7 @@ class Myosin: public Filament
             Filament();
         }
 
-        Myosin(int n0, double length0, double radius0,  double* box0, gsl_rng * rng):
+        Myosin(int n0, double length0, double radius0,  std::vector <double> box0, gsl_rng * rng):
             Filament(n0, length0, box0,  rng)
             {
                 radius = radius0;
@@ -183,13 +183,13 @@ class AlphaActinin
         int n;
         double radius;
         double ** xs;
-        double * box;
+        std::vector <double> box;
         AlphaActinin(){
             n = 0;
             radius = 0;
             xs = NULL;
         }
-        AlphaActinin(int& n0, double& radius0, double * box0, gsl_rng * rng){
+        AlphaActinin(int& n0, double& radius0, std::vector <double> box0, gsl_rng * rng){
             n = n0;
             radius = radius0;
             xs = new double*[n];

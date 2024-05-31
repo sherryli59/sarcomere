@@ -67,7 +67,7 @@ class MC{
             double acc = 0;
             for (int i=0; i<nsteps; i++){
                 acc+=sample_step(dt, D, rng);
-                if (i>0 && i%update_dt_every==0){
+                if (i>0 && update_dt_every>0 && i%update_dt_every==0){
                     acc_rate = acc/update_dt_every;
                     adjust_stepsize();
                     acc = 0;
@@ -76,15 +76,14 @@ class MC{
                     std::cout << "Step " << i << " Acceptance rate: " << acc_rate
                     << "Energy: "<<model.total_energy <<"Stepsize"<<dt<< std::endl;
                     model.save_state();
-                    
-                    //check if total energy is correct
-                    double total_energy2 = model.get_energy();
-                    if (abs(total_energy2-model.total_energy)>1e-6){
-                        std::cout << "Total energy is not correct" << std::endl;
-                        std::cout << "Total energy: " << model.total_energy << " Total energy2: " << total_energy2 << std::endl;
-                        exit(1);
-            }
                 }
+            }
+            //check if total energy is correct
+            double total_energy2 = model.get_energy();
+            if (abs(total_energy2-model.total_energy)>1e-6){
+                std::cout << "Total energy is not correct" << std::endl;
+                std::cout << "Total energy: " << model.total_energy << " Total energy2: " << total_energy2 << std::endl;
+                exit(1);
             }
         }
         double sample_step(double& dt, double& D, gsl_rng * rng){
@@ -95,22 +94,23 @@ class MC{
             for (int i=0; i<8; i++)
                 randn[i]=gsl_rng_uniform(rng)*2-1;
             double acc_rand[3];
-            // generate random number from 0 to 1
             for (int i=0; i<3; i++)
                 acc_rand[i]=gsl_rng_uniform(rng);
-            // update actin
+            // update acztin
             int actin_index = gsl_rng_uniform_int(rng, model.actin.n);
             double dx = randn[0]*noise_mag;
             double dy = randn[1]*noise_mag;
             double dtheta = randn[2]*M_PI*noise_mag;
             double delta_energy = 0;
-            model.displace_actin(actin_index, dx, dy, dtheta, delta_energy);
-            double p_accept = exp(-beta*delta_energy);
+            std::vector <double> force(2);
+            model.displace_actin(actin_index, dx, dy, dtheta, delta_energy, force);
+            double work = force[0]*dx + force[1]*dy;
+            double p_accept = exp(-beta*(delta_energy-work));
             if (acc_rand[0]<p_accept){
                 acc+=1;
             }
             else{
-                model.displace_actin(actin_index, -dx, -dy, -dtheta, delta_energy);
+                model.displace_actin(actin_index, -dx, -dy, -dtheta, delta_energy, force);
             }
             // update myosin
             int myosin_index = gsl_rng_uniform_int(rng, model.myosin.n);
@@ -148,11 +148,10 @@ class MC{
             else if (acc_rate<0.33){
                 dt*=acc_rate/0.33;
             }
-            // else if (acc_rate>0.55){
-            //     dt*=acc_rate/0.55;
-            // }			
-        }
-        
+            else if (acc_rate>0.55){
+                dt*=acc_rate/0.55;
+            }			
+        }    
 };
 
 #endif
