@@ -23,8 +23,8 @@ int main(int argc, char* argv[]){
     int n_actins = 50;
     int n_myosins = 4;
     int n_alpha_actinins = 50;
-    double Lx0 = 10;
-    double Ly0 = 10;
+    double Lx = 10;
+    double Ly = 10;
     double actin_length = 3;
     double myosin_length = 3;
     double myosin_radius = 0.5;
@@ -51,8 +51,8 @@ int main(int argc, char* argv[]){
             ("n_actins", "Number of actins", cxxopts::value<int>(n_actins)->default_value("50"))
             ("n_myosins", "Number of myosins", cxxopts::value<int>(n_myosins)->default_value("4"))
             ("n_alpha_actinins", "Number of alpha actinins", cxxopts::value<int>(n_alpha_actinins)->default_value("50"))
-            ("Lx0", "Lx0", cxxopts::value<double>(Lx0)->default_value("10.0"))
-            ("Ly0", "Ly0", cxxopts::value<double>(Ly0)->default_value("10.0"))
+            ("Lx", "Lx", cxxopts::value<double>(Lx)->default_value("10.0"))
+            ("Ly", "Ly", cxxopts::value<double>(Ly)->default_value("10.0"))
             ("actin_length", "Actin length", cxxopts::value<double>(actin_length)->default_value("3.0"))
             ("myosin_length", "Myosin length", cxxopts::value<double>(myosin_length)->default_value("3.0"))
             ("myosin_radius", "Myosin radius", cxxopts::value<double>(myosin_radius)->default_value("0.5"))
@@ -77,8 +77,8 @@ int main(int argc, char* argv[]){
     gsl_rng * rng = gsl_rng_alloc(gsl_rng_mt19937);
     gsl_rng_set(rng,seed);
     std::vector <double> box(2);
-    box[0] = Lx0;
-    box[1] = Ly0;
+    box[0] = Lx;
+    box[1] = Ly;
     //Filament actin(n_actins, actin_length, box, rng);
 
     Sarcomere model(n_actins, n_myosins, n_alpha_actinins, box,

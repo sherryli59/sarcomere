@@ -86,7 +86,7 @@ class MC{
                 exit(1);
             }
         }
-        double sample_step(double& dt, double& D, gsl_rng * rng){
+        double sample_step(double& dt, double& D, gsl_rng * rng, bool update_model=true){
             double acc = 0;
             double noise_mag = sqrt(2*D*dt);
             // gnerate random number from -1 to 1
@@ -96,7 +96,7 @@ class MC{
             double acc_rand[3];
             for (int i=0; i<3; i++)
                 acc_rand[i]=gsl_rng_uniform(rng);
-            // update acztin
+            // update actin
             int actin_index = gsl_rng_uniform_int(rng, model.actin.n);
             double dx = randn[0]*noise_mag;
             double dy = randn[1]*noise_mag;
@@ -114,9 +114,9 @@ class MC{
             }
             // update myosin
             int myosin_index = gsl_rng_uniform_int(rng, model.myosin.n);
-            dx = randn[3]*noise_mag;
-            dy = randn[4]*noise_mag;
-            dtheta = randn[5]*M_PI*noise_mag;
+            dx = randn[3]*noise_mag/10;
+            dy = randn[4]*noise_mag/10;
+            dtheta = randn[5]*M_PI*noise_mag/10;
             delta_energy = 0;
             model.displace_myosin(myosin_index, dx, dy, dtheta, delta_energy);
             p_accept = exp(-beta*delta_energy);

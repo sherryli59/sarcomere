@@ -1,1 +1,1 @@
-build/sarcomere --e_catch_bond=0 --n_actins=1 --n_myosins=1 --n_alpha_actinins=1 --update_dt_every=0 --save_every=10 --nsteps=10000
+build/sarcomere --e_catch_bond=-2 --f_myosin=5 --n_actins=10 --n_myosins=2 --n_alpha_actinins=10 --update_dt_every=0 --save_every=500 --nsteps=1000000

@@ -15,7 +15,7 @@ include_directories(${GTEST_INCLUDE_DIRS})
 
 
 # Set compiler flags for debugging symbols
-set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -g")
+set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -O3")
 
 
 

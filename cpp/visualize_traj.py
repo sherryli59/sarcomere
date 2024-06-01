@@ -20,15 +20,39 @@ def plot_filaments(xs,thetas,l,Lx,Ly,ax,color='k'):
         if x+delta_x>Lx/2:
             ax.arrow(x-delta_x-Lx, y-delta_y, delta_x, delta_y,
                         head_width=0.1, head_length=0.1, fc=color, ec=color)
+            if y+delta_y>Ly/2:
+                ax.arrow(x-delta_x-Lx, y-delta_y-Ly, delta_x, delta_y,
+                            head_width=0.1, head_length=0.1, fc=color, ec=color)
+            elif y-delta_y<-Ly/2:
+                ax.arrow(x-delta_x-Lx, y-delta_y+Ly, delta_x, delta_y,
+                            head_width=0.1, head_length=0.1, fc=color, ec=color)
         elif x-delta_x<-Lx/2:
             ax.arrow(x-delta_x+Lx, y-delta_y, delta_x, delta_y,
                         head_width=0.1, head_length=0.1, fc=color, ec=color)
+            if y+delta_y>Ly/2:
+                ax.arrow(x-delta_x+Lx, y-delta_y-Ly, delta_x, delta_y,
+                            head_width=0.1, head_length=0.1, fc=color, ec=color)
+            elif y-delta_y<-Ly/2:
+                ax.arrow(x-delta_x+Lx, y-delta_y+Ly, delta_x, delta_y,
+                            head_width=0.1, head_length=0.1, fc=color, ec=color)    
         if y+delta_y>Ly/2:
             ax.arrow(x-delta_x, y-delta_y-Ly, delta_x, delta_y,
                         head_width=0.1, head_length=0.1, fc=color, ec=color)
+            if x+delta_x>Lx/2:
+                ax.arrow(x-delta_x-Lx, y-delta_y-Ly, delta_x, delta_y,
+                            head_width=0.1, head_length=0.1, fc=color, ec=color)
+            elif x-delta_x<-Lx/2:
+                ax.arrow(x-delta_x+Lx, y-delta_y-Ly, delta_x, delta_y,
+                            head_width=0.1, head_length=0.1, fc=color, ec=color)
         elif y-delta_y<-Ly/2:
             ax.arrow(x-delta_x, y-delta_y+Ly, delta_x, delta_y,
                         head_width=0.1, head_length=0.1, fc=color, ec=color)
+            if x+delta_x>Lx/2:
+                ax.arrow(x-delta_x-Lx, y-delta_y+Ly, delta_x, delta_y,
+                            head_width=0.1, head_length=0.1, fc=color, ec=color)
+            elif x-delta_x<-Lx/2:
+                ax.arrow(x-delta_x+Lx, y-delta_y+Ly, delta_x, delta_y,
+                            head_width=0.1, head_length=0.1, fc=color, ec=color)
 
 def plot_myosin(xs,thetas,l,Lx,Ly,radius,ax,color='k'):
     for i in range(xs.shape[0]):
@@ -37,19 +61,17 @@ def plot_myosin(xs,thetas,l,Lx,Ly,radius,ax,color='k'):
         theta = thetas[i,0]
         delta_x = l/2 * np.cos(theta) - radius * np.sin(theta)
         delta_y = l/2 * np.sin(theta) + radius * np.cos(theta)
-        #draw a dot at x,y
-        ax.plot(x,y,'o',color='k')
         #plot a rectangle to represent the myosin
         ax.add_patch(Rectangle((x-delta_x,y-delta_y),width=l,height=2*radius,angle=theta*180/math.pi,fill=True,facecolor=color,alpha=0.5))
         #plot the periodic images
-        if x+delta_x>Lx:
-            ax.add_patch(Rectangle((x-delta_x-Lx,y-delta_y),width=l,height=2*radius,angle=theta*180/math.pi,fill=True,facecolor=color,alpha=0.5))
-        elif x-delta_x<0:
-            ax.add_patch(Rectangle((x-delta_x+Lx,y-delta_y),width=l,height=2*radius,angle=theta*180/math.pi,fill=True,facecolor=color,alpha=0.5))
-        if y+delta_y>Ly:
-            ax.add_patch(Rectangle((x-delta_x,y-delta_y-Ly),width=l,height=2*radius,angle=theta*180/math.pi,fill=True,facecolor=color,alpha=0.5))
-        elif y-delta_y<0:
-            ax.add_patch(Rectangle((x-delta_x,y-delta_y+Ly),width=l,height=2*radius,angle=theta*180/math.pi,fill=True,facecolor=color,alpha=0.5))
+        ax.add_patch(Rectangle((x-delta_x-Lx,y-delta_y),width=l,height=2*radius,angle=theta*180/math.pi,fill=True,facecolor=color,alpha=0.5))
+        ax.add_patch(Rectangle((x-delta_x+Lx,y-delta_y),width=l,height=2*radius,angle=theta*180/math.pi,fill=True,facecolor=color,alpha=0.5))
+        ax.add_patch(Rectangle((x-delta_x,y-delta_y-Ly),width=l,height=2*radius,angle=theta*180/math.pi,fill=True,facecolor=color,alpha=0.5))
+        ax.add_patch(Rectangle((x-delta_x,y-delta_y+Ly),width=l,height=2*radius,angle=theta*180/math.pi,fill=True,facecolor=color,alpha=0.5))
+        ax.add_patch(Rectangle((x-delta_x-Lx,y-delta_y-Ly),width=l,height=2*radius,angle=theta*180/math.pi,fill=True,facecolor=color,alpha=0.5))
+        ax.add_patch(Rectangle((x-delta_x+Lx,y-delta_y-Ly),width=l,height=2*radius,angle=theta*180/math.pi,fill=True,facecolor=color,alpha=0.5))
+        ax.add_patch(Rectangle((x-delta_x-Lx,y-delta_y+Ly),width=l,height=2*radius,angle=theta*180/math.pi,fill=True,facecolor=color,alpha=0.5))
+        ax.add_patch(Rectangle((x-delta_x+Lx,y-delta_y+Ly),width=l,height=2*radius,angle=theta*180/math.pi,fill=True,facecolor=color,alpha=0.5))
 
 def plot_system(frame,data,myosin_radius,alpha_actinin_radius,actin_length,myosin_length, Lx,Ly):
 
@@ -73,7 +95,7 @@ def plot_system(frame,data,myosin_radius,alpha_actinin_radius,actin_length,myosi
 
 def plot(ind, nframes, nworkers,**kwargs):
     frame_start = int(ind*(nframes-1)/nworkers)
-    frame_end = int((ind+1)*(nframes-1)/nworkers)     
+    frame_end = max(int((ind+1)*(nframes-1)/nworkers),1)
     for frame in range(frame_start,frame_end):
         fig, ax = plot_system(frame=frame,**kwargs)
         plt.savefig(file_format.format(frame_dir,frame))
@@ -93,7 +115,7 @@ def hdf5_to_dict(hdf5_file):
     return data_dict
 
 if __name__ == "__main__":
-    filename = 'build/traj.h5'
+    filename = 'data/traj.h5'
     traj = h5py.File(filename, 'r')
     data = hdf5_to_dict(traj)
     energy = data["/energy/total_energy"]

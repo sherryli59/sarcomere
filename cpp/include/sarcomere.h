@@ -74,6 +74,7 @@ class Sarcomere
             this->filename = filename;
         }
         ~Sarcomere(){ 
+            printf("start destructor\n");
             for (int i = 0; i < actin.n; i++){
                 delete[] a_m_energy[i];
                 delete[] a_al_energy[i];
@@ -84,6 +85,7 @@ class Sarcomere
                 delete[] m_al_energy[i];
             }
             delete[] m_al_energy;
+            printf("Sarcomere destructor called\n");
         }
 
         Sarcomere(const Sarcomere& other){
