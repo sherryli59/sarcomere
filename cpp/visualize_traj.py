@@ -6,6 +6,7 @@ import math
 import joblib
 from joblib import Parallel, delayed
 import os
+import sys
 
 def plot_filaments(xs,thetas,l,Lx,Ly,ax,color='k'):
     for i in range(xs.shape[0]):
@@ -115,7 +116,11 @@ def hdf5_to_dict(hdf5_file):
     return data_dict
 
 if __name__ == "__main__":
-    filename = 'data/traj.h5'
+    #if a trajectory file is provided, use it
+    if len(sys.argv) > 1:
+        filename = sys.argv[1]
+    else:
+        filename = 'data/traj.h5'
     traj = h5py.File(filename, 'r')
     data = hdf5_to_dict(traj)
     energy = data["/energy/total_energy"]

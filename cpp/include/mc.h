@@ -23,12 +23,13 @@
 class MC{
     public: 
         double dt, beta, acc_rate, D;
-        int update_dt_every, save_every;
+        int update_myosin_every, update_dt_every, save_every;
         Sarcomere model;
         MC(){
             dt=0;
             beta=0;
             D=0;
+            update_myosin_every=0;
             update_dt_every=0;
             save_every=0;
             acc_rate=0;
@@ -39,6 +40,7 @@ class MC{
             model=model0;
             beta=beta0;
             D=D0;
+            update_myosin_every = 20;
             update_dt_every=update_dt_every0;
             save_every=save_every0;
             acc_rate=0;
@@ -66,7 +68,8 @@ class MC{
         void run_mc(int nsteps, gsl_rng * rng){
             double acc = 0;
             for (int i=0; i<nsteps; i++){
-                acc+=sample_step(dt, D, rng);
+                bool update_myosin = i%update_myosin_every==0;
+                acc+=sample_step(dt, D, rng, update_myosin);
                 if (i>0 && update_dt_every>0 && i%update_dt_every==0){
                     acc_rate = acc/update_dt_every;
                     adjust_stepsize();
@@ -86,7 +89,7 @@ class MC{
                 exit(1);
             }
         }
-        double sample_step(double& dt, double& D, gsl_rng * rng){
+        double sample_step(double& dt, double& D, gsl_rng * rng, bool& update_myosin){
             double acc = 0;
             double noise_mag = sqrt(2*D*dt);
             // gnerate random number from -1 to 1
@@ -112,19 +115,21 @@ class MC{
             else{
                 model.displace_actin(actin_index, -dx, -dy, -dtheta, delta_energy, force);
             }
-            // update myosin
-            int myosin_index = gsl_rng_uniform_int(rng, model.myosin.n);
-            dx = randn[3]*noise_mag;
-            dy = randn[4]*noise_mag;
-            dtheta = randn[5]*M_PI*noise_mag;
-            delta_energy = 0;
-            model.displace_myosin(myosin_index, dx, dy, dtheta, delta_energy);
-            p_accept = exp(-beta*delta_energy);
-            if (acc_rand[1]<p_accept){
-                acc+=1;
-            }
-            else{
-                model.displace_myosin(myosin_index, -dx, -dy, -dtheta, delta_energy);
+            if (update_myosin){
+                // update myosin
+                int myosin_index = gsl_rng_uniform_int(rng, model.myosin.n);
+                dx = randn[3]*noise_mag;
+                dy = randn[4]*noise_mag;
+                dtheta = randn[5]*M_PI*noise_mag;
+                delta_energy = 0;
+                model.displace_myosin(myosin_index, dx, dy, dtheta, delta_energy);
+                p_accept = exp(-beta*delta_energy);
+                if (acc_rand[1]<p_accept){
+                    acc+=1;
+                }
+                else{
+                    model.displace_myosin(myosin_index, -dx, -dy, -dtheta, delta_energy);
+                }
             }
             // update alpha_actinin
             int alpha_actinin_index = gsl_rng_uniform_int(rng, model.alpha_actinin.n);
