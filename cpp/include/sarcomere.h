@@ -217,7 +217,6 @@ class Sarcomere
                     double catch_bond_strength = 0;
                     for (int k=0; k<actin.n; k++){
                         if (k!=i){
-                            
                             if (abs(actin.forces[k][0])+abs(actin.forces[k][1])>0){
                                 //check if actin k is bound to alpha-actinin j
                                 double kj_distance = utils::point_segment_distance(alpha_actinin.xs[j], 
