@@ -1,1 +1,1 @@
-build/sarcomere --e_catch_bond=-2 --f_myosin=5 --n_actins=10 --n_myosins=2 --n_alpha_actinins=10 --update_dt_every=0 --save_every=500 --nsteps=1000000
+build/sarcomere --e_catch_bond=-5 --e_al=-0.2 --e_am=-0.3 --f_myosin=50 --n_actins=10 --n_myosins=2 --n_alpha_actinins=10 --update_dt_every=500 --Lx=6 --Ly=6 --beta=5 --save_every=500 --filename=data/traj.h5 --beta=2 --nsteps=1000000
