@@ -18,6 +18,10 @@ void pbc_wrap(double * x, std::vector <double> box){
     x[1] = x[1] - box[1]*round(x[1]/box[1]);
 }
 
+double pbc_wrap(double x, double box){
+    return x - box*round(x/box);
+}
+
 void angle_wrap(double& theta){
     theta = theta - 2*M_PI*round(theta/(2*M_PI));
 }
@@ -67,6 +71,18 @@ double point_segment_distance_new(double* p, double* p1, double* p2, std::vector
     return distance(p, new double[2]{projection_x, projection_y});
 }
 
+int orientation(double * p, double * q, double * r, std::vector <double> box){
+    
+    double val = pbc_wrap(q[1] - p[1],box[1]) * pbc_wrap(r[0] - q[0], box[0]) - pbc_wrap(q[0] - p[0],box[0]) * pbc_wrap(r[1] - q[1],box[1]);
+    if(val == 0){
+        return 0;
+    }else if(val > 0){
+        return 1;
+    }else{
+        return 2;
+    }
+}
+
 int orientation(double * p, double * q, double * r){
     double val = (q[1] - p[1]) * (r[0] - q[0]) - (q[0] - p[0]) * (r[1] - q[1]);
     if(val == 0){
@@ -78,17 +94,33 @@ int orientation(double * p, double * q, double * r){
     }
 }
 
+
 double segment_segment_distance(double * a, double * b, double * c, double * d, std::vector <double> box){
+    //segments are ab and cd
     double a_cd = point_segment_distance(a, c, d, box);
     double b_cd = point_segment_distance(b, c, d, box);
     double c_ab = point_segment_distance(c, a, b, box);
     double d_ab = point_segment_distance(d, a, b, box);
     double dist = fmin(fmin(a_cd, b_cd), fmin(c_ab, d_ab));
     // check if segments intersect
-    int o1 = orientation(a, c, b);
-    int o2 = orientation(a, c, d);
-    int o3 = orientation(b, d, a);
-    int o4 = orientation(b, d, c);
+    double ab_center[2];
+    ab_center[0] = (a[0] + b[0])/2;
+    ab_center[1] = (a[1] + b[1])/2;
+    double cd_center[2];
+    cd_center[0] = (c[0] + d[0])/2;
+    cd_center[1] = (c[1] + d[1])/2;
+    double displacement[2];
+    displacement[0] = box[0]*round((ab_center[0] - cd_center[0])/box[0]);
+    displacement[1] = box[1]*round((ab_center[1] - cd_center[1])/box[1]);
+    double a0[2], b0[2];
+    a0[0]=a[0]-displacement[0];
+    a0[1]=a[1]-displacement[1];
+    b0[0]=b[0]-displacement[0];
+    b0[1]=b[1]-displacement[1];
+    int o1 = orientation(a0, b0, c);
+    int o2 = orientation(a0, b0, d);
+    int o3 = orientation(c, d, a0);
+    int o4 = orientation(c, d, b0);
     if((o1 != o2) && (o3 != o4)){
         dist = 0;
     }

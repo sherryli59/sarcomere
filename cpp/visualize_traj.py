@@ -13,46 +13,46 @@ def plot_filaments(xs,thetas,l,Lx,Ly,ax,color='k'):
         x = xs[i,0]
         y = xs[i,1]
         theta = thetas[i,0]
-        delta_x = l*np.cos(theta)
-        delta_y = l*np.sin(theta)
-        ax.arrow(x-delta_x, y-delta_y, delta_x, delta_y,
+        delta_x = 0.5*l*np.cos(theta)
+        delta_y = 0.5*l*np.sin(theta)
+        ax.arrow(x-delta_x, y-delta_y, 2*delta_x, 2*delta_y,
                     head_width=0.1, head_length=0.1, fc=color, ec=color)
         #plot the periodic images
-        if x+delta_x>Lx/2:
-            ax.arrow(x-delta_x-Lx, y-delta_y, delta_x, delta_y,
+        if x+np.abs(delta_x)>Lx/2:
+            ax.arrow(x-delta_x-Lx, y-delta_y, 2*delta_x, 2*delta_y,
                         head_width=0.1, head_length=0.1, fc=color, ec=color)
-            if y+delta_y>Ly/2:
-                ax.arrow(x-delta_x-Lx, y-delta_y-Ly, delta_x, delta_y,
+            if y+np.abs(delta_y)>Ly/2:
+                ax.arrow(x-delta_x-Lx, y-delta_y-Ly, 2*delta_x, 2*delta_y,
                             head_width=0.1, head_length=0.1, fc=color, ec=color)
-            elif y-delta_y<-Ly/2:
-                ax.arrow(x-delta_x-Lx, y-delta_y+Ly, delta_x, delta_y,
+            elif y-np.abs(delta_y)<-Ly/2:
+                ax.arrow(x-delta_x-Lx, y-delta_y+Ly, 2*delta_x, 2*delta_y,
                             head_width=0.1, head_length=0.1, fc=color, ec=color)
-        elif x-delta_x<-Lx/2:
-            ax.arrow(x-delta_x+Lx, y-delta_y, delta_x, delta_y,
+        elif x-np.abs(delta_x)<-Lx/2:
+            ax.arrow(x-delta_x+Lx, y-delta_y, 2*delta_x, 2*delta_y,
                         head_width=0.1, head_length=0.1, fc=color, ec=color)
-            if y+delta_y>Ly/2:
-                ax.arrow(x-delta_x+Lx, y-delta_y-Ly, delta_x, delta_y,
+            if y+np.abs(delta_y)>Ly/2:
+                ax.arrow(x-delta_x+Lx, y-delta_y-Ly, 2*delta_x, 2*delta_y,
                             head_width=0.1, head_length=0.1, fc=color, ec=color)
-            elif y-delta_y<-Ly/2:
-                ax.arrow(x-delta_x+Lx, y-delta_y+Ly, delta_x, delta_y,
+            elif y-np.abs(delta_y)<-Ly/2:
+                ax.arrow(x-delta_x+Lx, y-delta_y+Ly, 2*delta_x, 2*delta_y,
                             head_width=0.1, head_length=0.1, fc=color, ec=color)    
-        if y+delta_y>Ly/2:
-            ax.arrow(x-delta_x, y-delta_y-Ly, delta_x, delta_y,
+        if y+np.abs(delta_y)>Ly/2:
+            ax.arrow(x-delta_x, y-delta_y-Ly, 2*delta_x, 2*delta_y,
                         head_width=0.1, head_length=0.1, fc=color, ec=color)
-            if x+delta_x>Lx/2:
-                ax.arrow(x-delta_x-Lx, y-delta_y-Ly, delta_x, delta_y,
+            if x+np.abs(delta_x)>Lx/2:
+                ax.arrow(x-delta_x-Lx, y-delta_y-Ly, 2*delta_x, 2*delta_y,
                             head_width=0.1, head_length=0.1, fc=color, ec=color)
-            elif x-delta_x<-Lx/2:
-                ax.arrow(x-delta_x+Lx, y-delta_y-Ly, delta_x, delta_y,
+            elif x-np.abs(delta_x)<-Lx/2:
+                ax.arrow(x-delta_x+Lx, y-delta_y-Ly, 2*delta_x, 2*delta_y,
                             head_width=0.1, head_length=0.1, fc=color, ec=color)
-        elif y-delta_y<-Ly/2:
-            ax.arrow(x-delta_x, y-delta_y+Ly, delta_x, delta_y,
+        elif y-np.abs(delta_y)<-Ly/2:
+            ax.arrow(x-delta_x, y-delta_y+Ly, 2*delta_x, 2*delta_y,
                         head_width=0.1, head_length=0.1, fc=color, ec=color)
-            if x+delta_x>Lx/2:
-                ax.arrow(x-delta_x-Lx, y-delta_y+Ly, delta_x, delta_y,
+            if x+np.abs(delta_x)>Lx/2:
+                ax.arrow(x-delta_x-Lx, y-delta_y+Ly, 2*delta_x, 2*delta_y,
                             head_width=0.1, head_length=0.1, fc=color, ec=color)
-            elif x-delta_x<-Lx/2:
-                ax.arrow(x-delta_x+Lx, y-delta_y+Ly, delta_x, delta_y,
+            elif x-np.abs(delta_x)<-Lx/2:
+                ax.arrow(x-delta_x+Lx, y-delta_y+Ly, 2*delta_x, 2*delta_y,
                             head_width=0.1, head_length=0.1, fc=color, ec=color)
 
 def plot_myosin(xs,thetas,l,Lx,Ly,radius,ax,color='k'):
@@ -121,6 +121,10 @@ if __name__ == "__main__":
         filename = sys.argv[1]
     else:
         filename = 'data/traj.h5'
+    if len(sys.argv) > 2:
+        frame_dir = sys.argv[2]
+    else:
+        frame_dir = "frames"
     traj = h5py.File(filename, 'r')
     data = hdf5_to_dict(traj)
     energy = data["/energy/total_energy"]
@@ -132,12 +136,11 @@ if __name__ == "__main__":
     Lx = 10
     Ly = 10
     myosin_radius = 0.5
-    alpha_actinin_radius = 0.2
+    alpha_actinin_radius = 0.1
     cpu_workers = joblib.cpu_count()
 
     n_digits = len(str(nframes))
     file_format = "{}/frame_{:0"+str(n_digits)+"d}.png"
-    frame_dir = "frames"
     if not os.path.exists(frame_dir):
         os.mkdir(frame_dir)
     Parallel(n_jobs=cpu_workers)(delayed(plot)(i, nframes, cpu_workers,

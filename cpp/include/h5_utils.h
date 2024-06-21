@@ -206,6 +206,7 @@ void load_from_file(std::string& filename, Filament& actin, Myosin& myosin, Alph
     for (int i = 0; i < actin.n; i++){
         actin.thetas[i] = actin_thetas[i];
     }
+    actin.update_endpoints();
     //load myosin
     std::vector<double> myosin_xs = load_from_dataset(group_myosin, "xs", dims);
     myosin_xs = std::vector<double>(myosin_xs.end() - 2*n_myosins, myosin_xs.end());
@@ -218,6 +219,7 @@ void load_from_file(std::string& filename, Filament& actin, Myosin& myosin, Alph
     for (int i = 0; i < myosin.n; i++){
         myosin.thetas[i] = myosin_thetas[i];
     }
+    myosin.update_endpoints();
     //load alpha_actinin
     std::vector<double> alpha_actinin_xs = load_from_dataset(group_alpha_actinin, "xs", dims);
     alpha_actinin_xs = std::vector<double>(alpha_actinin_xs.end() - 2*n_alpha_actinins, alpha_actinin_xs.end());
