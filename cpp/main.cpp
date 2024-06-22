@@ -18,7 +18,7 @@ int main(int argc, char* argv[]){
     double e_am = -3;
     double e_barrier = 100;
     double e_barrier_al = 3;
-    double e_catch_bond = -3;
+    double e_catch_bond = -2;
     double f_myosin = 500;
     int n_actins = 50;
     int n_myosins = 4;
@@ -28,7 +28,7 @@ int main(int argc, char* argv[]){
     double actin_length = 3;
     double myosin_length = 3;
     double myosin_radius = 0.5;
-    double alpha_actinin_radius = 0.2;
+    double alpha_actinin_radius = 0.1;
     bool resume = false;
     std::string filename = "data/traj.h5";
     try {
@@ -46,7 +46,7 @@ int main(int argc, char* argv[]){
             ("e_am", "Energy AM", cxxopts::value<double>(e_am)->default_value("-3.0"))
             ("e_barrier", "Energy barrier", cxxopts::value<double>(e_barrier)->default_value("100.0"))
             ("e_barrier_al", "Energy barrier AL", cxxopts::value<double>(e_barrier_al)->default_value("3.0"))
-            ("e_catch_bond", "Energy catch bond", cxxopts::value<double>(e_catch_bond)->default_value("-3"))
+            ("e_catch_bond", "Energy catch bond", cxxopts::value<double>(e_catch_bond)->default_value("-2"))
             ("f_myosin", "Force Myosin", cxxopts::value<double>(f_myosin)->default_value("500.0"))
             ("n_actins", "Number of actins", cxxopts::value<int>(n_actins)->default_value("50"))
             ("n_myosins", "Number of myosins", cxxopts::value<int>(n_myosins)->default_value("4"))
@@ -56,7 +56,7 @@ int main(int argc, char* argv[]){
             ("actin_length", "Actin length", cxxopts::value<double>(actin_length)->default_value("3.0"))
             ("myosin_length", "Myosin length", cxxopts::value<double>(myosin_length)->default_value("3.0"))
             ("myosin_radius", "Myosin radius", cxxopts::value<double>(myosin_radius)->default_value("0.5"))
-            ("alpha_actinin_radius", "Alpha actinin radius", cxxopts::value<double>(alpha_actinin_radius)->default_value("0.2"))
+            ("alpha_actinin_radius", "Alpha actinin radius", cxxopts::value<double>(alpha_actinin_radius)->default_value("0.1"))
             ("resume", "Resume", cxxopts::value<bool>(resume)->default_value("false"))
             ("filename", "Filename", cxxopts::value<std::string>(filename)->default_value("data/traj.h5"))
             ("h, help", "Print usage");
@@ -85,6 +85,10 @@ int main(int argc, char* argv[]){
                       actin_length, myosin_length, e_am, e_al, e_barrier, e_barrier_al, e_catch_bond,
                        f_myosin, myosin_radius, alpha_actinin_radius,filename,rng);
     MC mc(model, beta, dt, D, update_dt_every, save_every, resume);
+    int myosin_nsteps = 1000000;
+    int aa_nsteps = 1000000;
+    double dt0 = 0.5;
+    mc.equilibrate(myosin_nsteps,aa_nsteps,dt0, rng);
     mc.run_mc(nsteps, rng);
     gsl_rng_free(rng);
     return 0;

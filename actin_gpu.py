@@ -75,12 +75,14 @@ class SarcomereModel():
     def __init__(self, n_filaments, n_bundles, n_crosslinks, Lx, Ly,
                  e_am = -10.0, e_al = -5.0, f_myosin = 1.0,
                  len_actin = 3.0, r_myosin = 1.0, r_alpha_actinin = 0.2,
+                 catch_bond = True,
                   device="cuda"):
         self.actin = Filaments(n_filaments, Lx, Ly, length=len_actin,device=device )
         self.myosin = MyosinBundle(n_bundles, Lx, Ly,radius=r_myosin, device=device)
         self.alpha_actinin = AlphaActinin(n_crosslinks, Lx, Ly,radius=r_alpha_actinin, device=device)
         self.Lx = Lx
         self.Ly = Ly
+        self.catch_bond = catch_bond
         self.box = torch.tensor([Lx, Ly]).to(device)
         self.e_am = e_am
         self.e_al = e_al
@@ -113,7 +115,7 @@ class SarcomereModel():
         energy = 100 * (distances<2*self.myosin.radius).sum()
         #aa-aa repulsion
         distances = pairwise_distances(self.alpha_actinin.xs,box=self.box,remove_diag=True)
-        energy += 10 * (distances<0.3*self.alpha_actinin.radius).sum()
+        energy += 10 * (distances<0.5*self.alpha_actinin.radius).sum()
         #aa-myosin repulsion
         distances = pairwise_distances(self.myosin.xs,self.alpha_actinin.xs,box=self.box)
         energy += 100 * (distances<self.myosin.radius+self.alpha_actinin.radius).sum()
@@ -137,22 +139,43 @@ class SarcomereModel():
         distances = point_segment_distance(self.alpha_actinin.xs,actin_endpts,actin_endpts_2,box=self.box)
         mask = (distances <= ra)
         energy = mask.sum()*self.e_al
+        distances_to_end = pairwise_distances(self.alpha_actinin.xs,actin_endpts_2,box=self.box)
+        aa_actin_connectivity = (mask*(1-torch.clamp(distances_to_end/(0.5*la),max=1))).sum(-1)
+        energy = (self.e_al*aa_actin_connectivity).sum()
+        if self.catch_bond:
+            self.aa_strength = self.directional_catch_bond(mask)
+            energy += self.e_al*self.aa_strength.sum()
         return energy
-
+    
+    def directional_catch_bond(self, aa_actin_connectivity):
+        #size of aa_actin_connectivity: (n_aa, n_actin)
+        force_on_actin = self.actin_myosin_force()[0]
+        force_mag = torch.norm(force_on_actin,dim=-1)
+        norm_factor = force_mag.unsqueeze(-1)*force_mag.unsqueeze(-2)
+        pairwise_cosine = dot_along_last_dim(force_on_actin.unsqueeze(-2),force_on_actin.unsqueeze(-3))/(norm_factor+1e-5)
+        strength = norm_factor*torch.abs(pairwise_cosine.clamp(max=0))#size: (n_actin, n_actin)
+        connectivity_expanded = aa_actin_connectivity.unsqueeze(-1)*aa_actin_connectivity.unsqueeze(-2)
+        strength_expanded = strength.unsqueeze(-3)
+        catch_bond_strength = (connectivity_expanded*strength_expanded).sum(dim=[-2,-1])
+        catch_bond_strength = torch.clamp(catch_bond_strength,max=2)
+        return catch_bond_strength
+    
     def actin_myosin_force(self):
         la = self.actin.filament_length
         radius = self.myosin.radius
         thetas = self.actin.thetas
         actin_endpts = self.actin.xs + 0.5*la*torch.stack([torch.cos(thetas), torch.sin(thetas)], axis=-1)
         actin_endpts_2 = self.actin.xs - 0.5*la*torch.stack([torch.cos(thetas), torch.sin(thetas)], axis=-1)
-        distances = point_segment_distance(self.myosin.xs,actin_endpts,actin_endpts_2,box=self.box)
+        distances = point_segment_distance(self.myosin.xs,actin_endpts,actin_endpts_2,
+                                           box=self.box)
         mask = (distances <= radius)
         orientation = torch.stack([torch.cos(thetas), torch.sin(thetas)], axis=-1)
         orientation = orientation.unsqueeze(-3)
         force = self.f_myosin * mask.float().unsqueeze(-1) * orientation
-        #force_on_actin = -force.sum(dim=-3)   
-        force = force.sum(dim=-2)
-        return force
+        force_on_actin = -force.sum(dim=-3)   
+        self.force_on_actin = force_on_actin
+        force_on_myosin = force.sum(dim=-2)
+        return force_on_actin, force_on_myosin
 
     def myosin_self_force(self):
         xs = self.myosin.xs
@@ -215,12 +238,15 @@ class SarcomereModel():
     def mala_step(self, dt, D):
         acc = 0
         device = self.actin.xs.device
+        force_on_actin, force_on_myosin = self.actin_myosin_force()
+        force_on_myosin += self.myosin_self_force()
         D = torch.tensor(D).to(device)
         # update actin filaments
         xs_old = self.actin.xs.clone()
         thetas_old = self.actin.thetas.clone()
         noise = torch.sqrt(2*D*dt)*torch.randn(self.actin.n_filaments, 2).to(device)
-        self.actin.xs = self.pbc(self.actin.xs + noise)
+        self.actin.xs = self.pbc(self.actin.xs + noise #+ force_on_actin*dt
+                                 )
         self.actin.thetas += torch.sqrt(2*D*dt)*torch.randn(self.actin.n_filaments).to(device)
         delta_energy = self.compute_energy() - self.energy
         rand = torch.rand_like(delta_energy).to(device)
@@ -233,9 +259,8 @@ class SarcomereModel():
 
         # update myosin bundles
         xs_old = self.myosin.xs.clone()
-        force = self.actin_myosin_force()+self.myosin_self_force()
         #force = self.myosin_self_force()
-        self.myosin.xs = self.pbc(self.myosin.xs + force*dt
+        self.myosin.xs = self.pbc(self.myosin.xs + force_on_myosin*dt
                                   + torch.sqrt(2*D*dt)*torch.randn(self.myosin.n_bundles, 2).to(device))
         delta_energy = self.compute_energy() - self.energy
         rand = torch.rand_like(delta_energy).to(device)
@@ -278,10 +303,24 @@ class SarcomereModel():
             delta_y = l*torch.sin(theta)
             ax.arrow(x-0.5*delta_x, y-0.5*delta_y, delta_x, delta_y,
                       head_width=0.1, head_length=0.1, fc='k', ec='k')
+            #plot the periodic images
+            if x+0.5*delta_x>self.Lx:
+                ax.arrow(x-0.5*delta_x-self.Lx, y-0.5*delta_y, delta_x, delta_y,
+                          head_width=0.1, head_length=0.1, fc='k', ec='k')
+            elif x-0.5*delta_x<0:
+                ax.arrow(x-0.5*delta_x+self.Lx, y-0.5*delta_y, delta_x, delta_y,
+                          head_width=0.1, head_length=0.1, fc='k', ec='k')
+            if y+0.5*delta_y>self.Ly:
+                ax.arrow(x-0.5*delta_x, y-0.5*delta_y-self.Ly, delta_x, delta_y,
+                          head_width=0.1, head_length=0.1, fc='k', ec='k')
+            elif y-0.5*delta_y<0:
+                ax.arrow(x-0.5*delta_x, y-0.5*delta_y+self.Ly, delta_x, delta_y,
+                          head_width=0.1, head_length=0.1, fc='k', ec='k')
+
         # plot myosin bundles
         n_bundles = self.myosin.n_bundles
         xs = self.myosin.xs.cpu()
-        force = self.actin_myosin_force()+self.myosin_self_force()
+        force = self.actin_myosin_force()[1]+self.myosin_self_force()
         force = force.cpu().numpy()
         for i in range(n_bundles):
             x = xs[i,0]
@@ -306,10 +345,17 @@ class SarcomereModel():
         # plot alpha-actinin
         n_crosslinks = self.alpha_actinin.n_crosslinks
         xs = self.alpha_actinin.xs.cpu()
+        strength = torch.abs(self.aa_strength)
         for i in range(n_crosslinks):
             x = xs[i,0]
-            y = xs[i,1]
-            circle = plt.Circle((x, y), self.alpha_actinin.radius, color="C2", alpha=0.5)
+            y = xs[i,1]    
+            binding_affinity = float(strength[i])
+            binding_affinity = min(1.,float(binding_affinity))
+            #binding_affinity = min(1.,float(binding_affinity.item()))
+            #color is continuous scale from light gray to dark gray
+            circle = plt.Circle((x, y), self.alpha_actinin.radius, facecolor=(1-binding_affinity,1-binding_affinity,1-binding_affinity),
+                                 alpha=0.5,linewidth=0.7,edgecolor="green")
+            #circle = plt.Circle((x, y), self.alpha_actinin.radius, color="C2", alpha=0.5)
             ax.add_artist(circle)
 
         ax.set_xlim(0, self.Lx)

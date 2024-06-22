@@ -26,8 +26,8 @@ class Sarcomere
         double e_am, e_al, e_barrier, e_barrier_al, e_catch_bond, f_myosin;
         double total_energy;
         double ** a_m_energy;
-        double ** a_al_energy;
         double ** m_al_energy;
+        double * al_energy; // actin-alpha actinin binding energy (including catch bonds) for each alpha actinin 
         std::string filename;
 
         Sarcomere(){
@@ -62,14 +62,11 @@ class Sarcomere
             for (int i = 0; i < actin.n; i++){
                 a_m_energy[i] = new double[myosin.n];
             }
-            a_al_energy = new double*[actin.n];
-            for (int i = 0; i < actin.n; i++){
-                a_al_energy[i] = new double[alpha_actinin.n];
-            }
             m_al_energy = new double*[myosin.n];
             for (int i = 0; i < myosin.n; i++){
                 m_al_energy[i] = new double[alpha_actinin.n];
             }
+            al_energy = new double[alpha_actinin.n];
             total_energy = get_energy();
             this->filename = filename;
         }
@@ -77,10 +74,9 @@ class Sarcomere
             printf("start destructor\n");
             for (int i = 0; i < actin.n; i++){
                 delete[] a_m_energy[i];
-                delete[] a_al_energy[i];
             }
             delete[] a_m_energy;
-            delete[] a_al_energy;
+            delete[] al_energy;
             for (int i = 0; i < myosin.n; i++){
                 delete[] m_al_energy[i];
             }
@@ -101,16 +97,39 @@ class Sarcomere
             f_myosin = other.f_myosin;
         }
 
-        void initialize_myosins(){
+        void six_myosins_on_lattice(){
             std::vector<std::vector<double>> myosin_positions;
-            myosin_positions = {{0,0}, {3,0}, {0,3}, {3,3}};
+            myosin_positions = {{3,0}, {3,3},{-3,0},{-3,-3},{3,-3},{-3,3}};
             for (int i = 0; i < myosin_positions.size(); i++){
                 myosin.xs[i][0] = myosin_positions[i][0];
                 myosin.xs[i][1] = myosin_positions[i][1];
                 myosin.thetas[i] = 0;
             }
             myosin.n = myosin_positions.size();
+            total_energy = get_energy();
         }
+
+
+        void equilibrate_myosin(int i, double x, double y, double theta, double& delta_energy){
+            double repulsion_old = e_barrier*myosin.self_repulsion(i);
+            myosin.displace(i, x, y, theta);
+            double repulsion_new = e_barrier*myosin.self_repulsion(i);
+            delta_energy = repulsion_new - repulsion_old;
+        }
+
+        void equilibrate_alpha_actinin(int i, double x, double y, double& delta_energy){
+            delta_energy = 0;
+            double repulsion_old = e_barrier_al*alpha_actinin.self_repulsion(i);
+            alpha_actinin.displace(i, x, y);
+            for (int j = 0; j < myosin.n; j++){
+                double e_new = myosin_alpha_actinin_energy(j , i);
+                delta_energy += e_new - m_al_energy[j][i];
+                m_al_energy[j][i] = e_new;
+            }
+            double repulsion_new = e_barrier_al*alpha_actinin.self_repulsion(i);
+            delta_energy += repulsion_new - repulsion_old;
+        }
+
         double get_energy(){
             double energy = 0;
             for (int i = 0; i < actin.n; i++){
@@ -120,16 +139,15 @@ class Sarcomere
                     a_m_energy[i][j] = a_m;
                 }
             }
+            printf("actin-myosin energy = %f\n", energy);
             bool update_energy = false; //a_m energy already updated
             update_force(update_energy);
-            for (int i = 0; i < actin.n; i++){
-                for (int j = 0; j < alpha_actinin.n; j++){
-                    double a_al = actin_alpha_actinin_energy(i , j);
-                    energy += a_al;
-                    a_al_energy[i][j] = a_al;
-                }
+            for (int i = 0; i < alpha_actinin.n; i++){
+                double a_al_e = actin_alpha_actinin_energy(i);
+                energy +=  a_al_e;
+                al_energy[i] = a_al_e;
             }
-            
+            printf("actin-alpha-actinin energy = %f\n", energy);
             for (int i = 0; i < myosin.n; i++){
                 for (int j = 0; j < alpha_actinin.n; j++){
                     double m_al = myosin_alpha_actinin_energy(i , j);
@@ -137,6 +155,7 @@ class Sarcomere
                     m_al_energy[i][j] = m_al;
                 }
             }
+            printf("myosin-alpha-actinin energy = %f\n", energy);
             energy += e_barrier*myosin.total_self_repulsion();
             energy += e_barrier_al*alpha_actinin.total_self_repulsion();
             return energy;
@@ -168,8 +187,14 @@ class Sarcomere
             else{
                 double distance = utils::segment_segment_distance(actin.left_endpts[i], 
                     actin.right_endpts[i], myosin.left_endpts[j], myosin.right_endpts[j], box);
-                if (distance<myosin.radius){
-                    return e_am;
+                double angle = std::abs(actin.thetas[i] - myosin.thetas[j]);
+                angle = std::fmod(angle, M_PI);
+                if (distance<myosin.radius && (angle<M_PI/4||angle>3*M_PI/4)){
+                    // std::cout<<i<<" "<<j<<std::endl;
+                    // std::cout<<actin.left_endpts[i][0]<<" "<<actin.left_endpts[i][1]<<" "<<actin.right_endpts[i][0]<<" "<<actin.right_endpts[i][1]<<std::endl;
+                    // std::cout<<myosin.left_endpts[j][0]<<" "<<myosin.left_endpts[j][1]<<" "<<myosin.right_endpts[j][0]<<" "<<myosin.right_endpts[j][1]<<std::endl;
+                    double magnitude = std::abs(std::cos(angle))-0.7; //this is somewhat arbitrary
+                    return magnitude*e_am;
                 }
                 else{
                     return 0;
@@ -197,41 +222,59 @@ class Sarcomere
                 double orientation[2];
                 orientation[0] = cos(actin.thetas[i]);
                 orientation[1] = sin(actin.thetas[i]);
-                force[0] = f_myosin*orientation[0];
-                force[1] = f_myosin*orientation[1];
+                force[0] = f_myosin*energy/e_am*orientation[0];
+                force[1] = f_myosin*energy/e_am*orientation[1];
             }
             return force;
         }
 
-        double actin_alpha_actinin_energy(int& actin_index, int& alpha_actinin_index){
-            // Assume all the actin-myosin interactions are up to date
-            const int i = actin_index;
-            const int j = alpha_actinin_index;
+        double actin_alpha_actinin_binding_energy(int& actin_index, int& alpha_actinin_index){
+            int i = actin_index;
+            int j = alpha_actinin_index;
             double energy = 0;
             double distance = utils::point_segment_distance(alpha_actinin.xs[j], actin.left_endpts[i], actin.right_endpts[i], box);
             if (distance<alpha_actinin.radius){
                 energy = e_al;
             }
-            if (e_catch_bond!=0 && energy!=0){
-                if (abs(actin.forces[i][0])+abs(actin.forces[i][1])>0){
-                    double catch_bond_strength = 0;
-                    for (int k=0; k<actin.n; k++){
-                        if (k!=i){
-                            if (abs(actin.forces[k][0])+abs(actin.forces[k][1])>0){
-                                //check if actin k is bound to alpha-actinin j
-                                double kj_distance = utils::point_segment_distance(alpha_actinin.xs[j], 
-                                actin.left_endpts[k], actin.right_endpts[k], box);
-                                if (kj_distance<alpha_actinin.radius){
-                                    double pairwise_cosine = actin.forces[i][0]*actin.forces[k][0]+actin.forces[i][1]*actin.forces[k][1];
-                                    pairwise_cosine = pairwise_cosine/(f_myosin*f_myosin);
-                                    pairwise_cosine = std::min(pairwise_cosine, 0.0);
+            return energy;
+        }
+
+
+        double actin_alpha_actinin_cb_energy(int& actin_index, int& alpha_actinin_index){
+            int i = actin_index;
+            int j = alpha_actinin_index;
+            if (e_catch_bond!=0 && abs(actin.forces[i][0])+abs(actin.forces[i][1])>0){
+                double catch_bond_strength = 0;
+                for (int k=0; k<i; k++){ //actin k<i to avoid double counting
+                    if (abs(actin.forces[k][0])+abs(actin.forces[k][1])>0){
+                        //check if actin k is bound to alpha-actinin j
+                        double kj_distance = utils::point_segment_distance(alpha_actinin.xs[j], 
+                        actin.left_endpts[k], actin.right_endpts[k], box);
+                        if (kj_distance<alpha_actinin.radius){
+                            double pairwise_cosine = actin.forces[i][0]*actin.forces[k][0]+actin.forces[i][1]*actin.forces[k][1];
+                            pairwise_cosine = pairwise_cosine/(f_myosin*f_myosin);
+                            pairwise_cosine = std::min(pairwise_cosine, 0.0);
+                            if (abs(pairwise_cosine)>0){
+                                bool bound_to_different_myosins = false;
+                                for (int l=0; l<myosin.n; l++){
+                                    if ((a_m_energy[k][l]!=0 && a_m_energy[i][l]==0)||(a_m_energy[k][l]==0 && a_m_energy[i][l]!=0))
+                                    {
+                                        bound_to_different_myosins = true;
+                                        // printf("myosin %d \n", l);
+                                        // std::cout<<myosin.xs[l][0]<<" "<<myosin.xs[l][1]<<std::endl;
+                                        // std::cout<<a_m_energy[k][l]<<" "<<a_m_energy[i][l]<<std::endl;
+                                        break;
+                                    }
+                                }
+                                if (bound_to_different_myosins){
                                     catch_bond_strength+=abs(pairwise_cosine);
-                                    //print xs of actin i, k, and alpha-actinin j
-                                    //if (abs(pairwise_cosine)>0){
-                                    // printf("i=%d,j=%d,k=%d\n", i, j, k);
-                                    // printf("catch_bond_strength=%f\n", abs(pairwise_cosine));
-                                    // printf("Actin (%f, %f), Actin (%f, %f), Alpha-actinin (%f, %f)\n", actin.xs[i][0], actin.xs[i][1], actin.xs[k][0], actin.xs[k][1], alpha_actinin.xs[j][0], alpha_actinin.xs[j][1]);
-                                    // }
+                            //     printf("pairwise_cosine = %f\n", pairwise_cosine);
+                                    // printf("actin %d and %d are bound to alpha-actinin %d\n", i, k, j);
+                                    // std::cout<<alpha_actinin.xs[j][0]<<" "<<alpha_actinin.xs[j][1]<<std::endl;
+                                    // std::cout<<actin.left_endpts[k][0]<<" "<<actin.left_endpts[k][1]<<std::endl;
+                                    // std::cout<<actin.right_endpts[k][0]<<" "<<actin.right_endpts[k][1]<<std::endl;
+                                    // std::cout<<actin.left_endpts[i][0]<<" "<<actin.left_endpts[i][1]<<std::endl;
+                                    // std::cout<<actin.right_endpts[i][0]<<" "<<actin.right_endpts[i][1]<<std::endl;
                                     if (catch_bond_strength>2){
                                         break;
                                     }
@@ -239,19 +282,37 @@ class Sarcomere
                             }
                         }
                     }
-                    double catch_bond_energy = e_catch_bond*std::min(catch_bond_strength, 2.0);
-                    // if (catch_bond_energy!=0){
-                    //     printf("Catch bond energy: %f\n", catch_bond_energy);
-                    // }
-
-                    energy = energy+catch_bond_energy;
                 }
+                double catch_bond_energy = e_catch_bond*std::min(catch_bond_strength, 2.0);
+                return catch_bond_energy;
             }
-            // if (distance<alpha_actinin.radius){
-            //     printf("Actin %d is bound to alpha-actinin %d\n", i, j);
-            //}
-            return energy;
+            else{
+                return 0;
+            }
         }
+
+        double actin_alpha_actinin_energy(int& alpha_actinin_index){
+            // The sun of all actin-alpha-actinin interactions for a given alpha-actinin
+            int i = alpha_actinin_index;
+            double binding_e = 0;
+            double cb_e = 0;
+            double binding_ej, cb_ej;
+            for (int j = 0; j < actin.n; j++){
+                binding_ej = actin_alpha_actinin_binding_energy(j , i);
+                if (binding_ej!=0){
+                    cb_ej = actin_alpha_actinin_cb_energy(j , i);
+                }
+                else{
+                    cb_ej = 0;
+                }
+                binding_e += binding_ej;
+                cb_e += cb_ej;
+            }
+            binding_e = std::max(binding_e, 2*e_al);
+            cb_e = std::max(cb_e, 2*e_catch_bond);
+            return binding_e + cb_e;
+        }
+
         
         double myosin_alpha_actinin_energy(int& myosin_index, int& alpha_actinin_index){
             int i = myosin_index;
@@ -259,7 +320,7 @@ class Sarcomere
             double distance = utils::point_segment_distance(alpha_actinin.xs[j], myosin.left_endpts[i], myosin.right_endpts[i], box);
             //printf("Distance: %f\n", distance);
             if (distance<alpha_actinin.radius+myosin.radius){
-                return e_barrier;
+                return e_barrier_al;
             }
             else{
                 return 0;
@@ -267,6 +328,7 @@ class Sarcomere
         }
 
         void displace_actin(int i, double x, double y, double theta, double& delta_energy, std::vector<double>& avg_force){
+            delta_energy = 0;
             actin.displace(i, x, y, theta);
             delta_energy = 0;
             avg_force.resize(2);
@@ -286,28 +348,17 @@ class Sarcomere
             avg_force[1] = (actin.forces[i][1]+force[1])/2;
             actin.forces[i][0] = force[0];
             actin.forces[i][1] = force[1];
-            if (e_catch_bond!=0){
-                //TEMPORARY FIX: update all actin-myosin interactions; should only update affected actins
-                for (int j = 0; j < actin.n; j++){
-                    for (int k = 0; k < alpha_actinin.n; k++){
-                        double e_new = actin_alpha_actinin_energy(j , k);
-                        delta_energy += e_new - a_al_energy[j][k];
-                        a_al_energy[j][k] = e_new;
-                    }
-                }
+            //TEMPORARY FIX: update all actin-alpha_actinin interactions; should only update affected actins
+            for (int j = 0; j < alpha_actinin.n; j++){
+                double a_al_e = actin_alpha_actinin_energy(j);
+                delta_energy +=   a_al_e - al_energy[j];
+                al_energy[j] = a_al_e;
             }
-            else{
-                //THIS DOESN'T WORK WHEN CATCH BOND IS ON; NEED TO UPDATE OTHER ACTINS AS WELL
-                for (int j = 0; j < alpha_actinin.n; j++){
-                    double e_new = actin_alpha_actinin_energy(i , j);
-                    delta_energy += e_new - a_al_energy[i][j];
-                    a_al_energy[i][j] = e_new;
-                }
-            };
             total_energy += delta_energy;
         }
 
         void displace_myosin(int i, double x, double y, double theta, double& delta_energy){
+            delta_energy = 0;
             //MYOSIN DISPLACEMENT IS RELATIVELY EXPENSIVE RIGHT NOW
             double repulsion_old = e_barrier*myosin.self_repulsion(i);
             bool update_energy = false; //calculating previous force
@@ -331,12 +382,10 @@ class Sarcomere
 
             if (e_catch_bond!=0){
                 //need to update actin_alpha-actinin energy as well to account for changes in catch bonds
-                for (int j = 0; j < actin.n; j++){
-                    for (int k = 0; k < alpha_actinin.n; k++){
-                        double e_new = actin_alpha_actinin_energy(j, k);
-                        delta_energy += e_new - a_al_energy[j][k];
-                        a_al_energy[j][k] = e_new;
-                    }
+                for (int j = 0; j < alpha_actinin.n; j++){
+                    double a_al_e = actin_alpha_actinin_energy(j);
+                    delta_energy +=  a_al_e - al_energy[j];
+                    al_energy[j] = a_al_e;
                 }
             }
 
@@ -351,14 +400,12 @@ class Sarcomere
         }
 
         void displace_alpha_actinin(int i, double x, double y, double& delta_energy){
+            delta_energy = 0;
             double repulsion_old = e_barrier_al*alpha_actinin.self_repulsion(i);
             alpha_actinin.displace(i, x, y);
-            delta_energy = 0;
-            for (int j = 0; j < actin.n; j++){
-                double e_new = actin_alpha_actinin_energy(j , i);
-                delta_energy += e_new - a_al_energy[j][i];
-                a_al_energy[j][i] = e_new;
-            }
+            double a_al_e = actin_alpha_actinin_energy(i);
+            delta_energy +=  a_al_e- al_energy[i];
+            al_energy[i] = a_al_e;
             for (int j = 0; j < myosin.n; j++){
                 double e_new = myosin_alpha_actinin_energy(j , i);
                 delta_energy += e_new - m_al_energy[j][i];
@@ -366,7 +413,7 @@ class Sarcomere
             }
             double repulsion_new = e_barrier_al*alpha_actinin.self_repulsion(i);
             delta_energy += repulsion_new - repulsion_old;
-            total_energy += delta_energy;    
+            total_energy += delta_energy;  
         }
 
         void new_file(){

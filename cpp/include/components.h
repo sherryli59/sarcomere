@@ -42,8 +42,8 @@ class Filament
             box = box0;
             for (int i = 0; i < n; i++){
                 xs[i] = new double[2];
-                xs[i][0] = gsl_ran_flat(rng, 0, box[0]);
-                xs[i][1] = gsl_ran_flat(rng, 0, box[1]);
+                xs[i][0] = gsl_ran_flat(rng, -0.5*box[0],0.5*box[0]);
+                xs[i][1] = gsl_ran_flat(rng, -0.5*box[1], 0.5*box[1]);
                 thetas[i] = gsl_ran_flat(rng, 0, 2*M_PI);
                 left_endpts[i] = new double[2];
                 right_endpts[i] = new double[2];
@@ -196,8 +196,8 @@ class AlphaActinin
             box = box0;
             for (int i = 0; i < n; i++){
                 xs[i] = new double[2];
-                xs[i][0] = gsl_ran_flat(rng, 0, box[0]);
-                xs[i][1] = gsl_ran_flat(rng, 0, box[1]);
+                xs[i][0] = gsl_ran_flat(rng, -0.5*box[0],0.5*box[0]);
+                xs[i][1] = gsl_ran_flat(rng, -0.5*box[1], 0.5*box[1]);
             }
         }
 

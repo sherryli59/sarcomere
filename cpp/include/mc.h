@@ -40,7 +40,7 @@ class MC{
             model=model0;
             beta=beta0;
             D=D0;
-            update_myosin_every = 20;
+            update_myosin_every = 1;
             update_dt_every=update_dt_every0;
             save_every=save_every0;
             acc_rate=0;
@@ -65,9 +65,52 @@ class MC{
         }
         ~MC(){
         }
+
+        void equilibrate(int myosin_nsteps, int alpha_actinin_nsteps, double dt0, gsl_rng * rng){
+            double noise_mag = sqrt(2*D*dt0);
+            double p_accept, delta_energy;
+            for (int i=0; i<myosin_nsteps; i++){
+                // gnerate random number from -1 to 1
+                double randn[3];
+                for (int i=0; i<3; i++)
+                    randn[i]=gsl_rng_uniform(rng)*2-1;
+                double acc_rand=gsl_rng_uniform(rng);
+                // update myosin
+                int myosin_index = gsl_rng_uniform_int(rng, model.myosin.n);
+                double dx = randn[0]*noise_mag;
+                double dy = randn[1]*noise_mag;
+                double dtheta = randn[2]*M_PI*noise_mag;
+                delta_energy = 0;
+                model.equilibrate_myosin(myosin_index, dx, dy, dtheta, delta_energy);
+                p_accept = exp(-beta*delta_energy);
+                if (acc_rand>=p_accept){
+                    model.equilibrate_myosin(myosin_index, -dx, -dy, -dtheta, delta_energy);
+                }
+            }
+            for (int i=0; i<alpha_actinin_nsteps; i++){
+                // gnerate random number from -1 to 1
+                double randn[2];
+                for (int i=0; i<2; i++)
+                    randn[i]=gsl_rng_uniform(rng)*2-1;
+                double acc_rand=gsl_rng_uniform(rng);
+                // update alpha-actinin
+                int alpha_actinin_index = gsl_rng_uniform_int(rng, model.alpha_actinin.n);
+                double dx = randn[0]*noise_mag;
+                double dy = randn[1]*noise_mag;
+                delta_energy = 0;
+                model.equilibrate_alpha_actinin(alpha_actinin_index, dx, dy, delta_energy);
+                p_accept = exp(-beta*delta_energy);
+                if (acc_rand>=p_accept){
+                    model.equilibrate_alpha_actinin(alpha_actinin_index, -dx, -dy, delta_energy);
+                }
+            }
+            model.total_energy = model.get_energy();
+            printf("Total energy after equilibration: %f\n", model.total_energy);
+        }
+
         void run_mc(int nsteps, gsl_rng * rng){
             double acc = 0;
-            for (int i=0; i<nsteps; i++){
+            for (int i=1; i<nsteps; i++){
                 bool update_myosin = i%update_myosin_every==0;
                 acc+=sample_step(dt, D, rng, update_myosin);
                 if (i>0 && update_dt_every>0 && i%update_dt_every==0){
@@ -79,14 +122,8 @@ class MC{
                     std::cout << "Step " << i << " Acceptance rate: " << acc_rate
                     << "Energy: "<<model.total_energy <<"Stepsize"<<dt<< std::endl;
                     model.save_state();
+                    model.check_energy();
                 }
-            }
-            //check if total energy is correct
-            double total_energy2 = model.get_energy();
-            if (abs(total_energy2-model.total_energy)>1e-6){
-                std::cout << "Total energy is not correct" << std::endl;
-                std::cout << "Total energy: " << model.total_energy << " Total energy2: " << total_energy2 << std::endl;
-                exit(1);
             }
         }
         double sample_step(double& dt, double& D, gsl_rng * rng, bool& update_myosin){
@@ -155,7 +192,9 @@ class MC{
             }
             else if (acc_rate>0.55){
                 dt*=acc_rate/0.55;
-            }			
+            }	
+            dt = std::max(dt, 1e-4);	
+            dt = std::min(dt, 0.1);	
         }    
 };
 
