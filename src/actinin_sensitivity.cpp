@@ -2,95 +2,10 @@
 #include <random>
 #include <cmath>
 #include <opencv2/opencv.hpp>
+#include <gsl/gsl_rng.h>
+#include <gsl/gsl_randist.h>
 
 using namespace std;
-
-
-class Filament
-{
-    public:
-        int n;
-        std::vector <double> box;
-        double length;
-        double ** xs;
-        double * thetas;
-        double ** left_endpts;
-        double ** right_endpts;
-        double ** forces;
-
-        Filament(){
-            n = 0;
-            length = 0;
-            xs = NULL;
-            thetas = NULL;
-
-        }
-        Filament(int n0, double length0, std::vector <double> box0, gsl_rng * rng){
-            n = n0;
-            length = length0;
-            xs = new double*[n];
-            thetas = new double[n];
-            forces = new double*[n];
-            left_endpts = new double*[n];
-            right_endpts = new double*[n];
-            box = box0;
-            for (int i = 0; i < n; i++){
-                xs[i] = new double[2];
-                xs[i][0] = gsl_ran_flat(rng, -0.5*box[0],0.5*box[0]);
-                xs[i][1] = gsl_ran_flat(rng, -0.5*box[1], 0.5*box[1]);
-                thetas[i] = gsl_ran_flat(rng, 0, 2*M_PI);
-                left_endpts[i] = new double[2];
-                right_endpts[i] = new double[2];
-                forces[i] = new double[2];
-                forces[i][0] = 0;
-                forces[i][1] = 0;
-            }
-            update_endpoints();
-        }
-
-        virtual ~Filament(){
-            for (int i = 0; i < n; i++){
-                delete[] xs[i];
-                delete[] forces[i];
-                delete[] left_endpts[i];
-                delete[] right_endpts[i];
-
-            }
-            delete[] thetas;
-            printf("Filament destructor called\n");
-        }
-        Filament(const Filament& other){
-            n = other.n;
-            box = other.box;
-            length = other.length;
-            xs = new double*[n];
-            thetas = new double[n];
-            for (int i = 0; i < n; i++){
-                xs[i] = new double[2];
-                xs[i][0] = other.xs[i][0];
-                xs[i][1] = other.xs[i][1];
-                thetas[i] = other.thetas[i];
-                forces[i] = new double[2];
-                forces[i][0] = other.forces[i][0];
-                forces[i][1] = other.forces[i][1];
-            }
-        }
-        void update_endpoints_i(int& i){
-            std::vector <double> segments(2);
-            segments[0] = length*cos(thetas[i]);
-            segments[1] = length*sin(thetas[i]);
-            left_endpts[i][0] = xs[i][0] - 0.5*segments[0];
-            left_endpts[i][1] = xs[i][1] - 0.5*segments[1];
-            right_endpts[i][0] = xs[i][0] + 0.5*segments[0];
-            right_endpts[i][1] = xs[i][1] + 0.5*segments[1];
-        }
-        
-        void update_endpoints(){
-            for (int i = 0; i < n; i++){
-                update_endpoints_i(i);
-            }
-        }
-};
 
 class AlphaActinin
 {
@@ -99,11 +14,13 @@ class AlphaActinin
         double radius;
         double ** xs;
         std::vector <double> box;
+
         AlphaActinin(){
             n = 0;
             radius = 0;
             xs = NULL;
         }
+
         AlphaActinin(int& n0, double& radius0, std::vector <double> box0, gsl_rng * rng){
             n = n0;
             radius = radius0;
@@ -122,6 +39,7 @@ class AlphaActinin
             }
             delete[] xs;
         }
+
         AlphaActinin(const AlphaActinin& other){
             n = other.n;
             radius = other.radius;
@@ -133,15 +51,96 @@ class AlphaActinin
             }
         }
 };
-class Actin {
-public:
-    double x, y;    // Center of mass position
-    double theta;   // Orientation angle
-    double length;  // Rod length
 
-    Actin(double x, double y, double theta, double length)
-        : x(x), y(y), theta(theta), length(length) {}
+
+class Actin {
+    public:
+        int n;
+        double ** xs;
+        double * thetas;
+        double ** left_endpts;
+        double ** right_endpts;
+        
+        Actin(){
+            n = 0;
+            xs = NULL;
+            thetas = NULL;
+        }
+
+        Actin(int n0, gsl_rng * rng, double *box){
+            n = n0;
+            xs = new double*[n];
+            thetas = new double[n];
+            left_endpts = new double*[n];
+            right_endpts = new double*[n];
+            for (int i = 0; i < n; i++){
+                xs[i] = new double[2];
+                xs[i][0] = box[0] * gsl_ran_flat(rng, -0.5, 0.5);
+                xs[i][1] = box[1] * gsl_ran_flat(rng, -0.5, 0.5);
+                thetas[i] = gsl_ran_flat(rng, 0, 2*M_PI);
+                left_endpts[i] = new double[2];
+                right_endpts[i] = new double[2];
+            }
+            update_endpoints();
+        }
+
+        void update_endpoints(){
+            for (int i = 0; i < n; i++){
+                std::vector <double> segments(2);
+                segments[0] = cos(thetas[i]);
+                segments[1] = sin(thetas[i]);
+                left_endpts[i][0] = xs[i][0] - 0.5*segments[0];
+                left_endpts[i][1] = xs[i][1] - 0.5*segments[1];
+                right_endpts[i][0] = xs[i][0] + 0.5*segments[0];
+                right_endpts[i][1] = xs[i][1] + 0.5*segments[1];
+            }
+        }
 };
+
+void step(Actin& actin, double dt, double D_t, double D_r, gsl_rng * rng){
+    
+    // compute the interaction between actin / alpha-actinin
+    // get number of bound dimers
+    // compute total force on each actin from dimers
+    // update actin positions
+    if (n_dimers==0){
+        for (int i = 0; i < actin.n; i++){
+            actin.xs[i][0] += gsl_ran_gaussian(rng, sqrt(2*D_t*dt));
+            actin.xs[i][0] += f * cos(actin.thetas[i]) * dt;
+        }
+    }
+    else{
+        double dx = gsl_ran_gaussian(rng, sqrt(2*D_t*dt));
+         for (int i = 0; i < actin.n; i++){
+            actin.xs[i][0] += dx;
+        }
+    }
+    // binding and unbinding of actinin
+    // force dependent rate equation for the actinin binding / unbinding
+    
+    
+
+}
+
+
+
+int main() {
+    int n_actin = 2;
+    int n_actinin = 10;
+    double box_size = 10.0;
+    double dt = 0.01;
+    double D_t = 1.0;
+    double D_r = 0.1;
+
+
+    for (int step = 0; step < 10000; ++step) {
+        sim.step();
+    }
+
+    return 0;
+}
+
+
 
 class Simulation {
 private:
@@ -214,21 +213,3 @@ public:
 };
 
 
-
-
-int main() {
-    int num_rods = 1000;
-    double box_size = 100.0;
-    double rod_length = 1.0;
-    double dt = 0.01;
-    double D_t = 1.0;
-    double D_r = 0.1;
-
-    Simulation sim(num_rods, box_size, rod_length, dt, D_t, D_r);
-
-    for (int step = 0; step < 10000; ++step) {
-        sim.step();
-    }
-
-    return 0;
-}
