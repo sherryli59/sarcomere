@@ -133,8 +133,8 @@ if __name__ == "__main__":
     nframes = data["/actin/xs"].shape[0]
     actin_length = 3
     myosin_length = 3
-    Lx = 10
-    Ly = 10
+    Lx = 12
+    Ly = 12
     myosin_radius = 0.5
     alpha_actinin_radius = 0.1
     cpu_workers = joblib.cpu_count()

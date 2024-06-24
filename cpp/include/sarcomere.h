@@ -97,15 +97,36 @@ class Sarcomere
             f_myosin = other.f_myosin;
         }
 
-        void six_myosins_on_lattice(){
+        void sarcomeric_structure(){
             std::vector<std::vector<double>> myosin_positions;
             myosin_positions = {{3,0}, {3,3},{-3,0},{-3,-3},{3,-3},{-3,3}};
             for (int i = 0; i < myosin_positions.size(); i++){
                 myosin.xs[i][0] = myosin_positions[i][0];
                 myosin.xs[i][1] = myosin_positions[i][1];
-                myosin.thetas[i] = 0;
+                myosin.thetas[i] = 1e-5;
             }
             myosin.n = myosin_positions.size();
+            std::vector<std::vector<double>> alpha_actinin_positions;
+            alpha_actinin_positions = {{0,0},{0,3},{0,-3},{-6,0},{-6,3},{-6,-3}};
+            for (int i = 0; i < alpha_actinin_positions.size(); i++){
+                alpha_actinin.xs[i][0] = alpha_actinin_positions[i][0];
+                alpha_actinin.xs[i][1] = alpha_actinin_positions[i][1];
+            }
+            alpha_actinin.n = alpha_actinin_positions.size();
+            std::vector<std::vector<double>> actin_positions;
+            actin_positions = {{-4.5,0},{-4.5,3},{-4.5,-3},{1.5,0},{1.5,3},{1.5,-3}};
+            for (int i = 0; i < actin_positions.size(); i++){
+                actin.xs[i][0] = actin_positions[i][0];
+                actin.xs[i][1] = actin_positions[i][1];
+                actin.thetas[i] = M_PI;
+            }
+            actin_positions = {{-1.5,0},{-1.5,3},{-1.5,-3},{4.5,0},{4.5,3},{4.5,-3}};
+            for (int i = 0; i < actin_positions.size(); i++){
+                actin.xs[i+6][0] = actin_positions[i][0];
+                actin.xs[i+6][1] = actin_positions[i][1];
+                actin.thetas[i+6] = 0;
+            }
+            actin.n = actin_positions.size()*2;
             total_energy = get_energy();
         }
 

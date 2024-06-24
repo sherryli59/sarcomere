@@ -88,7 +88,8 @@ int main(int argc, char* argv[]){
     int myosin_nsteps = 1000000;
     int aa_nsteps = 1000000;
     double dt0 = 0.5;
-    mc.equilibrate(myosin_nsteps,aa_nsteps,dt0, rng);
+    //mc.equilibrate(myosin_nsteps,aa_nsteps,dt0, rng);
+    model.sarcomeric_structure();
     mc.run_mc(nsteps, rng);
     gsl_rng_free(rng);
     return 0;
