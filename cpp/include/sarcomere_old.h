@@ -29,9 +29,6 @@ class Sarcomere
         double ** m_al_energy;
         double * al_energy; // actin-alpha actinin binding energy (including catch bonds) for each alpha actinin 
         std::vector<std::vector<std::vector<int>>> al_cb; // indices of actins that each alpha actinin forms a catch bond with
-        //store the number of catch-bond-forming alpha-actinins each actin is bound to
-        std::vector<std::vector<double>> al_cb_energy;
-        int * actin_cb_count;
 
 
         std::string filename;
@@ -65,10 +62,8 @@ class Sarcomere
             this->f_myosin = f_myosin;
             printf("e_am = %f, e_al = %f, e_barrier = %f, e_barrier_al = %f, e_catch_bond = %f, f_myosin = %f\n", e_am, e_al, e_barrier, e_barrier_al, e_catch_bond, f_myosin);
             a_m_energy = new double*[actin.n];
-            actin_cb_count = new int[actin.n];
             for (int i = 0; i < actin.n; i++){
                 a_m_energy[i] = new double[myosin.n];
-                actin_cb_count[i] = 0;
             }
             m_al_energy = new double*[myosin.n];
             for (int i = 0; i < myosin.n; i++){
@@ -76,10 +71,8 @@ class Sarcomere
             }
             al_energy = new double[alpha_actinin.n];
             al_cb.resize(alpha_actinin.n);
-            al_cb_energy.resize(alpha_actinin.n);
             for (int i = 0; i < alpha_actinin.n; i++){
                 al_cb[i].resize(0);
-                al_cb_energy[i].resize(0);
             }
             total_energy = get_energy();
             this->filename = filename;
@@ -145,9 +138,7 @@ class Sarcomere
             actin.n = actin_positions.size()*2;
             actin.update_endpoints();
             total_energy = get_energy();
-            printf("total energy: %f\n", total_energy);
             save_state();
-
         }
 
 
@@ -182,29 +173,10 @@ class Sarcomere
             }
             bool update_energy = false; //a_m energy already updated
             update_force(update_energy);
-            double * a_al_binding_e = new double[alpha_actinin.n];
-            for (int j = 0; j < actin.n; j++){
-                actin_cb_count[j] = 0;
-            }
             for (int i = 0; i < alpha_actinin.n; i++){
-                a_al_binding_e[i] = actin_alpha_actinin_energy(i);
-            }
-            for (int i = 0; i < alpha_actinin.n; i++){
-                int n_cb = al_cb[i].size();
-                double al_cb_e_i = 0;
-                for (int j = 0; j < n_cb; j++){
-                    double al_cb_e_ij = al_cb_energy[i][j];
-                    std::vector<int> actin_indices = al_cb[i][j];
-                    int rescaling_factor = actin_cb_count[actin_indices[0]]*actin_cb_count[actin_indices[1]];
-                    al_cb_e_ij = al_cb_e_ij/rescaling_factor;
-                    al_cb_e_i += al_cb_e_ij;
-                    if (al_cb_e_i < e_catch_bond){
-                        break;
-                    }
-                }
-                al_cb_e_i = std::max(al_cb_e_i, e_catch_bond);
-                energy +=  a_al_binding_e[i]+al_cb_e_i;
-                al_energy[i] = a_al_binding_e[i]+al_cb_e_i;
+                double a_al_e = actin_alpha_actinin_energy(i);
+                energy +=  a_al_e;
+                al_energy[i] = a_al_e;
             }
             for (int i = 0; i < myosin.n; i++){
                 for (int j = 0; j < alpha_actinin.n; j++){
@@ -213,7 +185,6 @@ class Sarcomere
                     m_al_energy[i][j] = m_al;
                 }
             }
-            delete[] a_al_binding_e;
             energy += e_barrier*myosin.total_self_repulsion();
             energy += e_barrier_al*alpha_actinin.total_self_repulsion();
             return energy;
@@ -331,11 +302,8 @@ class Sarcomere
                                     //check how many alpha-actinins are bound to actin k and actin i
                                     
                                     catch_bond_strength+=abs(pairwise_cosine);
-                                    al_cb_energy[j].push_back(e_catch_bond*abs(pairwise_cosine));
                                     std::vector<int> actin_index = {k, i};
                                     al_cb[j].push_back(actin_index);
-                                    actin_cb_count[k]++;
-                                    actin_cb_count[i]++;
                                     // printf("pairwise_cosine = %f\n", pairwise_cosine);
                                     // printf("actin %d and %d are bound to alpha-actinin %d\n", i, k, j);
                                     // std::cout<<alpha_actinin.xs[j][0]<<" "<<alpha_actinin.xs[j][1]<<std::endl;
@@ -351,7 +319,6 @@ class Sarcomere
                         }
                     }
                 }
-
                 double catch_bond_energy = e_catch_bond*std::min(catch_bond_strength, 1.0);
                 return catch_bond_energy;
             }
@@ -366,7 +333,6 @@ class Sarcomere
             double binding_e = 0;
             double cb_e = 0;
             double binding_ej, cb_ej;
-            al_cb[i].clear();
             for (int j = 0; j < actin.n; j++){
                 binding_ej = actin_alpha_actinin_binding_energy(j , i);
                 if (binding_ej!=0){
@@ -380,7 +346,7 @@ class Sarcomere
             }
             binding_e = std::max(binding_e, 2*e_al);
             cb_e = std::max(cb_e, e_catch_bond);
-            return binding_e;
+            return binding_e + cb_e;
         }
 
         
@@ -417,38 +383,13 @@ class Sarcomere
             avg_force[1] = (actin.forces[i][1]+force[1])/2;
             actin.forces[i][0] = force[0];
             actin.forces[i][1] = force[1];
-            double * a_al_binding_e = new double[alpha_actinin.n];
-            for (int j = 0; j < actin.n; j++){
-                actin_cb_count[j] = 0;
-            }
             for (int j = 0; j < alpha_actinin.n; j++){
-                a_al_binding_e[j] = actin_alpha_actinin_energy(j);
-            }
-            for (int j = 0; j < alpha_actinin.n; j++){
-                int n_cb = al_cb[j].size();
-                double al_cb_e_j = 0;
-                for (int k = 0; k < n_cb; k++){
-                    double al_cb_e_jk = al_cb_energy[j][k];
-                    std::vector<int> actin_indices = al_cb[j][k];
-                    int rescaling_factor = actin_cb_count[actin_indices[0]]*actin_cb_count[actin_indices[1]];
-                    if (al_cb_e_jk!=0){
-                        if (rescaling_factor == 0){
-                            printf("Error: rescaling factor is zero\n");
-                        }
-                        al_cb_e_jk = al_cb_e_jk/rescaling_factor;
-                        al_cb_e_j += al_cb_e_jk;
-                        if (al_cb_e_j < e_catch_bond){
-                            break;
-                        }
-                    }
-                   
-                }
-                al_cb_e_j = std::max(al_cb_e_j, e_catch_bond);
-                delta_energy +=  a_al_binding_e[j]+al_cb_e_j- al_energy[j];
-                al_energy[j] = a_al_binding_e[j]+al_cb_e_j;
+                double a_al_e = actin_alpha_actinin_energy(j);
+                delta_energy +=   a_al_e - al_energy[j];
+                al_energy[j] = a_al_e;
             }
             total_energy += delta_energy;
-            delete[] a_al_binding_e;
+
         }
 
         void displace_myosin(int i, double x, double y, double theta, double& delta_energy){
@@ -476,32 +417,11 @@ class Sarcomere
 
             if (e_catch_bond!=0){
                 //need to update actin_alpha-actinin energy as well to account for changes in catch bonds
-                double * a_al_binding_e = new double[alpha_actinin.n];
-                for (int j = 0; j < actin.n; j++){
-                    actin_cb_count[j] = 0;
-                }
                 for (int j = 0; j < alpha_actinin.n; j++){
-                    a_al_binding_e[j] = actin_alpha_actinin_energy(j);
+                    double a_al_e = actin_alpha_actinin_energy(j);
+                    delta_energy +=  a_al_e - al_energy[j];
+                    al_energy[j] = a_al_e;
                 }
-                for (int j = 0; j < alpha_actinin.n; j++){
-                    int n_cb = al_cb[j].size();
-                    double al_cb_e_j = 0;
-                    for (int k = 0; k < n_cb; k++){
-                        double al_cb_e_jk = al_cb_energy[j][k];
-                        std::vector<int> actin_indices = al_cb[j][k];
-                        int rescaling_factor = actin_cb_count[actin_indices[0]]*actin_cb_count[actin_indices[1]];
-                        al_cb_e_jk = al_cb_e_jk/rescaling_factor;
-                        al_cb_e_j += al_cb_e_jk;
-                        if (al_cb_e_j < e_catch_bond){
-                            break;
-                        }
-                    }
-                    al_cb_e_j = std::max(al_cb_e_j, e_catch_bond);
-                    delta_energy +=  a_al_binding_e[j]+al_cb_e_j- al_energy[j];
-                    al_energy[j] = a_al_binding_e[j]+al_cb_e_j;
-                }
-                delete[] a_al_binding_e;
-
             }
 
             for (int j = 0; j < alpha_actinin.n; j++){
@@ -518,33 +438,9 @@ class Sarcomere
             delta_energy = 0;
             double repulsion_old = e_barrier_al*alpha_actinin.self_repulsion(i);
             alpha_actinin.displace(i, x, y);
-            // double a_al_e = actin_alpha_actinin_energy(i);
-            // delta_energy +=  a_al_e- al_energy[i];
-            // al_energy[i] = a_al_e;
-            double * a_al_binding_e = new double[alpha_actinin.n];
-            for (int j = 0; j < actin.n; j++){
-                actin_cb_count[j] = 0;
-            }
-            for (int j = 0; j < alpha_actinin.n; j++){
-                a_al_binding_e[j] = actin_alpha_actinin_energy(j);
-            }
-            for (int j = 0; j < alpha_actinin.n; j++){
-                int n_cb = al_cb[j].size();
-                double al_cb_e_j = 0;
-                for (int k = 0; k < n_cb; k++){
-                    double al_cb_e_jk = al_cb_energy[j][k];
-                    std::vector<int> actin_indices = al_cb[j][k];
-                    int rescaling_factor = actin_cb_count[actin_indices[0]]*actin_cb_count[actin_indices[1]];
-                    al_cb_e_jk = al_cb_e_jk/rescaling_factor;
-                    al_cb_e_j += al_cb_e_jk;
-                    if (al_cb_e_j < e_catch_bond){
-                        break;
-                    }
-                }
-                al_cb_e_j = std::max(al_cb_e_j, e_catch_bond);
-                delta_energy +=  a_al_binding_e[j]+al_cb_e_j- al_energy[j];
-                al_energy[j] = a_al_binding_e[j]+al_cb_e_j;
-            }
+            double a_al_e = actin_alpha_actinin_energy(i);
+            delta_energy +=  a_al_e- al_energy[i];
+            al_energy[i] = a_al_e;
             for (int j = 0; j < myosin.n; j++){
                 double e_new = myosin_alpha_actinin_energy(j , i);
                 delta_energy += e_new - m_al_energy[j][i];
@@ -553,8 +449,6 @@ class Sarcomere
             double repulsion_new = e_barrier_al*alpha_actinin.self_repulsion(i);
             delta_energy += repulsion_new - repulsion_old;
             total_energy += delta_energy;  
-            delete[] a_al_binding_e;
-
         }
 
         void new_file(){

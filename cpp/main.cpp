@@ -85,11 +85,11 @@ int main(int argc, char* argv[]){
                       actin_length, myosin_length, e_am, e_al, e_barrier, e_barrier_al, e_catch_bond,
                        f_myosin, myosin_radius, alpha_actinin_radius,filename,rng);
     MC mc(model, beta, dt, D, update_dt_every, save_every, resume);
-    int myosin_nsteps = 1000000;
-    int aa_nsteps = 1000000;
+    int myosin_nsteps = 100000;
+    int aa_nsteps = 100000;
     double dt0 = 0.5;
     //mc.equilibrate(myosin_nsteps,aa_nsteps,dt0, rng);
-    model.sarcomeric_structure();
+    mc.model.sarcomeric_structure();
     mc.run_mc(nsteps, rng);
     gsl_rng_free(rng);
     return 0;

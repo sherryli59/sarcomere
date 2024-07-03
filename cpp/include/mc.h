@@ -22,27 +22,11 @@
 
 class MC{
     public: 
-        double dt, beta, acc_rate, D;
-        int update_myosin_every, update_dt_every, save_every;
-        Sarcomere model;
-        MC(){
-            dt=0;
-            beta=0;
-            D=0;
-            update_myosin_every=0;
-            update_dt_every=0;
-            save_every=0;
-            acc_rate=0;
-        }
+        MC() = delete;
         MC(Sarcomere& model0, double& beta0, double& dt0, double& D0,
-            int& update_dt_every0, int& save_every0, bool& resume){
-            dt=dt0;
-            model=model0;
-            beta=beta0;
-            D=D0;
+            int& update_dt_every0, int& save_every0, bool& resume):
+            model(model0), beta(beta0), dt(dt0), D(D0), update_myosin_every(1), update_dt_every(update_dt_every0), save_every(save_every0){
             update_myosin_every = 1;
-            update_dt_every=update_dt_every0;
-            save_every=save_every0;
             acc_rate=0;
             if (resume){
                 model.load_state();
@@ -52,6 +36,10 @@ class MC{
                 for (int i=0; i<model.myosin.n; i++){
                     printf("Myosin %d: %f %f\n", i, model.myosin.xs[i][0], model.myosin.xs[i][1]);
                     printf("Myosin endpoints: (%f %f), (%f %f)\n", model.myosin.left_endpts[i][0], model.myosin.left_endpts[i][1], model.myosin.right_endpts[i][0], model.myosin.right_endpts[i][1]);
+                }
+                //print positions of actins
+                for (int i=0; i<model.actin.n; i++){
+                    printf("Actin %d: %f %f\n", i, model.actin.xs[i][0], model.actin.xs[i][1]);
                 }
                 //print positions of alpha-actinins
                 for (int i=0; i<model.alpha_actinin.n; i++){
@@ -63,6 +51,9 @@ class MC{
                 model.new_file();
             }
         }
+        double dt, beta, acc_rate, D;
+        int update_myosin_every, update_dt_every, save_every;
+        Sarcomere& model;
         ~MC(){
         }
 
@@ -110,7 +101,7 @@ class MC{
 
         void run_mc(int nsteps, gsl_rng * rng){
             double acc = 0;
-            for (int i=1; i<nsteps; i++){
+            for (int i=0; i<nsteps; i++){
                 bool update_myosin = i%update_myosin_every==0;
                 acc+=sample_step(dt, D, rng, update_myosin);
                 if (i>0 && update_dt_every>0 && i%update_dt_every==0){
@@ -152,6 +143,8 @@ class MC{
             else{
                 model.displace_actin(actin_index, -dx, -dy, -dtheta, delta_energy, force);
             }
+            //printf("Actin displacement: %f %f %f\n", dx, dy, dtheta);
+            model.check_energy();
             if (update_myosin){
                 // update myosin
                 int myosin_index = gsl_rng_uniform_int(rng, model.myosin.n);
@@ -160,12 +153,16 @@ class MC{
                 dtheta = randn[5]*M_PI*noise_mag;
                 delta_energy = 0;
                 model.displace_myosin(myosin_index, dx, dy, dtheta, delta_energy);
+                //printf("Myosin displacement: %f %f %f\n", dx, dy, dtheta);
+                model.check_energy();
                 p_accept = exp(-beta*delta_energy);
                 if (acc_rand[1]<p_accept){
                     acc+=1;
                 }
                 else{
                     model.displace_myosin(myosin_index, -dx, -dy, -dtheta, delta_energy);
+                    //printf("Myosin displacement rejected\n");
+                    model.check_energy();
                 }
             }
             // update alpha_actinin
@@ -174,6 +171,8 @@ class MC{
             dy = randn[7]*noise_mag;
             delta_energy = 0;
             model.displace_alpha_actinin(alpha_actinin_index, dx, dy, delta_energy);
+            //printf("Alpha-actinin displacement: %f %f\n", dx, dy);
+            model.check_energy();
             p_accept = exp(-beta*delta_energy);
             if (acc_rand[2]<p_accept){
                 acc+=1;
