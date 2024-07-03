@@ -45,7 +45,6 @@ class MC{
                 for (int i=0; i<model.alpha_actinin.n; i++){
                     printf("Alpha-actinin %d: %f %f\n", i, model.alpha_actinin.xs[i][0], model.alpha_actinin.xs[i][1]);
                 }
-                exit(0);
             }
             else{
                 model.new_file();

@@ -246,7 +246,8 @@ class Sarcomere
                 double distance = utils::segment_segment_distance(actin.left_endpts[i], 
                     actin.right_endpts[i], myosin.left_endpts[j], myosin.right_endpts[j], box);
                 double angle = std::abs(actin.thetas[i] - myosin.thetas[j]);
-                angle = std::fmod(angle, M_PI);
+                angle = std::fmod(angle, 2*M_PI);
+                angle = std::min(angle, 2*M_PI-angle);
                 if (distance<myosin.radius && (angle<M_PI/4||angle>3*M_PI/4)){
                     // std::cout<<i<<" "<<j<<std::endl;
                     // std::cout<<actin.left_endpts[i][0]<<" "<<actin.left_endpts[i][1]<<" "<<actin.right_endpts[i][0]<<" "<<actin.right_endpts[i][1]<<std::endl;
