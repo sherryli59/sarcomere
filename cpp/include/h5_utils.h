@@ -5,7 +5,10 @@
 #include <H5Cpp.h>
 #include <vector>
 
-
+#ifndef COMPONENTS_H
+#include "components.h"
+#endif
+using vec = utils::vec;
 
 std::vector<double> flatten_2d_array(double** array, size_t rows, size_t cols) {
     if (array == nullptr) {
@@ -20,6 +23,17 @@ std::vector<double> flatten_2d_array(double** array, size_t rows, size_t cols) {
     }
     return flattened;
 }
+
+std::vector<double> flatten_2d_array(std::vector<vec> array) {
+    size_t rows = array.size();
+    std::vector<double> flattened(rows * 2);
+    for (size_t i = 0; i < rows; ++i) {
+            flattened[i * 2] = array[i].x;
+            flattened[i * 2 + 1] = array[i].y;
+    }
+    return flattened;
+}
+
 void create_empty_dataset(H5::H5File& file, const std::string& groupName,
      const std::string& datasetName, const std::vector<hsize_t>& initialDims, const std::vector<hsize_t>& maxDims, const std::vector<hsize_t>& chunkDims) {
     try {
@@ -30,14 +44,12 @@ void create_empty_dataset(H5::H5File& file, const std::string& groupName,
         } else {
             group = file.openGroup(groupName);
         }
-
         // Create a dataspace for the dataset with unlimited maximum size.
         H5::DataSpace dataspace(initialDims.size(), initialDims.data(), maxDims.data());
-
         // Create the dataset creation property list and set it to enable chunking.
         H5::DSetCreatPropList prop;
-        prop.setChunk(initialDims.size(), chunkDims.data());
-
+        
+        prop.setChunk(chunkDims.size(), chunkDims.data());
         // Create the dataset.
         H5::FloatType datatype(H5::PredType::IEEE_F64LE);
         H5::DataSet dataset = group.createDataSet(datasetName, datatype, dataspace, prop);
@@ -50,7 +62,7 @@ void create_empty_dataset(H5::H5File& file, const std::string& groupName,
     }
 }
 
-void append_to_dataset(H5::Group& group, const std::string& datasetName, const double* newData, const std::vector<hsize_t>& newDims) {
+void append_to_dataset(H5::Group& group, const std::string& datasetName, const std::vector<double> newData, const std::vector<hsize_t>& newDims) {
     try {
 
         // Open the dataset.
@@ -89,7 +101,7 @@ void append_to_dataset(H5::Group& group, const std::string& datasetName, const d
         H5::DataSpace memspace(newDims.size(), newDims.data());
 
         // Write the data to the hyperslab.
-        dataset.write(newData, H5::PredType::NATIVE_DOUBLE, memspace, filespace);
+        dataset.write(newData.data(), H5::PredType::IEEE_F64LE, memspace, filespace);
     
     } catch (H5::FileIException& error) {
         error.printErrorStack();
@@ -106,59 +118,89 @@ void append_to_dataset(H5::Group& group, const std::string& datasetName, const d
 }
 
 
-void create_file(std::string& filename, int& n_actins0, int& n_myosins0, int& n_alpha_actinins0){
+void create_file(std::string& filename,  Filament& actin, Myosin& myosin){
     std::remove(filename.c_str());
-
     H5::H5File file(filename, H5F_ACC_TRUNC);
-    hsize_t n_actins = static_cast<hsize_t>(n_actins0);
-    hsize_t n_myosins = static_cast<hsize_t>(n_myosins0);
-    hsize_t n_alpha_actinins = static_cast<hsize_t>(n_alpha_actinins0);
-
+    hsize_t n_actins = static_cast<hsize_t>(actin.n);
+    hsize_t n_myosins = static_cast<hsize_t>(myosin.n);
     std::vector<hsize_t> initialDims = {0, n_actins, 2};
     std::vector<hsize_t> maxDims = {H5S_UNLIMITED, n_actins, 2};
     std::vector<hsize_t> chunkDims = {10, n_actins, 2};
-    create_empty_dataset(file, "/actin", "xs", initialDims, maxDims, chunkDims);
+    create_empty_dataset(file, "/actin", "center", initialDims, maxDims, chunkDims);
+    create_empty_dataset(file, "/actin", "velocity", initialDims, maxDims, chunkDims);
+    create_empty_dataset(file, "/actin", "force", initialDims, maxDims, chunkDims);
     initialDims = {0, n_actins, 1};
     maxDims = {H5S_UNLIMITED, n_actins, 1};
     chunkDims = {10, n_actins, 1};
-    create_empty_dataset(file, "/actin", "thetas", initialDims, maxDims, chunkDims);
+    create_empty_dataset(file, "/actin", "theta", initialDims, maxDims, chunkDims);
+    create_empty_dataset(file, "/actin", "angular_force", initialDims, maxDims, chunkDims);
+    create_empty_dataset(file, "/actin", "cb_strength", initialDims, maxDims, chunkDims);
+
+    // Loop through custom features and create datasets for each
+    for (const auto& feature : actin.custom_features) {
+        create_empty_dataset(file, "/actin", feature.first, initialDims, maxDims, chunkDims);
+    }
+
     initialDims = {0, n_myosins, 2};
     maxDims = {H5S_UNLIMITED, n_myosins, 2};
     chunkDims = {10, n_myosins, 2};
-    create_empty_dataset(file, "/myosin", "xs", initialDims, maxDims, chunkDims);
+    create_empty_dataset(file, "/myosin", "center", initialDims, maxDims, chunkDims);
+    create_empty_dataset(file, "/myosin", "velocity", initialDims, maxDims, chunkDims);
+    create_empty_dataset(file, "/myosin", "force", initialDims, maxDims, chunkDims);
     initialDims = {0, n_myosins, 1};
     maxDims = {H5S_UNLIMITED, n_myosins, 1};
     chunkDims = {10, n_myosins, 1};
-    create_empty_dataset(file, "/myosin", "thetas", initialDims, maxDims, chunkDims);
-    initialDims = {0, n_alpha_actinins, 2};
-    maxDims = {H5S_UNLIMITED, n_alpha_actinins, 2};
-    chunkDims = {10, n_alpha_actinins, 2};
-    create_empty_dataset(file, "/alpha_actinin", "xs", initialDims, maxDims, chunkDims);
-    initialDims = {0, 1};
-    maxDims = {H5S_UNLIMITED, 1};
-    chunkDims = {10, 1};
-    create_empty_dataset(file, "/energy", "total_energy", initialDims, maxDims, chunkDims);
+    create_empty_dataset(file, "/myosin", "theta", initialDims, maxDims, chunkDims);
+    create_empty_dataset(file, "/myosin", "angular_force", initialDims, maxDims, chunkDims);
+    for (const auto& feature : myosin.custom_features) {
+        create_empty_dataset(file, "/myosin", feature.first, initialDims, maxDims, chunkDims);
+    }
+
+
 }
 
-void append_to_file(std::string& filename, Filament& actin, Myosin& myosin, AlphaActinin& alpha_actinin, double& total_energy){
+void append_to_file(std::string& filename, Filament& actin, Myosin& myosin, double& total_energy){
     H5::H5File file(filename, H5F_ACC_RDWR);
     H5::Group group_actin(file.openGroup("/actin"));
     H5::Group group_myosin(file.openGroup("/myosin"));
-    H5::Group group_alpha_actinin(file.openGroup("/alpha_actinin"));
-    H5::Group group_energy(file.openGroup("/energy"));
     hsize_t n_actins = static_cast<hsize_t>(actin.n);
     hsize_t n_myosins = static_cast<hsize_t>(myosin.n);
-    hsize_t n_alpha_actinins = static_cast<hsize_t>(alpha_actinin.n);
-    std::vector<double> flattened_actin_xs = flatten_2d_array(actin.xs, n_actins, 2);
+    std::vector<double> flattened_actin_center = flatten_2d_array(actin.center);
+    append_to_dataset(group_actin, "center", flattened_actin_center, {1, n_actins, 2});
 
-    append_to_dataset(group_actin, "xs", flattened_actin_xs.data(), {1, n_actins, 2});
-    append_to_dataset(group_actin, "thetas", actin.thetas, {1, n_actins, 1});
-    std::vector<double> flattened_myosin_xs = flatten_2d_array(myosin.xs, n_myosins, 2);
-    append_to_dataset(group_myosin, "xs", flattened_myosin_xs.data(), {1, n_myosins, 2});
-    append_to_dataset(group_myosin, "thetas", myosin.thetas, {1, n_myosins, 1});
-    std::vector<double> flattened_alpha_actinin_xs = flatten_2d_array(alpha_actinin.xs, n_alpha_actinins, 2);
-    append_to_dataset(group_alpha_actinin, "xs", flattened_alpha_actinin_xs.data(), {1, n_alpha_actinins, 2});
-    append_to_dataset(group_energy, "total_energy", &total_energy, {1, 1});
+    std::vector<double> flattened_actin_velocity = flatten_2d_array(actin.velocity);
+    append_to_dataset(group_actin, "velocity", flattened_actin_velocity, {1, n_actins, 2});
+
+    std::vector<double> flattened_actin_force = flatten_2d_array(actin.force);
+    append_to_dataset(group_actin, "force", flattened_actin_force, {1, n_actins, 2});
+
+    append_to_dataset(group_actin, "theta", actin.theta, {1, n_actins, 1});
+    append_to_dataset(group_actin, "angular_force", actin.angular_force, {1, n_actins, 1});
+    
+    append_to_dataset(group_actin, "cb_strength", actin.cb_strength, {1, n_actins, 1});
+
+    // Loop through custom features and append data for each
+    for (const auto& feature : actin.custom_features) {
+        append_to_dataset(group_actin, feature.first, feature.second, {1, n_actins, 1});
+    }
+
+
+    std::vector<double> flattened_myosin_center = flatten_2d_array(myosin.center);
+    append_to_dataset(group_myosin, "center", flattened_myosin_center, {1, n_myosins, 2});
+
+    std::vector<double> flattened_myosin_velocity = flatten_2d_array(myosin.velocity);
+    append_to_dataset(group_myosin, "velocity", flattened_myosin_velocity, {1, n_myosins, 2});
+
+    std::vector<double> flattened_myosin_force = flatten_2d_array(myosin.force);
+    append_to_dataset(group_myosin, "force", flattened_myosin_force, {1, n_myosins, 2});
+
+    append_to_dataset(group_myosin, "theta", myosin.theta, {1, n_myosins, 1});
+    append_to_dataset(group_myosin, "angular_force", myosin.angular_force, {1, n_myosins, 1});
+
+    for (const auto& feature : myosin.custom_features) {
+        append_to_dataset(group_myosin, feature.first, feature.second, {1, n_myosins, 1});
+    }
+
 }
 
 std::vector<double> load_from_dataset(H5::Group& group, const std::string& datasetName, std::vector<hsize_t>& dims){
@@ -184,52 +226,42 @@ std::vector<double> load_from_dataset(H5::Group& group, const std::string& datas
 }
 
 
-void load_from_file(std::string& filename, Filament& actin, Myosin& myosin, AlphaActinin& alpha_actinin, double& total_energy){
+void load_from_file(std::string& filename, Filament& actin, Myosin& myosin,  double& total_energy){
     H5::H5File file(filename, H5F_ACC_RDONLY);
     H5::Group group_actin(file.openGroup("/actin"));
     H5::Group group_myosin(file.openGroup("/myosin"));
-    H5::Group group_alpha_actinin(file.openGroup("/alpha_actinin"));
-    H5::Group group_energy(file.openGroup("/energy"));
     hsize_t n_actins = static_cast<hsize_t>(actin.n);
     hsize_t n_myosins = static_cast<hsize_t>(myosin.n);
-    hsize_t n_alpha_actinins = static_cast<hsize_t>(alpha_actinin.n);
     std::vector<hsize_t> dims;
-    std::vector<double> actin_xs = load_from_dataset(group_actin, "xs", dims);
+    std::vector<double> actin_center = load_from_dataset(group_actin, "center", dims);
     //load actin
-    actin_xs = std::vector<double>(actin_xs.end() - 2*n_actins, actin_xs.end());
+    actin_center = std::vector<double>(actin_center.end() - 2*n_actins, actin_center.end());
     for (int i = 0; i < actin.n; i++){
-        actin.xs[i][0] = actin_xs[2*i];
-        actin.xs[i][1] = actin_xs[2*i + 1];
+        actin.center[i].x = actin_center[2*i];
+        actin.center[i].y = actin_center[2*i+1];
     }
-    std::vector<double> actin_thetas = load_from_dataset(group_actin, "thetas", dims);
-    actin_thetas = std::vector<double>(actin_thetas.end() - n_actins, actin_thetas.end());
+    std::vector<double> actin_theta = load_from_dataset(group_actin, "theta", dims);
+    actin_theta = std::vector<double>(actin_theta.end() - n_actins, actin_theta.end());
     for (int i = 0; i < actin.n; i++){
-        actin.thetas[i] = actin_thetas[i];
+        actin.theta[i] = actin_theta[i];
     }
     actin.update_endpoints();
     //load myosin
-    std::vector<double> myosin_xs = load_from_dataset(group_myosin, "xs", dims);
-    myosin_xs = std::vector<double>(myosin_xs.end() - 2*n_myosins, myosin_xs.end());
+    std::vector<double> myosin_center = load_from_dataset(group_myosin, "center", dims);
+    myosin_center = std::vector<double>(myosin_center.end() - 2*n_myosins, myosin_center.end());
     for (int i = 0; i < myosin.n; i++){
-        myosin.xs[i][0] = myosin_xs[2*i];
-        myosin.xs[i][1] = myosin_xs[2*i + 1];
+        myosin.center[i].x = myosin_center[2*i];
+        myosin.center[i].y = myosin_center[2*i + 1];
     }
-    std::vector<double> myosin_thetas = load_from_dataset(group_myosin, "thetas", dims);
-    myosin_thetas = std::vector<double>(myosin_thetas.end() - n_myosins, myosin_thetas.end());
+    std::vector<double> myosin_theta = load_from_dataset(group_myosin, "theta", dims);
+    myosin_theta = std::vector<double>(myosin_theta.end() - n_myosins, myosin_theta.end());
     for (int i = 0; i < myosin.n; i++){
-        myosin.thetas[i] = myosin_thetas[i];
+        myosin.theta[i] = myosin_theta[i];
     }
     myosin.update_endpoints();
-    //load alpha_actinin
-    std::vector<double> alpha_actinin_xs = load_from_dataset(group_alpha_actinin, "xs", dims);
-    alpha_actinin_xs = std::vector<double>(alpha_actinin_xs.end() - 2*n_alpha_actinins, alpha_actinin_xs.end());
-    for (int i = 0; i < alpha_actinin.n; i++){
-        alpha_actinin.xs[i][0] = alpha_actinin_xs[2*i];
-        alpha_actinin.xs[i][1] = alpha_actinin_xs[2*i + 1];
-    }
-    //load energy
-    std::vector<double> energy = load_from_dataset(group_energy, "total_energy", dims);
-    //last element of energy is the total energy
-    total_energy = energy.back();
+    // //load energy
+    // std::vector<double> energy = load_from_dataset(group_energy, "total_energy", dims);
+    // //last element of energy is the total energy
+    // total_energy = energy.back();
 }
 #endif

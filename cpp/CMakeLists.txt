@@ -1,4 +1,7 @@
 cmake_minimum_required(VERSION 3.0.0)
+set(CMAKE_CXX_STANDARD 17)
+set(CMAKE_CXX_STANDARD_REQUIRED True)
+
 project(sarcomere)
 
 
@@ -13,17 +16,33 @@ find_package(HDF5 REQUIRED COMPONENTS C CXX)
 find_package(GTest REQUIRED)
 include_directories(${GTEST_INCLUDE_DIRS})
 
+find_package(Eigen3 3.3 REQUIRED NO_MODULE)
+include_directories(${EIGEN3_INCLUDE_DIR})
+
+
+
+include_directories("${PROJECT_SOURCE_DIR}/autodiff")
 
 # Set compiler flags for debugging symbols
-set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -O3")
+#set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -O3")
+set(CMAKE_BUILD_TYPE Debug)
+set(CMAKE_CXX_FLAGS_DEBUG "-g")  # Add debug symbols
 
 
 
 
-add_executable(${PROJECT_NAME} main.cpp)
+# add_executable(${PROJECT_NAME} main.cpp)
+# target_link_libraries(${PROJECT_NAME} PRIVATE my_library)
+# add_executable(minimal minimal.cpp)
+# target_link_libraries(minimal PRIVATE my_library)
+add_executable(${PROJECT_NAME} langevin.cpp)
 target_link_libraries(${PROJECT_NAME} PRIVATE my_library)
 add_executable(tests tests.cpp)
 target_link_libraries(tests PRIVATE my_library gtest_main)
+
+add_executable(autodiff autodiff.cpp)
+target_link_libraries(autodiff PRIVATE my_library)
+
 
 
 # Include GSL headers
@@ -65,3 +84,5 @@ add_custom_target(valgrind
 set(CPACK_PROJECT_NAME ${PROJECT_NAME})
 set(CPACK_PROJECT_VERSION ${PROJECT_VERSION})
 include(CPack)
+
+

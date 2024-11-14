@@ -8,125 +8,143 @@
 #include <cmath>
 #include <vector>
 #include <iostream>
+#include <unordered_map>
+#include <string>
 #include <gsl/gsl_rng.h>
 #include <gsl/gsl_randist.h>
+using vec = utils::vec;
 
 
-class Filament
-{
-    public:
-        int n;
-        std::vector <double> box;
-        double length;
-        double ** xs;
-        double * thetas;
-        double ** left_endpts;
-        double ** right_endpts;
-        double ** forces;
+class Filament {
+public:
+    int n;
+    std::vector<double> box;
+    double length;
+    std::vector<vec> center;
+    std::vector<double> theta;
+    std::vector<vec> left_end;
+    std::vector<vec> right_end;
+    std::vector<vec> force;
+    std::vector<double> angular_force;
+    std::vector<vec> velocity;
+    std::vector<double> tension;
+    std::vector<double> cb_strength;
 
-        Filament(){
-            n = 0;
-            length = 0;
-            xs = NULL;
-            thetas = NULL;
+    // Dictionary to store 1D features
+    std::unordered_map<std::string, std::vector<double>> custom_features;
 
+    Filament() {
+        n = 0;
+        length = 0;
+    }
+
+    Filament(int n0, double length0, std::vector<double> box0, gsl_rng* rng) {
+        n = n0;
+        length = length0;
+        box = box0;
+        center.resize(n);
+        theta.resize(n);
+        left_end.resize(n);
+        right_end.resize(n);
+        force.resize(n);
+        angular_force.resize(n);
+        velocity.resize(n);
+        tension.resize(n);
+        cb_strength.resize(n);
+        for (int i = 0; i < n; i++) {
+            center[i].x = gsl_ran_flat(rng, -0.5 * box[0], 0.5 * box[0]);
+            center[i].y = gsl_ran_flat(rng, -0.5 * box[1], 0.5 * box[1]);
+            theta[i] = gsl_ran_flat(rng, 0, 2 * M_PI);
         }
-        Filament(int n0, double length0, std::vector <double> box0, gsl_rng * rng){
-            n = n0;
-            length = length0;
-            xs = new double*[n];
-            thetas = new double[n];
-            forces = new double*[n];
-            left_endpts = new double*[n];
-            right_endpts = new double*[n];
-            box = box0;
-            for (int i = 0; i < n; i++){
-                xs[i] = new double[2];
-                xs[i][0] = gsl_ran_flat(rng, -0.5*box[0],0.5*box[0]);
-                xs[i][1] = gsl_ran_flat(rng, -0.5*box[1], 0.5*box[1]);
-                thetas[i] = gsl_ran_flat(rng, 0, 2*M_PI);
-                left_endpts[i] = new double[2];
-                right_endpts[i] = new double[2];
-                forces[i] = new double[2];
-                forces[i][0] = 0;
-                forces[i][1] = 0;
-            }
-            update_endpoints();
-        }
+        update_endpoints();
+    }
 
-        virtual ~Filament(){
-            for (int i = 0; i < n; i++){
-                delete[] xs[i];
-                delete[] forces[i];
-                delete[] left_endpts[i];
-                delete[] right_endpts[i];
+    virtual ~Filament() {
+        printf("Filament destructor called\n");
+    }
 
-            }
-            delete[] thetas;
-            printf("Filament destructor called\n");
-        }
-        Filament(const Filament& other){
-            n = other.n;
-            box = other.box;
-            length = other.length;
-            xs = new double*[n];
-            thetas = new double[n];
-            for (int i = 0; i < n; i++){
-                xs[i] = new double[2];
-                xs[i][0] = other.xs[i][0];
-                xs[i][1] = other.xs[i][1];
-                thetas[i] = other.thetas[i];
-                forces[i] = new double[2];
-                forces[i][0] = other.forces[i][0];
-                forces[i][1] = other.forces[i][1];
-            }
-        }
+    Filament(const Filament& other) {
+        n = other.n;
+        box = other.box;
+        length = other.length;
+        cb_strength = other.cb_strength;
+        center = other.center;
+        theta = other.theta;
+        left_end = other.left_end;
+        right_end = other.right_end;
+        force = other.force;
+        angular_force = other.angular_force;
+        velocity = other.velocity;
+        tension = other.tension;
+        custom_features = other.custom_features;
+    }
 
-        void displace(int& i, double& dx, double& dy){
-            xs[i][0] += dx;
-            xs[i][1] += dx;
-            utils::pbc_wrap(xs[i], box);
+    void displace(int& i, double& dx, double& dy) {
+        center[i].x += dx;
+        center[i].y += dy;
+        center[i].pbc_wrap(box);
+        update_endpoints_i(i);
+    }
+
+    void displace(int& i, double& dx, double& dy, double& dtheta) {
+        center[i].x += dx;
+        center[i].y += dy;
+        center[i].pbc_wrap(box);
+        theta[i] += dtheta;
+        utils::angle_wrap(theta[i]);
+        update_endpoints_i(i);
+    }
+
+    void update_endpoints_i(int& i) {
+        std::vector<double> segments(2);
+        segments[0] = length * cos(theta[i]);
+        segments[1] = length * sin(theta[i]);
+
+        left_end[i].x = center[i].x - 0.5 * segments[0];
+        left_end[i].y = center[i].y - 0.5 * segments[1];
+        right_end[i].x = center[i].x + 0.5 * segments[0];
+        right_end[i].y = center[i].y + 0.5 * segments[1];
+    }
+
+    void update_endpoints() {
+        for (int i = 0; i < n; i++) {
             update_endpoints_i(i);
         }
+    }
 
-        void displace(int& i, double& dx, double& dy, double& dtheta){
-            xs[i][0] += dx;
-            xs[i][1] += dy;
-            thetas[i] += dtheta;
-            utils::pbc_wrap(xs[i], box);
-            utils::angle_wrap(thetas[i]);
-            update_endpoints_i(i);
+    void update_theta(std::vector<double> new_theta) {
+        for (int i = 0; i < n; i++) {
+            theta[i] = new_theta[i];
         }
+        update_endpoints();
+    }
 
-        void update_endpoints_i(int& i){
-            std::vector <double> segments(2);
-            segments[0] = length*cos(thetas[i]);
-            segments[1] = length*sin(thetas[i]);
-            left_endpts[i][0] = xs[i][0] - 0.5*segments[0];
-            left_endpts[i][1] = xs[i][1] - 0.5*segments[1];
-            right_endpts[i][0] = xs[i][0] + 0.5*segments[0];
-            right_endpts[i][1] = xs[i][1] + 0.5*segments[1];
+    void update_center(std::vector<vec> new_center) {
+        for (int i = 0; i < n; i++) {
+            center[i] = new_center[i];
         }
-        
-        void update_endpoints(){
-            for (int i = 0; i < n; i++){
-                update_endpoints_i(i);
-            }
+        update_endpoints();
+    }
+
+    // Function to register a new 1D feature of length n
+    void register_feature(const std::string& name) {
+        if (custom_features.find(name) == custom_features.end()) {
+            custom_features[name] = std::vector<double>(n, 0.0); // Initialize with zeros
+            std::cout << "1D feature " << name << " registered successfully.\n";
+        } else {
+            std::cout << "1D feature " << name << " already exists.\n";
         }
-        void update_thetas(double * new_thetas){
-            for (int i = 0; i < n; i++){
-                thetas[i] = new_thetas[i];
-            }
-            update_endpoints();
+    }
+
+    // Access operator overloading for easy access to 1D features
+    std::vector<double>& operator[](const std::string& name) {
+        if (custom_features.find(name) == custom_features.end()) {
+            throw std::runtime_error("Error: 1D feature " + name + " not found.");
         }
-        void update_xs(double ** new_xs){
-            for (int i = 0; i < n; i++){
-                xs[i][0] = new_xs[i][0];
-                xs[i][1] = new_xs[i][1];
-            }
-            update_endpoints();
-        }
+        return custom_features[name];
+    }
 };
+
 
 
 class Myosin: public Filament
@@ -142,7 +160,6 @@ class Myosin: public Filament
             Filament(n0, length0, box0,  rng)
             {
                 radius = radius0;
-
             }   
 
         Myosin(const Myosin& other):
@@ -150,102 +167,8 @@ class Myosin: public Filament
             {
                 radius = other.radius;
             }
-
-        double total_self_repulsion(){
-            double e = 0;
-            for (int i = 0; i < n; i++){
-                for (int j=0; j < i; j++){
-                    double r = utils::segment_segment_distance(left_endpts[i], right_endpts[i], left_endpts[j], right_endpts[j], box);
-                    if (r < 2*radius){
-                        e += 1;
-                    }
-                }
-            }
-            return e;
-        }
-        double self_repulsion(int& i){
-            double e = 0;
-            for (int j = 0; j < n; j++){
-                if (j != i){
-                    double r = utils::segment_segment_distance(left_endpts[i], right_endpts[i], left_endpts[j], right_endpts[j], box);
-                    if (r < 2*radius){
-                        e += 1;
-                    }
-                }
-            }
-            return e;
-        }
 };
 
-class AlphaActinin
-{
-    public:
-        int n;
-        double radius;
-        double ** xs;
-        std::vector <double> box;
-        AlphaActinin(){
-            n = 0;
-            radius = 0;
-            xs = NULL;
-        }
-        AlphaActinin(int& n0, double& radius0, std::vector <double> box0, gsl_rng * rng){
-            n = n0;
-            radius = radius0;
-            xs = new double*[n];
-            box = box0;
-            for (int i = 0; i < n; i++){
-                xs[i] = new double[2];
-                xs[i][0] = gsl_ran_flat(rng, -0.5*box[0],0.5*box[0]);
-                xs[i][1] = gsl_ran_flat(rng, -0.5*box[1], 0.5*box[1]);
-            }
-        }
 
-        ~AlphaActinin(){
-            for (int i = 0; i < n; i++){
-                delete[] xs[i];
-            }
-            delete[] xs;
-        }
-        AlphaActinin(const AlphaActinin& other){
-            n = other.n;
-            radius = other.radius;
-            xs = new double*[n];
-            for (int i = 0; i < n; i++){
-                xs[i] = new double[2];
-                xs[i][0] = other.xs[i][0];
-                xs[i][1] = other.xs[i][1];
-            }
-        }
-        double total_self_repulsion(){
-            double e = 0;
-            for (int i = 0; i < n; i++){
-                for (int j=0; j < i; j++){
-                    double r = utils::point_point_distance(xs[i], xs[j], box);
-                    if (r < 2*radius){
-                        e += 1;
-                    }
-                }
-            }
-            return e;
-        }
-        double self_repulsion(int& i){
-            double e = 0;
-            for (int j = 0; j < n; j++){
-                if (j != i){
-                    double r = utils::point_point_distance(xs[i], xs[j], box);
-                    if (r < 2*radius){
-                        e += 1;
-                    }
-                }
-            }
-            return e;
-        }
-        void displace(int& i, double& dx, double& dy){
-            xs[i][0] += dx;
-            xs[i][1] += dx;
-            utils::pbc_wrap(xs[i], box);
-        }
-};
 
 #endif

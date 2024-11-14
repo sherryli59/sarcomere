@@ -2,23 +2,114 @@
 #define UTILS_H
 #include <cmath>
 #include <vector>
+#include <map>
+#include <algorithm> 
+#include <numeric>
+#include <utility>
+
+
 
 namespace utils {
 
-double norm(double * x, int dim){
-    double norm = 0;
-    for(int i = 0; i < dim; i++){
-        norm += x[i]*x[i];
+struct vec
+{
+    double x;
+    double y;
+    //defining the + operator for the point struct
+    vec operator+(const vec& p) const
+    {
+        vec sum;
+        sum.x = x + p.x;
+        sum.y = y + p.y;
+        return sum;
     }
-    return sqrt(norm);
-}
+    //defining the - operator for the point struct
+    vec operator-(const vec& p) const
+    {
+        vec diff;
+        diff.x = x - p.x;
+        diff.y = y - p.y;
+        return diff;
+    }
+    //defining the * operator for the point struct
+    vec operator*(double c) const
+    {
+        vec scaled;
+        scaled.x = c * x;
+        scaled.y = c * y;
+        return scaled;
+    }
+    friend vec operator*(double c, const vec& v) {
+        return v * c;  // Reuse the vec * double multiplication defined above
+    }
+    //defining the / operator for the point struct
+    vec operator/(double c) const
+    {
+        vec scaled;
+        scaled.x = x / c;
+        scaled.y = y / c;
+        return scaled;
+    }
+    //define the norm of the point
+    double norm() const
+    {
+        return sqrt(x*x + y*y);
+    }
 
-void pbc_wrap(double * x, std::vector <double> box){
-    x[0] = x[0] - box[0]*round(x[0]/box[0]);
-    x[1] = x[1] - box[1]*round(x[1]/box[1]);
-}
+    vec operator-() const
+    {
+        vec neg;
+        neg.x = -x;
+        neg.y = -y;
+        return neg;
+    }
 
-double pbc_wrap(double x, double box){
+    void pbc_wrap(std::vector <double> box){
+        x = x - box[0]*round(x/box[0]);
+        y = y - box[1]*round(y/box[1]);
+    }
+
+    double distance(const vec& p) const
+    {
+        return std::sqrt((x - p.x) * (x - p.x) + (y - p.y) * (y - p.y));
+    }
+
+    double distance(const vec& p, std::vector<double> box) const
+    {
+        double dx = x - p.x;
+        double dy = y - p.y;
+        dx = dx - box[0]*round(dx/box[0]);
+        dy = dy - box[1]*round(dy/box[1]);
+        return std::sqrt(dx*dx + dy*dy);
+    }
+
+    double dot(const vec& p) const
+    {
+        return x * p.x + y * p.y;
+    }
+    vec normalize() const
+    {
+        double n = norm();
+        if (n == 0)
+        {
+            return *this;
+        }
+        return *this / norm();
+    }
+
+    double norm_squared() const
+    {
+        return x*x + y*y;
+    }
+    
+
+
+};
+
+
+
+
+double pbc_wrap(double x, double& box){
     return x - box*round(x/box);
 }
 
@@ -26,107 +117,134 @@ void angle_wrap(double& theta){
     theta = theta - 2*M_PI*round(theta/(2*M_PI));
 }
 
-double point_point_distance(double * x, double * y, std::vector <double> box){
-    double r[2];
-    r[0] = x[0] - y[0];
-    r[1] = x[1] - y[1];
-    pbc_wrap(r, box);
-    return norm(r, 2);
+
+
+
+class MoleculeConnection {
+public:
+    std::vector<std::vector<int>> connections;
+    MoleculeConnection(){
+    }
+    MoleculeConnection(int numA) : connections(numA) {
+        // Initialize the vector for each A molecule
+        for (int i = 0; i < numA; i++) {
+            connections[i] = std::vector<int>();
+        }
+    }
+
+    // Add a co nnection from molecule A to molecule B
+    void addConnection(int aIndex, int bIndex) {
+        if (aIndex >= 0 && aIndex < connections.size()) {
+            // Avoid adding duplicates (optional)
+            if (std::find(connections[aIndex].begin(), connections[aIndex].end(), bIndex) == connections[aIndex].end()) {
+                connections[aIndex].push_back(bIndex);
+            }
+        }
+    }
+
+    // Delete a connection from molecule A to molecule B
+    void deleteConnection(int aIndex, int bIndex) {
+        if (aIndex >= 0 && aIndex < connections.size()) {
+            auto& connList = connections[aIndex];
+            auto it = std::find(connList.begin(), connList.end(), bIndex);
+            if (it != connList.end()) {
+                connList.erase(it); // Remove the connection
+            } 
+        }
+    }
+
+    void deleteAllConnections(int aIndex) {
+        if (aIndex >= 0 && aIndex < connections.size()) {
+            connections[aIndex].clear();
+        }
+    }
+
+    // Query connections for a specific molecule A
+    const std::vector<int>& getConnections(int aIndex) const {
+        if (aIndex >= 0 && aIndex < connections.size()) {
+            return connections[aIndex];
+        }
+        else {
+            static const std::vector<int> emptyList;
+            return emptyList;
+        }
+    }
+
+};
+
+template <typename T>
+std::vector<size_t> sort_indices(const std::vector<T>& vec) {
+    // Initialize indices with 0, 1, ..., n-1
+    std::vector<size_t> indices(vec.size());
+    for (size_t i = 0; i < indices.size(); ++i) {
+        indices[i] = i;
+    }
+
+    // Sort indices based on values in the vector
+    std::sort(indices.begin(), indices.end(),
+              [&vec](size_t a, size_t b) { return vec[a] > vec[b]; });
+
+    return indices;
 }
 
-double point_segment_distance(double * x, double * a, double * b, std::vector <double> box){
-    // compute the shortest distance between a point x and a segment ab
-    double ab[2];
-    ab[0] = b[0] - a[0];
-    ab[1] = b[1] - a[1];
-    double ab_norm = norm(ab, 2);
-    ab[0] = ab[0]/ab_norm;
-    ab[1] = ab[1]/ab_norm;
-    double ap[2];
-    ap[0] = x[0] - a[0];
-    ap[1] = x[1] - a[1];
-    pbc_wrap(ap, box);
-    double ap_ab = ap[0]*ab[0] + ap[1]*ab[1];
-    ap_ab = fmax(0, fmin(ap_ab, ab_norm));
-    double vec[2];
-    vec[0] = ap[0] - ap_ab*ab[0];
-    vec[1] = ap[1] - ap_ab*ab[1];
-    double dist = norm(vec, 2);
-    return dist;
+
+
+
+// Function to compute the dot product of two vectors
+double dotProduct(double x1, double y1, double x2, double y2) {
+    return x1 * x2 + y1 * y2;
 }
 
-double distance(double* p1, double* p2) {
-    return std::hypot(p2[0] - p1[0], p2[1] - p1[1]);
-}
+// Function to calculate the points on segment 1 that are distance d away from segment 2
+double analyze_overlap(double* P1_left, double* P1_right, 
+                        double* P2_left, double* P2_right, double d, std::vector<double> box) {
+                                           
+    // Direction vector of segment 1
+    double dir1_x = P1_right[0] - P1_left[0];
+    double dir1_y = P1_right[1] - P1_left[1];
 
-// Function to calculate the distance between a point and a line segment 
-double point_segment_distance_new(double* p, double* p1, double* p2, std::vector <double> box) {
-    double l2 = (p2[0] - p1[0]) * (p2[0] - p1[0]) + (p2[1] - p1[1]) * (p2[1] - p1[1]);
-    if (l2 == 0) return distance(p, p1);  // Segment is actually a point
-    double t = ((p[0] - p1[0]) * (p2[0] - p1[0]) + (p[1] - p1[1]) * (p2[1] - p1[1])) / l2;
-    if (t < 0) return distance(p, p1);  // Beyond the 'p1' end of the segment
-    else if (t > 1) return distance(p, p2);  // Beyond the 'p2' end of the segment
-    double projection_x = p1[0] + t * (p2[0] - p1[0]);
-    double projection_y = p1[1] + t * (p2[1] - p1[1]);
-    return distance(p, new double[2]{projection_x, projection_y});
-}
+    // Direction vector of segment 2
+    double dir2_x = P2_right[0] - P2_left[0];
+    double dir2_y = P2_right[1] - P2_left[1];
+    pbc_wrap(dir1_x, box[0]);
+    pbc_wrap(dir1_y, box[1]);
+    pbc_wrap(dir2_x, box[0]);
+    pbc_wrap(dir2_y, box[1]);
 
-int orientation(double * p, double * q, double * r, std::vector <double> box){
+    // Normal vector of segment 2 (perpendicular to the direction vector)
+    double nx2 = -dir2_y;
+    double ny2 = dir2_x;
+
+    // Normalize the normal vector of segment 2
+    double norm_factor = std::sqrt(nx2 * nx2 + ny2 * ny2);
+    nx2 /= norm_factor;
+    ny2 /= norm_factor;
+    std::vector<double> left_vec = {P1_left[0] - P2_left[0], P1_left[1] - P2_left[1]};
+    pbc_wrap(left_vec[0], box[0]);
+    pbc_wrap(left_vec[1], box[1]);
+    double dot1 = dotProduct(left_vec[0], left_vec[1], nx2, ny2);
+    double dot2 = dotProduct(dir1_x, dir1_y, nx2, ny2);
+    double t1 = (d - dot1) / dot2;
+    double t2 = (-d - dot1) / dot2;
+    // Clamp t1 and t2 between 0 and 1 to ensure the points are within the segment
+    t1 = std::max(0.0, std::min(1.0, t1));
+    t2 = std::max(0.0, std::min(1.0, t2));
     
-    double val = pbc_wrap(q[1] - p[1],box[1]) * pbc_wrap(r[0] - q[0], box[0]) - pbc_wrap(q[0] - p[0],box[0]) * pbc_wrap(r[1] - q[1],box[1]);
-    if(val == 0){
-        return 0;
-    }else if(val > 0){
-        return 1;
-    }else{
-        return 2;
-    }
+    double ratio = std::abs(t1 - t2);
+    // // Points on segment 1
+    // double* point1 = new double[2];
+    // double* point2 = new double[2];
+
+    // point1[0] = P1_left[0] + t1 * dir1_x;
+    // point1[1] = P1_left[1] + t1 * dir1_y;
+
+    // point2[0] = P1_left[0] + t2 * dir1_x;
+    // point2[1] = P1_left[1] + t2 * dir1_y;
+    return ratio;
 }
 
-int orientation(double * p, double * q, double * r){
-    double val = (q[1] - p[1]) * (r[0] - q[0]) - (q[0] - p[0]) * (r[1] - q[1]);
-    if(val == 0){
-        return 0;
-    }else if(val > 0){
-        return 1;
-    }else{
-        return 2;
-    }
 }
 
-
-double segment_segment_distance(double * a, double * b, double * c, double * d, std::vector <double> box){
-    //segments are ab and cd
-    double a_cd = point_segment_distance(a, c, d, box);
-    double b_cd = point_segment_distance(b, c, d, box);
-    double c_ab = point_segment_distance(c, a, b, box);
-    double d_ab = point_segment_distance(d, a, b, box);
-    double dist = fmin(fmin(a_cd, b_cd), fmin(c_ab, d_ab));
-    // check if segments intersect
-    double ab_center[2];
-    ab_center[0] = (a[0] + b[0])/2;
-    ab_center[1] = (a[1] + b[1])/2;
-    double cd_center[2];
-    cd_center[0] = (c[0] + d[0])/2;
-    cd_center[1] = (c[1] + d[1])/2;
-    double displacement[2];
-    displacement[0] = box[0]*round((ab_center[0] - cd_center[0])/box[0]);
-    displacement[1] = box[1]*round((ab_center[1] - cd_center[1])/box[1]);
-    double a0[2], b0[2];
-    a0[0]=a[0]-displacement[0];
-    a0[1]=a[1]-displacement[1];
-    b0[0]=b[0]-displacement[0];
-    b0[1]=b[1]-displacement[1];
-    int o1 = orientation(a0, b0, c);
-    int o2 = orientation(a0, b0, d);
-    int o3 = orientation(c, d, a0);
-    int o4 = orientation(c, d, b0);
-    if((o1 != o2) && (o3 != o4)){
-        dist = 0;
-    }
-    return dist;
-}
-}
 
 
 #endif 

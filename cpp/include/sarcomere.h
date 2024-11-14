@@ -11,249 +11,377 @@
 #include "utils.h"
 #endif
 
+#ifndef INTERACTION_H
+#include "interaction.h"
+#endif
+
+#ifndef GEOMETRY_H
+#include "geometry.h"
+#endif
+
+#ifndef H5_UTILS_H
 #include "h5_utils.h"
+#endif
+
+#ifndef NEIGHBORLIST_H
+#include "neighborlist.h"
+#endif
 
 #include <cmath>
 #include <vector>
-
+#include <numeric>
+using vector = std::vector<double>;
+using interaction = geometry::am_interaction;
+const double EPS = 1e-6;
 class Sarcomere
 {
     public:
         Filament actin;
         Myosin myosin;
-        AlphaActinin alpha_actinin;
+        NeighborList neighbor_list; 
+        //myosin indices that each actin is bound to
+        utils::MoleculeConnection myosinIndicesPerActin;
+        //actin indices that each myosin is bound to
+        utils::MoleculeConnection actinIndicesPerMyosin;
+        //actin indices that each actin forms a catch bond with
+        utils::MoleculeConnection actinIndicesPerActin;
         std::vector <double> box;
-        double e_am, e_al, e_barrier, e_barrier_al, e_catch_bond, f_myosin;
-        double total_energy;
-        double ** a_m_energy;
-        double ** m_al_energy;
-        double * al_energy; // actin-alpha actinin binding energy (including catch bonds) for each alpha actinin 
-        std::vector<std::vector<std::vector<int>>> al_cb; // indices of actins that each alpha actinin forms a catch bond with
-        //store the number of catch-bond-forming alpha-actinins each actin is bound to
-        std::vector<std::vector<double>> al_cb_energy;
-        int * actin_cb_count;
-
-
+        double k_aa, kappa_aa, cb_mult_factor,
+            kappa_am, k_am, v_am, crosslinker_length, skin_distance, total_energy, cutoff_radius;
+        std::vector<std::vector<interaction>> am_interaction;
+        std::vector<double> actin_crosslink_ratio;
+        std::vector<int> actin_n_bonds;
+        std::vector<std::pair<std::vector<int>, std::vector<int>>> actin_neighbors_by_species;
+        vector actin_basic_tension; 
+        gsl_rng * rng;
         std::string filename;
 
         Sarcomere(){
             box.resize(2);
             box[0] = 0;
             box[1] = 0;
-            e_am = 0;
-            e_al = 0;
-            e_barrier = 0;
-            e_barrier_al = 0;
-            e_catch_bond = 0;
-            f_myosin = 0;
+            k_aa = 0;
+            cb_mult_factor = 0;
             total_energy = 0;
         }
-        Sarcomere(int& n_actins, int& n_myosins, int& n_alpha_actinins, std::vector<double> box0, double& actin_length, double& myosin_length,
-            double& e_am, double& e_al, double& e_barrier, double& e_barrier_al, double& e_catch_bond,
-            double& f_myosin, double& myosin_radius, double& alpha_actinin_radius, std::string& filename, gsl_rng * rng)
+        Sarcomere(int& n_actins, int& n_myosins, vector box0, double& actin_length, double& myosin_length,
+            double& cb_mult_factor, double& k_aa, double& kappa_aa, double& k_am, double& kappa_am,double& v_am,
+            double& myosin_radius, double& crosslinker_length, std::string& filename, gsl_rng * rng)
             : actin(n_actins, actin_length, box0, rng), 
                 myosin(n_myosins, myosin_length, myosin_radius, box0, rng),
-                alpha_actinin(n_alpha_actinins, alpha_actinin_radius,box0, rng){
+                myosinIndicesPerActin(n_actins),
+                actinIndicesPerMyosin(n_myosins),
+                actinIndicesPerActin(n_actins),
+                neighbor_list(0.0, box0, 0.0)
+            {
             box.resize(2);
             box[0] = box0[0];
             box[1] = box0[1];
-            this->e_am = e_am;
-            this->e_al = e_al;
-            this->e_barrier = e_barrier;
-            this->e_barrier_al = e_barrier_al;
-            this->e_catch_bond = e_catch_bond;
-            this->f_myosin = f_myosin;
-            printf("e_am = %f, e_al = %f, e_barrier = %f, e_barrier_al = %f, e_catch_bond = %f, f_myosin = %f\n", e_am, e_al, e_barrier, e_barrier_al, e_catch_bond, f_myosin);
-            a_m_energy = new double*[actin.n];
-            actin_cb_count = new int[actin.n];
-            for (int i = 0; i < actin.n; i++){
-                a_m_energy[i] = new double[myosin.n];
-                actin_cb_count[i] = 0;
-            }
-            m_al_energy = new double*[myosin.n];
-            for (int i = 0; i < myosin.n; i++){
-                m_al_energy[i] = new double[alpha_actinin.n];
-            }
-            al_energy = new double[alpha_actinin.n];
-            al_cb.resize(alpha_actinin.n);
-            al_cb_energy.resize(alpha_actinin.n);
-            for (int i = 0; i < alpha_actinin.n; i++){
-                al_cb[i].resize(0);
-                al_cb_energy[i].resize(0);
-            }
-            total_energy = get_energy();
+            this->k_aa = k_aa;
+            this->kappa_aa = kappa_aa;
+            this->cb_mult_factor = cb_mult_factor;
+            this->k_am = k_am;
+            this->kappa_am = kappa_am;
+            this->v_am = v_am;
+            this->crosslinker_length = crosslinker_length;
+            this-> skin_distance = skin_distance;
             this->filename = filename;
+            this->rng = rng;
+            cutoff_radius = std::max(actin_length, myosin_length)
+                            +std::max(2*myosin_radius, crosslinker_length);
+            double skin_distance = 0.05*cutoff_radius;
+            neighbor_list = NeighborList(cutoff_radius+skin_distance, box, skin_distance/2);
+            neighbor_list.initialize(actin.center, myosin.center);
+            actin_basic_tension.resize(n_actins);
+            actin_crosslink_ratio.resize(n_actins);
+            actin_n_bonds.resize(n_actins);
+            am_interaction.resize(n_actins);
+            for (int i = 0; i < n_actins; i++){
+                am_interaction[i].resize(n_myosins);
+            }
+            actin.register_feature("myosin_binding_ratio");
+            actin.register_feature("crosslink_ratio");
+            actin.register_feature("partial_binding_ratio");
         }
+
         ~Sarcomere(){ 
-            printf("start destructor\n");
-            for (int i = 0; i < actin.n; i++){
-                delete[] a_m_energy[i];
-            }
-            delete[] a_m_energy;
-            delete[] al_energy;
-            for (int i = 0; i < myosin.n; i++){
-                delete[] m_al_energy[i];
-            }
-            delete[] m_al_energy;
-            printf("Sarcomere destructor called\n");
+
         }
 
         Sarcomere(const Sarcomere& other){
             actin = other.actin;
             myosin = other.myosin;
-            alpha_actinin = other.alpha_actinin;
+            neighbor_list = other.neighbor_list;
             box = other.box;
-            e_am = other.e_am;
-            e_al = other.e_al;
-            e_barrier = other.e_barrier;
-            e_barrier_al = other.e_barrier_al;
-            e_catch_bond = other.e_catch_bond;
-            f_myosin = other.f_myosin;
+            k_aa = other.k_aa;
+            k_am = other.k_am;
+            v_am = other.v_am;
+            cb_mult_factor = other.cb_mult_factor;
         }
 
-        void sarcomeric_structure(){
-            std::vector<std::vector<double>> myosin_positions;
-            myosin_positions = {{-3,-3},{3,-3},{-3,0},{3,0}, {-3,3},{3,3}};
+        void myosin_on_a_lattice(){
+            std::vector<vector> myosin_positions;
+            box[0] = 16;
+            box[1] = 8;
+            myosin_positions = {{-4,-3},{4,-3},{-4,0},{4,0}, {-4,3},{4,3}};
             for (int i = 0; i < myosin_positions.size(); i++){
-                myosin.xs[i][0] = myosin_positions[i][0];
-                myosin.xs[i][1] = myosin_positions[i][1];
-                myosin.thetas[i] = 0;
+                myosin.center[i].x = myosin_positions[i][0];
+                myosin.center[i].y = myosin_positions[i][1];
+                myosin.theta[i] = 0;
             }
-            myosin.n = myosin_positions.size();
+            //myosin.n = myosin_positions.size();
             myosin.update_endpoints();
-            std::vector<std::vector<double>> alpha_actinin_positions;
-            alpha_actinin_positions = {{-6,-3.2},{0,-3.2},{-6,-3},{0,-3},{-6,-2.8},{0,-2.8},{0,-0.2},{-6,-0.2},{0,0},{-6,0},{-6,0.2},{0,0.2},{-6,2.8},{0,2.8},{-6,3},{0,3},{-6,3.2},{0,3.2}};
-            for (int i = 0; i < alpha_actinin_positions.size(); i++){
-                alpha_actinin.xs[i][0] = alpha_actinin_positions[i][0];
-                alpha_actinin.xs[i][1] = alpha_actinin_positions[i][1];
+            update_system();
+        }
+
+        void partial_fix(){
+            std::vector<vector> myosin_positions;
+            box[0] = 18;
+            box[1] = 6.1;
+            myosin_positions = {{0,-1.5},{0,1.5}};
+            for (int i = 0; i < myosin_positions.size(); i++){
+                myosin.center[i].x = myosin_positions[i][0];
+                myosin.center[i].y = myosin_positions[i][1];
+                myosin.theta[i] = 0;
             }
-            alpha_actinin.n = alpha_actinin_positions.size();
-            std::vector<std::vector<double>> actin_positions;
-            actin_positions = {{-4.5,-3.2},{1.5,-3.2},{-4.5,-3},{1.5,-3},{-4.5,-2.8},{1.5,-2.8},{-4.5,-0.2},{1.5,-0.2},{-4.5,0},{1.5,0},{-4.5,0.2},{1.5,0.2},{-4.5,2.8},{1.5,2.8},{-4.5,3},{1.5,3},{-4.5,3.2},{1.5,3.2}};
+            for (int i = 0; i <myosin.n; i++){
+                myosin.theta[i] = 0;
+            }
+            //myosin.n = myosin_positions.size();
+            myosin.update_endpoints();
+            update_system();
+        }
+
+        void partial_sarcomeric_structure(){
+            std::vector<vector> myosin_positions;
+            box[0] = 19.2;
+            box[1] = 12;
+            myosin_positions = {{-4,-3},{4,-3},{-4,0},{4,0}, {-4,3},{4,3}};
+            for (int i = 0; i < myosin_positions.size(); i++){
+                myosin.center[i].x = myosin_positions[i][0];
+                myosin.center[i].y = myosin_positions[i][1];
+                myosin.theta[i] = 0;
+            }
+            //myosin.n = myosin_positions.size();
+            myosin.update_endpoints();
+            //alpha_actinin.n = alpha_actinin_positions.size();
+            std::vector<vector> actin_positions;
+            actin_positions = {{1.5,-3.2},{1.5,-3},{1.5,-2.8},{1.5,-0.2},{1.5,0},{1.5,0.2},{1.5,2.8},{1.5,3},{1.5,3.2}};
             for (int i = 0; i < actin_positions.size(); i++){
-                actin.xs[i][0] = actin_positions[i][0];
-                actin.xs[i][1] = actin_positions[i][1];
-                actin.thetas[i] = M_PI;
+                actin.center[i].x = actin_positions[i][0];
+                actin.center[i].y = actin_positions[i][1];
+                actin.theta[i] = 0;
             }
-            actin.n = actin_positions.size();
-            actin_positions = {{-1.5,-3.2},{4.5,-3.2},{-1.5,-3},{4.5,-3},{-1.5,-2.8},{4.5,-2.8},{-1.5,-0.2},{4.5,-0.2},{-1.5,0},{4.5,0},{-1.5,0.2},{4.5,0.2},{-1.5,2.8},{4.5,2.8},{-1.5,3},{4.5,3},{-1.5,3.2},{4.5,3.2}};
+            int n = actin_positions.size();
+            actin_positions = {{-1.5,-3.2},{-1.5,-3},{-1.5,-2.8},{-1.5,-0.2},{-1.5,0},{-1.5,0.2},{-1.5,2.8},{-1.5,3},{-1.5,3.2}};
             for (int i = 0; i < actin_positions.size(); i++){
-                actin.xs[i+actin.n][0] = actin_positions[i][0];
-                actin.xs[i+actin.n][1] = actin_positions[i][1];
-                actin.thetas[i+actin.n] = 0;
+                actin.center[i+n].x = actin_positions[i][0];
+                actin.center[i+n].y = actin_positions[i][1];
+                actin.theta[i+n] = M_PI;
             }
-            actin.n = actin_positions.size()*2;
+            //actin.n = actin_positions.size()*2;
             actin.update_endpoints();
-            total_energy = get_energy();
-            printf("total energy: %f\n", total_energy);
-            save_state();
-
+            update_system();
+            //save_state();
         }
 
+        
 
-        void equilibrate_myosin(int i, double x, double y, double theta, double& delta_energy){
-            double repulsion_old = e_barrier*myosin.self_repulsion(i);
-            myosin.displace(i, x, y, theta);
-            double repulsion_new = e_barrier*myosin.self_repulsion(i);
-            delta_energy = repulsion_new - repulsion_old;
-        }
-
-        void equilibrate_alpha_actinin(int i, double x, double y, double& delta_energy){
-            delta_energy = 0;
-            double repulsion_old = e_barrier_al*alpha_actinin.self_repulsion(i);
-            alpha_actinin.displace(i, x, y);
-            for (int j = 0; j < myosin.n; j++){
-                double e_new = myosin_alpha_actinin_energy(j , i);
-                delta_energy += e_new - m_al_energy[j][i];
-                m_al_energy[j][i] = e_new;
-            }
-            double repulsion_new = e_barrier_al*alpha_actinin.self_repulsion(i);
-            delta_energy += repulsion_new - repulsion_old;
-        }
-
-        double get_energy(){
-            double energy = 0;
-            for (int i = 0; i < actin.n; i++){
-                for (int j = 0; j < myosin.n; j++){
-                    double a_m = actin_myosin_energy(i , j);
-                    energy += a_m;
-                    a_m_energy[i][j] = a_m;
-                }
-            }
-            bool update_energy = false; //a_m energy already updated
-            update_force(update_energy);
-            double * a_al_binding_e = new double[alpha_actinin.n];
-            for (int j = 0; j < actin.n; j++){
-                actin_cb_count[j] = 0;
-            }
-            for (int i = 0; i < alpha_actinin.n; i++){
-                a_al_binding_e[i] = actin_alpha_actinin_energy(i);
-            }
-            for (int i = 0; i < alpha_actinin.n; i++){
-                int n_cb = al_cb[i].size();
-                double al_cb_e_i = 0;
-                for (int j = 0; j < n_cb; j++){
-                    double al_cb_e_ij = al_cb_energy[i][j];
-                    std::vector<int> actin_indices = al_cb[i][j];
-                    int rescaling_factor = actin_cb_count[actin_indices[0]]*actin_cb_count[actin_indices[1]];
-                    al_cb_e_ij = al_cb_e_ij/rescaling_factor;
-                    al_cb_e_i += al_cb_e_ij;
-                    if (al_cb_e_i < e_catch_bond){
-                        break;
-                    }
-                }
-                al_cb_e_i = std::max(al_cb_e_i, e_catch_bond);
-                energy +=  a_al_binding_e[i]+al_cb_e_i;
-                al_energy[i] = a_al_binding_e[i]+al_cb_e_i;
-            }
-            for (int i = 0; i < myosin.n; i++){
-                for (int j = 0; j < alpha_actinin.n; j++){
-                    double m_al = myosin_alpha_actinin_energy(i , j);
-                    energy += m_al;
-                    m_al_energy[i][j] = m_al;
-                }
-            }
-            delete[] a_al_binding_e;
-            energy += e_barrier*myosin.total_self_repulsion();
-            energy += e_barrier_al*alpha_actinin.total_self_repulsion();
-            return energy;
+        void update_system(){
+            _set_to_zero();
+            _update1();
+            _update2();
+            _update3();
         }
         
-        void update_force(bool& update_energy){
+
+        //initialize all interactions to zero
+        void _set_to_zero(){
+            actin.update_endpoints();
+            myosin.update_endpoints();
             for (int i = 0; i < actin.n; i++){
-                actin.forces[i][0] = 0;
-                actin.forces[i][1] = 0;
-                for (int j = 0; j < myosin.n; j++){
-                    std::vector<double> force = myosin_force_on_actin(i, j, update_energy);
-                    actin.forces[i][0] += force[0];
-                    actin.forces[i][1] += force[1];
+                actin.force[i] = {0,0};
+                actin.angular_force[i] = 0;
+                actin.velocity[i] = {0,0};
+                actin.tension[i] = 0;
+                actin.cb_strength[i] = 0;
+                actin_basic_tension[i] = 0;
+                actin_n_bonds[i] = 0;
+                actin_crosslink_ratio[i] = 1;
+                actin["myosin_binding_ratio"][i] = 0;
+                actin["crosslink_ratio"][i] = 1;
+                actin["partial_binding_ratio"][i] = 0;
+                myosinIndicesPerActin.deleteAllConnections(i);
+            }
+            for (int i = 0; i < myosin.n; i++){
+                myosin.force[i] = {0,0};
+                myosin.angular_force[i] = 0;
+                myosin.velocity[i] = {0,0};
+                actinIndicesPerMyosin.deleteAllConnections(i);
+            }
+            neighbor_list.set_species_positions(actin.center, myosin.center);
+            if (neighbor_list.needs_rebuild()){
+                neighbor_list.rebuild_neighbor_list();
+            }
+            // Clear previous neighbors data and prepare to store new neighbors
+            actin_neighbors_by_species.clear();
+            actin_neighbors_by_species.resize(actin.center.size());
+
+            // Retrieve neighbors by species for each actin particle
+            for (size_t i = 0; i < actin.center.size(); i++) {
+                // Get actin and myosin neighbors for actin particle `i`
+                actin_neighbors_by_species[i] = neighbor_list.get_neighbors_by_type(i);
+            } 
+        }
+
+        void _update1(){
+
+            std::vector<int> n_actins_per_myosin;
+            for (int j = 0; j < myosin.n; j++){
+                n_actins_per_myosin.push_back(0);
+            }
+            for (int i = 0; i < actin.n; i++){
+                double partial_binding_ratio = 0;
+                double myosin_binding_ratio_sum = 0;
+                int myosin_index = -1;
+                auto myosin_neighbors = actin_neighbors_by_species[i].second;
+                for (int index = 0; index < myosin_neighbors.size(); index++){
+                    int j = myosin_neighbors[index];
+                    // if (n_actins_per_myosin[j]>=8){
+                    //     continue;
+                    // }
+                    am_interaction[i][j] = geometry::analyze_am(actin.left_end[i],actin.right_end[i],
+                         myosin.left_end[j],myosin.right_end[j],myosin.radius,box);
+                    myosin_binding_ratio_sum += am_interaction[i][j].myosin_binding_ratio;
+                    if (am_interaction[i][j].partial_binding_ratio>partial_binding_ratio){
+                        partial_binding_ratio = am_interaction[i][j].partial_binding_ratio;
+                        myosin_index = j;
+                    }
                 }
+                if (myosin_index>=0){
+                    n_actins_per_myosin[myosin_index]++;
+                    actinIndicesPerMyosin.addConnection(myosin_index,i);
+                    myosinIndicesPerActin.addConnection(i,myosin_index);
+                    double myosin_binding_ratio = am_interaction[i][myosin_index].myosin_binding_ratio;
+                    actin_crosslink_ratio[i] = am_interaction[i][myosin_index].crosslinkable_ratio-(myosin_binding_ratio_sum-myosin_binding_ratio);
+                    actin["myosin_binding_ratio"][i] = myosin_binding_ratio;
+                    actin["crosslink_ratio"][i] = actin_crosslink_ratio[i];
+                    actin["partial_binding_ratio"][i] = am_interaction[i][myosin_index].partial_binding_ratio;
+                }
+
             }
         }
 
-        double actin_myosin_energy(int& actin_index, int& myosin_index){
+        void _update2(){            
+            //Assumes that the connections have been updated
+            //To avoid double counting, we'll only consider catch-bond pairs (i,j) where i>j
+            std::vector <int> actin_neighbors;
+            for (int i = 0; i < actin.n; i++){
+                actin_neighbors = actin_neighbors_by_species[i].first;
+                std::vector <int> myosin_indices = myosinIndicesPerActin.getConnections(i);
+                for (int index = 0; index < myosin_indices.size(); index++){
+                    int j = myosin_indices[index];
+                    vec velocity = {v_am*cos(actin.theta[i]),v_am*sin(actin.theta[i])};
+                    double a_m_angle = actin.theta[i] - myosin.theta[j];
+                    double abs_cos = std::abs(std::cos(a_m_angle));
+                    double myosin_ratio = std::min(am_interaction[i][j].partial_binding_ratio*3,1.0);
+                    actin.tension[i] = myosin_ratio*abs_cos;
+                    actin_basic_tension[i] = actin.tension[i];
+                    actin.velocity[i] = velocity;
+                }
+                
+                if (actin.cb_strength[i]<1)
+                {
+                    std::vector<int> cb_indices;
+                    std::vector<double> cb_strengths;
+                    bool add_connection = true;
+                    for (int index = 0; index < actin_neighbors.size(); index++){
+                        int j = actin_neighbors[index];
+                        if (i>j  && actin.cb_strength[j]<1){
+
+                            double strength = _get_cb_strength(i,j);
+                            if (strength>EPS){
+                                cb_indices.push_back(j);
+                                cb_strengths.push_back(strength);
+                            }
+                        }
+                    }
+                    _set_cb(i,cb_indices,cb_strengths);
+                }
+                if (actin.cb_strength[i]>1){
+                    actin.cb_strength[i] = 1;
+                }
+            }
+        }
+        
+        void _update3(){
+
+            double angle, v_factor;
+            for (int i = 0; i < actin.n; i++){
+                std::vector <int> myosin_indices = myosinIndicesPerActin.getConnections(i);
+                vec velocity = {v_am*cos(actin.theta[i]),v_am*sin(actin.theta[i])};
+                for (int index = 0; index < myosin_indices.size(); index++){
+                    int j = myosin_indices[index];
+                    double binding_ratio = am_interaction[i][j].myosin_binding_ratio;
+                    bool turn_on_spring = true;
+                    double tension = actin_basic_tension[i]*(1+actin.cb_strength[i]*cb_mult_factor);
+                    vector force_vec =  compute_am_force_and_energy(actin, myosin, i, j, box, k_am*tension,kappa_am*tension, myosin.radius, turn_on_spring);
+                    actin.force[i].x += force_vec[0];
+                    actin.force[i].y += force_vec[1];
+                    myosin.force[j].x -= force_vec[0];
+                    myosin.force[j].y -= force_vec[1];
+                    actin.angular_force[i] +=force_vec[2];
+                    myosin.angular_force[j] +=force_vec[3];
+                    if (actin.cb_strength[i]<0 || actin.cb_strength[i]>1){
+                        printf("actin %d has cb strength %f \n",i,actin.cb_strength[i]);
+                        exit(1);
+                    }
+                    double binding_ratio_adjusted = std::min(am_interaction[i][j].partial_binding_ratio*3,1.0);
+                    v_factor = 0.2*std::max(0.1-actin.cb_strength[i],0.0)
+                        + 0.2*std::max(actin.cb_strength[i]-0.1,0.0)* std::max(1-binding_ratio_adjusted,0.0);
+                    //printf("v_factor for actin %d is %f \n",i,v_factor);
+                    //printf("binding ratio adjusted is %f \n",binding_ratio_adjusted);
+                    myosin.velocity[j] = myosin.velocity[j] - v_factor*velocity;
+                }
+                if (actin.cb_strength[i]>EPS){
+                    v_factor = std::max(0.1-actin.cb_strength[i],0.0);
+                    actin.velocity[i].x *=v_factor;
+                    actin.velocity[i].y *=v_factor;
+
+                }
+            }
+            for (int i = 0; i<myosin.n; i++){
+                auto result = neighbor_list.get_neighbors_by_type(i+actin.n);
+                std::vector <int> myosin_indices = result.second;
+                for (int index = 0; index < myosin_indices.size(); index++){
+                    int j = myosin_indices[index];
+                    if (i<j){
+                    _myosin_repulsion(i,myosin_indices[index]);}
+                }
+            }
+
+        }
+
+    
+
+        double _actin_myosin_energy(int& actin_index, int& myosin_index){
             int i = actin_index;
             int j = myosin_index;
-            double center_displacement[2];
-            center_displacement[0] = actin.xs[i][0] - myosin.xs[j][0];
-            center_displacement[1] = actin.xs[i][1] - myosin.xs[j][1];
-            utils::pbc_wrap(center_displacement, box);
-            double center_distance = utils::norm(center_displacement, 2);
+            vec center_displacement = actin.center[i] - myosin.center[j];
+            center_displacement.pbc_wrap(box);
+            double center_distance = center_displacement.norm();
             if (center_distance>myosin.radius+0.5*(actin.length+myosin.length)){
                 return 0;
             }
             else{
-                double distance = utils::segment_segment_distance(actin.left_endpts[i], 
-                    actin.right_endpts[i], myosin.left_endpts[j], myosin.right_endpts[j], box);
-                double angle = std::abs(actin.thetas[i] - myosin.thetas[j]);
+                double distance = geometry::segment_segment_distance(actin.left_end[i], 
+                    actin.right_end[i], myosin.left_end[j], myosin.right_end[j], box);
+                double angle = std::abs(actin.theta[i] - myosin.theta[j]);
                 angle = std::fmod(angle, 2*M_PI);
                 angle = std::min(angle, 2*M_PI-angle);
-                if (distance<myosin.radius && (angle<M_PI/4||angle>3*M_PI/4)){
-                    // std::cout<<i<<" "<<j<<std::endl;
-                    // std::cout<<actin.left_endpts[i][0]<<" "<<actin.left_endpts[i][1]<<" "<<actin.right_endpts[i][0]<<" "<<actin.right_endpts[i][1]<<std::endl;
-                    // std::cout<<myosin.left_endpts[j][0]<<" "<<myosin.left_endpts[j][1]<<" "<<myosin.right_endpts[j][0]<<" "<<myosin.right_endpts[j][1]<<std::endl;
+                if (distance<myosin.radius){
                     double magnitude = std::abs(std::cos(angle));
-                    return magnitude*e_am;
+                    return magnitude;
                 }
                 else{
                     return 0;
@@ -261,354 +389,163 @@ class Sarcomere
             }
         }
 
-        std::vector<double> myosin_force_on_actin(int& actin_index, int& myosin_index, bool& update_energy){
-            std::vector<double> force(2);
-            int i = actin_index;
-            int j = myosin_index;
-            double energy;
-            if (update_energy){
-                energy = actin_myosin_energy(i, j);
-                a_m_energy[i][j] = energy;
-            }
-            else{
-                energy = a_m_energy[i][j];
-            }
-            if (energy == 0){
-                force[0] = 0;
-                force[1] = 0;
-            }
-            else{
-                double orientation[2];
-                orientation[0] = cos(actin.thetas[i]);
-                orientation[1] = sin(actin.thetas[i]);
-                force[0] = f_myosin*energy/e_am*orientation[0];
-                force[1] = f_myosin*energy/e_am*orientation[1];
-            }
-            return force;
-        }
-
-        double actin_alpha_actinin_binding_energy(int& actin_index, int& alpha_actinin_index){
-            int i = actin_index;
-            int j = alpha_actinin_index;
-            double energy = 0;
-            double distance = utils::point_segment_distance(alpha_actinin.xs[j], actin.left_endpts[i], actin.right_endpts[i], box);
-            if (distance<alpha_actinin.radius){
-                energy = e_al;
-            }
-            return energy;
-        }
-
-
-        double actin_alpha_actinin_cb_energy(int& actin_index, int& alpha_actinin_index){
-            int i = actin_index;
-            int j = alpha_actinin_index;
-            if (e_catch_bond!=0 && abs(actin.forces[i][0])+abs(actin.forces[i][1])>0){
-                double catch_bond_strength = 0;
-                for (int k=0; k<i; k++){ //actin k<i to avoid double counting
-                    if (abs(actin.forces[k][0])+abs(actin.forces[k][1])>0){
-                        //check if actin k is bound to alpha-actinin j
-                        double kj_distance = utils::point_segment_distance(alpha_actinin.xs[j], 
-                        actin.left_endpts[k], actin.right_endpts[k], box);
-                        if (kj_distance<alpha_actinin.radius){
-                            double force_mag_i = std::sqrt(actin.forces[i][0]*actin.forces[i][0]+actin.forces[i][1]*actin.forces[i][1]);
-                            double force_mag_k = std::sqrt(actin.forces[k][0]*actin.forces[k][0]+actin.forces[k][1]*actin.forces[k][1]);
-                            double pairwise_cosine = (actin.forces[i][0]*actin.forces[k][0]+actin.forces[i][1]*actin.forces[k][1])/(force_mag_i*force_mag_k);
-                            double scaling_factor = std::min(force_mag_i/f_myosin,1.0)*std::min(force_mag_k/f_myosin,1.0);
-                            pairwise_cosine = pairwise_cosine*scaling_factor;
-                            pairwise_cosine = std::min(pairwise_cosine, 0.0);
-                            if (abs(pairwise_cosine)>0){
-                                bool bound_to_different_myosins = false;
-                                for (int l=0; l<myosin.n; l++){
-                                    if ((a_m_energy[k][l]!=0 && a_m_energy[i][l]==0)||(a_m_energy[k][l]==0 && a_m_energy[i][l]!=0))
-                                    {
-                                        bound_to_different_myosins = true;
-                                        // printf("myosin %d \n", l);
-                                        // std::cout<<myosin.xs[l][0]<<" "<<myosin.xs[l][1]<<std::endl;
-                                        // std::cout<<a_m_energy[k][l]<<" "<<a_m_energy[i][l]<<std::endl;
-                                        break;
-                                    }
-                                }
-                                if (bound_to_different_myosins){
-                                    //check how many alpha-actinins are bound to actin k and actin i
-                                    
-                                    catch_bond_strength+=abs(pairwise_cosine);
-                                    al_cb_energy[j].push_back(e_catch_bond*abs(pairwise_cosine));
-                                    std::vector<int> actin_index = {k, i};
-                                    al_cb[j].push_back(actin_index);
-                                    actin_cb_count[k]++;
-                                    actin_cb_count[i]++;
-                                    // printf("pairwise_cosine = %f\n", pairwise_cosine);
-                                    // printf("actin %d and %d are bound to alpha-actinin %d\n", i, k, j);
-                                    // std::cout<<alpha_actinin.xs[j][0]<<" "<<alpha_actinin.xs[j][1]<<std::endl;
-                                    // std::cout<<actin.left_endpts[k][0]<<" "<<actin.left_endpts[k][1]<<std::endl;
-                                    // std::cout<<actin.right_endpts[k][0]<<" "<<actin.right_endpts[k][1]<<std::endl;
-                                    // std::cout<<actin.left_endpts[i][0]<<" "<<actin.left_endpts[i][1]<<std::endl;
-                                    // std::cout<<actin.right_endpts[i][0]<<" "<<actin.right_endpts[i][1]<<std::endl;
-                                    if (catch_bond_strength>1){
-                                        break;
-                                    }
-                                }
-                            }
-                        }
+        void _myosin_repulsion(int& i, int& j){
+            vec center_displacement = myosin.center[i] - myosin.center[j];
+            center_displacement.pbc_wrap(box);
+            double center_distance = center_displacement.norm();
+            if (center_distance<=2*myosin.radius+myosin.length){
+                auto result = geometry::segment_segment_distance_w_normal(myosin.left_end[i], 
+                    myosin.right_end[i], myosin.left_end[j], myosin.right_end[j], box);
+                double distance = result.first;
+                if (distance<2*myosin.radius){
+                    vec normal_vector = result.second["vector"];
+                    double norm = normal_vector.norm();
+                    double factor = std::min((2000*(2*myosin.radius - distance)/(2*myosin.radius)),500.);
+                    if (norm==0){
+                        normal_vector.x = center_displacement.x;
+                        normal_vector.y = center_displacement.y;
+                        normal_vector.normalize();
                     }
+                    else {
+                        normal_vector = normal_vector/norm;
+                    }
+                    //check if any of the myosin is bound to cb-forming actin
+                    auto actin_indices_i = actinIndicesPerMyosin.getConnections(i);
+                    double cb_strength_i = 0;
+                    for (int index = 0; index < actin_indices_i.size(); index++){
+                        int k = actin_indices_i[index];
+                        cb_strength_i += actin.cb_strength[k];
+                    }
+                    auto actin_indices_j = actinIndicesPerMyosin.getConnections(j);
+                    double cb_strength_j = 0;
+                    for (int index = 0; index < actin_indices_j.size(); index++){
+                        int k = actin_indices_j[index];
+                        cb_strength_j += actin.cb_strength[k];
+                    }
+                    if (cb_strength_i>0.3 && cb_strength_j<0.3){
+                        //move myosin j only
+                        myosin.force[j] = myosin.force[j]-2*factor*normal_vector;
+                    }
+                    else if (cb_strength_i<0.3 && cb_strength_j>0.3){
+                        //move myosin i only
+                        myosin.force[i] = myosin.force[i]+2*factor*normal_vector;
+                    }
+                    else{
+                        myosin.force[i] = myosin.force[i]+factor*normal_vector;
+                        myosin.force[j] = myosin.force[j]-factor*normal_vector;
+                    }
+
                 }
 
-                double catch_bond_energy = e_catch_bond*std::min(catch_bond_strength, 1.0);
-                return catch_bond_energy;
-            }
-            else{
-                return 0;
             }
         }
 
-        double actin_alpha_actinin_energy(int& alpha_actinin_index){
-            // The sun of all actin-alpha-actinin interactions for a given alpha-actinin
-            int i = alpha_actinin_index;
-            double binding_e = 0;
-            double cb_e = 0;
-            double binding_ej, cb_ej;
-            al_cb[i].clear();
-            for (int j = 0; j < actin.n; j++){
-                binding_ej = actin_alpha_actinin_binding_energy(j , i);
-                if (binding_ej!=0){
-                    cb_ej = actin_alpha_actinin_cb_energy(j , i);
+        double _get_cb_strength(int& i, int& j){
+            if (actin.cb_strength[j]>=1||actin.cb_strength[i]>=1){
+                return 0.0;
+            }
+            double angle = actin.theta[i] - actin.theta[j];
+            double cos_angle = std::cos(angle);
+            bool crosslink = false;
+            //printf("cos angle is %f\n",cos_angle);
+            //printf("actin crosslink ratio is %f %f\n",actin_crosslink_ratio[i],actin_crosslink_ratio[j]);
+            vec right_i, right_j;
+            if (cos_angle<0 && actin_crosslink_ratio[i]>EPS && actin_crosslink_ratio[j]>EPS){
+                //printf("crosslink ratio is %f %f\n",actin_crosslink_ratio[i],actin_crosslink_ratio[j]);
+                right_i = actin.left_end[i] + (actin.right_end[i]-actin.left_end[i])*actin_crosslink_ratio[i];
+                right_j = actin.left_end[j] + (actin.right_end[j]-actin.left_end[j])*actin_crosslink_ratio[j];
+                auto result = geometry::subsegment_within_distance(actin.left_end[i],right_i,actin.left_end[j],right_j,crosslinker_length, box);
+                double overlap = std::get<0>(result);
+                if (overlap>EPS){
+                    crosslink = true;
+                }
+            }
+
+            //printf("crosslink is %d\n",crosslink);
+            if (crosslink){ 
+                double strength = 0;
+                double abs_cos_angle = std::abs(cos_angle);
+                if (actin_basic_tension[i]>EPS && actin_basic_tension[j]>EPS){
+                    int myosin_index_i = myosinIndicesPerActin.getConnections(i)[0];
+                    int myosin_index_j = myosinIndicesPerActin.getConnections(j)[0];
+                    if (myosin_index_i != myosin_index_j){
+                        double crosslink_ratio = std::sqrt(std::min(actin_crosslink_ratio[i]*3,1.0) * std::min(actin_crosslink_ratio[j]*3,1.0));
+                        strength = crosslink_ratio * actin_basic_tension[i]*actin_basic_tension[j]*abs_cos_angle;
+                    }
                 }
                 else{
-                    cb_ej = 0;
+                    strength = 1/cb_mult_factor*abs_cos_angle;
                 }
-                binding_e += binding_ej;
-                cb_e += cb_ej;
+                strength = std::min(std::min(strength, 1-actin.cb_strength[i]), 1-actin.cb_strength[j]);
+                strength = std::max(strength, 0.0);           
+                return strength;
             }
-            binding_e = std::max(binding_e, 2*e_al);
-            cb_e = std::max(cb_e, e_catch_bond);
-            return binding_e;
+            return 0.0;
+        }
+        void _set_cb(int& i, int& j, double& normalized_strength, bool& add_connection){
+            if (normalized_strength<1/cb_mult_factor && (actin_n_bonds[i]>=3 || actin_n_bonds[j]>=3)){
+                return;
+            }
+            vector force_vec;
+            force_vec.resize(4);
+            normalized_strength = std::min(std::min(normalized_strength, 1-actin.cb_strength[i]), 1-actin.cb_strength[j]);
+            normalized_strength = std::max(normalized_strength, 0.0);
+            if (normalized_strength<EPS){
+                return;
+            }
+            double strength = normalized_strength*cb_mult_factor;
+            actin.tension[i] += actin_basic_tension[i]*strength;
+            actin.tension[j] += actin_basic_tension[j]*strength; 
+            force_vec = compute_aa_force_and_energy(actin,i, j, box,k_aa*strength,kappa_aa*strength);      
+            actin.force[i].x += force_vec[0];
+            actin.force[i].y += force_vec[1];
+            actin.force[j].x -= force_vec[0];
+            actin.force[j].y -= force_vec[1];
+            actin.angular_force[i] += force_vec[2];
+            actin.angular_force[j] += force_vec[3];
+            actin.cb_strength[i] += normalized_strength;
+            actin.cb_strength[j] += normalized_strength;
+            actin_n_bonds[i] += 1;
+            actin_n_bonds[j] += 1;
+            if (add_connection){
+                actinIndicesPerActin.addConnection(i,j);
+                actinIndicesPerActin.addConnection(j,i);
+            }
         }
 
-        
-        double myosin_alpha_actinin_energy(int& myosin_index, int& alpha_actinin_index){
-            int i = myosin_index;
-            int j = alpha_actinin_index;
-            double distance = utils::point_segment_distance(alpha_actinin.xs[j], myosin.left_endpts[i], myosin.right_endpts[i], box);
-            //printf("Distance between myosin %d and alpha-actinin %d: %f\n", i, j, distance);
-            if (distance<alpha_actinin.radius+myosin.radius){
-                return e_barrier_al;
-            }
-            else{
-                return 0;
+        void _set_cb(int& i, std::vector<int> indices, vector cb_strength){
+            std::vector<size_t> sorted_indices = utils::sort_indices(cb_strength);
+            //print all the sorted indices
+            bool add_connection;
+            for (int index = 0; index < sorted_indices.size(); index++){
+                int j = indices[sorted_indices[index]];
+                if (actin.cb_strength[i]>=1){
+                    actin.cb_strength[i] = 1;
+                    break;
+                }
+                if (actin.cb_strength[j]>=1){
+                    actin.cb_strength[j] = 1;
+                    continue;
+                }
+                add_connection = (actin_basic_tension[i]>EPS && actin_basic_tension[j]>EPS);
+                _set_cb(i,j,cb_strength[sorted_indices[index]],add_connection);
             }
         }
-
-        void displace_actin(int i, double x, double y, double theta, double& delta_energy, std::vector<double>& avg_force){
-            actin.displace(i, x, y, theta);
-            delta_energy = 0;
-            avg_force.resize(2);
-            std::vector <double> force(2); 
-            force[0] = 0;
-            force[1] = 0;
-            bool update_energy = false;
-            for (int j = 0; j < myosin.n; j++){
-                double e_new = actin_myosin_energy(i , j);
-                delta_energy += e_new - a_m_energy[i][j];
-                a_m_energy[i][j] = e_new;
-                std::vector<double> f = myosin_force_on_actin(i, j, update_energy);
-                force[0] += f[0];
-                force[1] += f[1];
-            }
-            avg_force[0] = (actin.forces[i][0]+force[0])/2;
-            avg_force[1] = (actin.forces[i][1]+force[1])/2;
-            actin.forces[i][0] = force[0];
-            actin.forces[i][1] = force[1];
-            double * a_al_binding_e = new double[alpha_actinin.n];
-            for (int j = 0; j < actin.n; j++){
-                actin_cb_count[j] = 0;
-            }
-            for (int j = 0; j < alpha_actinin.n; j++){
-                a_al_binding_e[j] = actin_alpha_actinin_energy(j);
-            }
-            for (int j = 0; j < alpha_actinin.n; j++){
-                int n_cb = al_cb[j].size();
-                double al_cb_e_j = 0;
-                for (int k = 0; k < n_cb; k++){
-                    double al_cb_e_jk = al_cb_energy[j][k];
-                    std::vector<int> actin_indices = al_cb[j][k];
-                    int rescaling_factor = actin_cb_count[actin_indices[0]]*actin_cb_count[actin_indices[1]];
-                    if (al_cb_e_jk!=0){
-                        if (rescaling_factor == 0){
-                            printf("Error: rescaling factor is zero\n");
-                        }
-                        al_cb_e_jk = al_cb_e_jk/rescaling_factor;
-                        al_cb_e_j += al_cb_e_jk;
-                        if (al_cb_e_j < e_catch_bond){
-                            break;
-                        }
-                    }
-                   
-                }
-                al_cb_e_j = std::max(al_cb_e_j, e_catch_bond);
-                delta_energy +=  a_al_binding_e[j]+al_cb_e_j- al_energy[j];
-                al_energy[j] = a_al_binding_e[j]+al_cb_e_j;
-            }
-            total_energy += delta_energy;
-            delete[] a_al_binding_e;
-        }
-
-        void displace_myosin(int i, double x, double y, double theta, double& delta_energy){
-            delta_energy = 0;
-            //MYOSIN DISPLACEMENT IS RELATIVELY EXPENSIVE RIGHT NOW
-            double repulsion_old = e_barrier*myosin.self_repulsion(i);
-            bool update_energy = false; //calculating previous force
-            double ** forces_old = new double*[actin.n];
-            for (int j = 0; j < actin.n; j++){
-                forces_old[j] = new double[2];
-                std::vector<double> f = myosin_force_on_actin(j, i, update_energy);
-                forces_old[j][0] = f[0];
-                forces_old[j][1] = f[1];
-            }
-            myosin.displace(i, x, y, theta);
-            delta_energy = 0;
-            for (int j = 0; j < actin.n; j++){
-                double e_new = actin_myosin_energy(j, i);
-                delta_energy += e_new - a_m_energy[j][i];
-                a_m_energy[j][i] = e_new;
-                std::vector<double> f = myosin_force_on_actin(j, i, update_energy);
-                actin.forces[j][0] = actin.forces[j][0] - forces_old[j][0] + f[0];
-                actin.forces[j][1] = actin.forces[j][1] - forces_old[j][1] + f[1];
-            }
-
-            if (e_catch_bond!=0){
-                //need to update actin_alpha-actinin energy as well to account for changes in catch bonds
-                double * a_al_binding_e = new double[alpha_actinin.n];
-                for (int j = 0; j < actin.n; j++){
-                    actin_cb_count[j] = 0;
-                }
-                for (int j = 0; j < alpha_actinin.n; j++){
-                    a_al_binding_e[j] = actin_alpha_actinin_energy(j);
-                }
-                for (int j = 0; j < alpha_actinin.n; j++){
-                    int n_cb = al_cb[j].size();
-                    double al_cb_e_j = 0;
-                    for (int k = 0; k < n_cb; k++){
-                        double al_cb_e_jk = al_cb_energy[j][k];
-                        std::vector<int> actin_indices = al_cb[j][k];
-                        int rescaling_factor = actin_cb_count[actin_indices[0]]*actin_cb_count[actin_indices[1]];
-                        al_cb_e_jk = al_cb_e_jk/rescaling_factor;
-                        al_cb_e_j += al_cb_e_jk;
-                        if (al_cb_e_j < e_catch_bond){
-                            break;
-                        }
-                    }
-                    al_cb_e_j = std::max(al_cb_e_j, e_catch_bond);
-                    delta_energy +=  a_al_binding_e[j]+al_cb_e_j- al_energy[j];
-                    al_energy[j] = a_al_binding_e[j]+al_cb_e_j;
-                }
-                delete[] a_al_binding_e;
-
-            }
-
-            for (int j = 0; j < alpha_actinin.n; j++){
-                double e_new = myosin_alpha_actinin_energy(i , j);
-                delta_energy += e_new - m_al_energy[i][j];
-                m_al_energy[i][j] = e_new;
-            }
-            double repulsion_new = e_barrier*myosin.self_repulsion(i);
-            delta_energy += repulsion_new - repulsion_old;
-            total_energy += delta_energy;
-        }
-
-        void displace_alpha_actinin(int i, double x, double y, double& delta_energy){
-            delta_energy = 0;
-            double repulsion_old = e_barrier_al*alpha_actinin.self_repulsion(i);
-            alpha_actinin.displace(i, x, y);
-            // double a_al_e = actin_alpha_actinin_energy(i);
-            // delta_energy +=  a_al_e- al_energy[i];
-            // al_energy[i] = a_al_e;
-            double * a_al_binding_e = new double[alpha_actinin.n];
-            for (int j = 0; j < actin.n; j++){
-                actin_cb_count[j] = 0;
-            }
-            for (int j = 0; j < alpha_actinin.n; j++){
-                a_al_binding_e[j] = actin_alpha_actinin_energy(j);
-            }
-            for (int j = 0; j < alpha_actinin.n; j++){
-                int n_cb = al_cb[j].size();
-                double al_cb_e_j = 0;
-                for (int k = 0; k < n_cb; k++){
-                    double al_cb_e_jk = al_cb_energy[j][k];
-                    std::vector<int> actin_indices = al_cb[j][k];
-                    int rescaling_factor = actin_cb_count[actin_indices[0]]*actin_cb_count[actin_indices[1]];
-                    al_cb_e_jk = al_cb_e_jk/rescaling_factor;
-                    al_cb_e_j += al_cb_e_jk;
-                    if (al_cb_e_j < e_catch_bond){
-                        break;
-                    }
-                }
-                al_cb_e_j = std::max(al_cb_e_j, e_catch_bond);
-                delta_energy +=  a_al_binding_e[j]+al_cb_e_j- al_energy[j];
-                al_energy[j] = a_al_binding_e[j]+al_cb_e_j;
-            }
-            for (int j = 0; j < myosin.n; j++){
-                double e_new = myosin_alpha_actinin_energy(j , i);
-                delta_energy += e_new - m_al_energy[j][i];
-                m_al_energy[j][i] = e_new;
-            }
-            double repulsion_new = e_barrier_al*alpha_actinin.self_repulsion(i);
-            delta_energy += repulsion_new - repulsion_old;
-            total_energy += delta_energy;  
-            delete[] a_al_binding_e;
-
-        }
-
+     
         void new_file(){
-            create_file(filename, actin.n, myosin.n, alpha_actinin.n);
+            create_file(filename, actin, myosin);
         }
 
         void save_state(){
-            append_to_file(filename, actin, myosin, alpha_actinin, total_energy);
-            // for (int i=0; i<myosin.n; i++){
-            //     printf("Myosin %d: %f %f\n", i, myosin.xs[i][0], myosin.xs[i][1]);
-            //     printf("Myosin endpoints: (%f %f), (%f %f)\n", myosin.left_endpts[i][0], myosin.left_endpts[i][1], myosin.right_endpts[i][0], myosin.right_endpts[i][1]);
-            //     }
-            //     //print positions of alpha-actinins
-            // for (int i=0; i<alpha_actinin.n; i++){
-            //     printf("Alpha-actinin %d: %f %f\n", i, alpha_actinin.xs[i][0], alpha_actinin.xs[i][1]);
-            // }
-            // for (int i=0; i<actin.n; i++){
-            //     printf("Actin %d: %f %f\n", i, actin.xs[i][0], actin.xs[i][1]);
-            //     printf("Actin endpoints: (%f %f), (%f %f)\n", actin.left_endpts[i][0], actin.left_endpts[i][1], actin.right_endpts[i][0], actin.right_endpts[i][1]);
-            // }
-
+            append_to_file(filename, actin, myosin, total_energy);
         }
         
         void load_state(){
-            load_from_file(filename, actin, myosin, alpha_actinin, total_energy);
-            total_energy = get_energy();
-            printf("Loaded state with energy %f\n", total_energy);
+            load_from_file(filename, actin, myosin, total_energy);
+            update_system();
         }
         
-        void check_energy(){
-            double total_energy2 = get_energy();
-            if (abs(total_energy2-total_energy)>1e-6){
-                std::cout << "Total energy is not correct" << std::endl;
-                std::cout << "Total energy: " <<total_energy << " Total energy2: " << total_energy2 << std::endl;
-                exit(1);
-            }
-        }
-        void check_forces(){
-            bool update_energy = false; //calculating previous force
-           
-            for (int i = 0; i < actin.n; i++){
-                std::vector<double> f = {0, 0};
-                for (int j=0; j<myosin.n; j++){
-                    std::vector<double> fij =  myosin_force_on_actin(i, j, update_energy);
-                    f[0] += fij[0];
-                    f[1] += fij[1];
-                }
-                if (f[0] != actin.forces[i][0] || f[1] != actin.forces[i][1]){
-                    std::cout << "Force on actin " << i << " is not correct" << std::endl;
-                    std::cout << "Force: " << f[0] << " " << f[1] << " Force2: " << actin.forces[i][0] << " " << actin.forces[i][1] << std::endl;
-                }
-            }
-        }
 };
 
 #endif
+

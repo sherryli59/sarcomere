@@ -2,7 +2,7 @@
 #define MC_H
 
 #ifndef SARCOMERE_H
-#include "sarcomere.h"
+#include "sarcomere_old.h"
 #endif
 
 #ifndef UTILS_H
@@ -23,10 +23,9 @@
 class MC{
     public: 
         MC() = delete;
-        MC(Sarcomere& model0, double& beta0, double& dt0, double& D0,
+        MC(Sarcomere& model0, double& beta0, double& dt0, double& D0, int& update_myosin_every0,
             int& update_dt_every0, int& save_every0, bool& resume):
-            model(model0), beta(beta0), dt(dt0), D(D0), update_myosin_every(1), update_dt_every(update_dt_every0), save_every(save_every0){
-            update_myosin_every = 1;
+            model(model0), beta(beta0), dt(dt0), D(D0), update_myosin_every(update_myosin_every0), update_dt_every(update_dt_every0), save_every(save_every0){
             acc_rate=0;
             if (resume){
                 model.load_state();
@@ -45,6 +44,7 @@ class MC{
                 for (int i=0; i<model.alpha_actinin.n; i++){
                     printf("Alpha-actinin %d: %f %f\n", i, model.alpha_actinin.xs[i][0], model.alpha_actinin.xs[i][1]);
                 }
+                exit(0);
             }
             else{
                 model.new_file();
@@ -101,7 +101,7 @@ class MC{
         void run_mc(int nsteps, gsl_rng * rng){
             double acc = 0;
             for (int i=0; i<nsteps; i++){
-                bool update_myosin = i%update_myosin_every==0;
+                bool update_myosin = (update_myosin_every>0 && i%update_myosin_every==0);
                 acc+=sample_step(dt, D, rng, update_myosin);
                 if (i>0 && update_dt_every>0 && i%update_dt_every==0){
                     acc_rate = acc/update_dt_every;
@@ -130,7 +130,8 @@ class MC{
             int actin_index = gsl_rng_uniform_int(rng, model.actin.n);
             double dx = randn[0]*noise_mag;
             double dy = randn[1]*noise_mag;
-            double dtheta = randn[2]*M_PI*noise_mag;
+            double dtheta = randn[2]*M_PI*noise_mag/10;
+            //double dtheta = 0;
             double delta_energy = 0;
             std::vector <double> force(2);
             model.displace_actin(actin_index, dx, dy, dtheta, delta_energy, force);
@@ -143,25 +144,24 @@ class MC{
                 model.displace_actin(actin_index, -dx, -dy, -dtheta, delta_energy, force);
             }
             //printf("Actin displacement: %f %f %f\n", dx, dy, dtheta);
-            model.check_energy();
             if (update_myosin){
                 // update myosin
                 int myosin_index = gsl_rng_uniform_int(rng, model.myosin.n);
                 dx = randn[3]*noise_mag;
                 dy = randn[4]*noise_mag;
-                dtheta = randn[5]*M_PI*noise_mag;
+                dtheta = randn[5]*M_PI*noise_mag/10;
                 delta_energy = 0;
-                model.displace_myosin(myosin_index, dx, dy, dtheta, delta_energy);
+                model.displace_myosin(myosin_index, dx, dy, dtheta, delta_energy,force);
                 //printf("Myosin displacement: %f %f %f\n", dx, dy, dtheta);
-                model.check_energy();
-                p_accept = exp(-beta*delta_energy);
+                work = force[0]*dx + force[1]*dy;
+                printf("Work: %f\n", work);
+                p_accept = exp(-beta*(delta_energy-work));
                 if (acc_rand[1]<p_accept){
                     acc+=1;
                 }
                 else{
-                    model.displace_myosin(myosin_index, -dx, -dy, -dtheta, delta_energy);
+                    model.displace_myosin(myosin_index, -dx, -dy, -dtheta, delta_energy, force);
                     //printf("Myosin displacement rejected\n");
-                    model.check_energy();
                 }
             }
             // update alpha_actinin
@@ -171,7 +171,6 @@ class MC{
             delta_energy = 0;
             model.displace_alpha_actinin(alpha_actinin_index, dx, dy, delta_energy);
             //printf("Alpha-actinin displacement: %f %f\n", dx, dy);
-            model.check_energy();
             p_accept = exp(-beta*delta_energy);
             if (acc_rand[2]<p_accept){
                 acc+=1;
