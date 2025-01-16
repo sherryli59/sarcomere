@@ -22,13 +22,27 @@ double point_segment_distance(vec x, vec a, vec b, std::vector<double> box)
 {
     vec ab = b - a;
     double ab_norm = ab.norm();
+
     vec ab_normalized = {ab.x / ab_norm, ab.y / ab_norm};
+
     vec ap = x - a;
     ap.pbc_wrap(box);
+
+    // Projection of ap onto ab
     double ap_ab = ap.x * ab_normalized.x + ap.y * ab_normalized.y;
+
+    // Clamp projection length to segment bounds
     ap_ab = std::fmax(0, std::fmin(ap_ab, ab_norm));
-    vec closest_point = ap - vec{ap_ab * ab_normalized.x, ap_ab * ab_normalized.y};
-    return closest_point.norm();
+
+    // Closest point on the segment
+    vec closest_point = a + vec{ap_ab * ab_normalized.x, ap_ab * ab_normalized.y};
+
+    // Vector from x to closest point
+    vec norm_vec = x - closest_point;
+    norm_vec.pbc_wrap(box);
+
+    // Distance to the segment
+    return norm_vec.norm();
 }
 
 std::pair<double,vec> point_segment_distance_w_normal(vec x, vec a, vec b, std::vector <double> box){

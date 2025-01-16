@@ -76,6 +76,7 @@ void angle_wrap(T& theta) {
 // Template function for computing the shortest distance between a point and a segment (with PBC)
 template<typename T>
 T point_segment_distance(const T* x, const T* a, const T* b, const std::vector<double>& box, std::vector<T>& norm_vec) {
+    //print x a b
     T ab[2] = {b[0] - a[0], b[1] - a[1]};
     T ab_norm = sqrt(ab[0] * ab[0] + ab[1] * ab[1]);
     T ab_normalized[2] = {ab[0] / ab_norm, ab[1] / ab_norm};
@@ -108,7 +109,6 @@ T segment_segment_distance(const T* a, const T* b, const T* c, const T* d, const
     T c_ab = point_segment_distance(c, a, b, box, norm_vec);
     T d_ab = point_segment_distance(d, a, b, box, norm_vec);
     T dist = std::min({a_cd, b_cd, c_ab, d_ab});
-
     // Check if segments intersect
     T ab_center[2] = {(a[0] + b[0]) / 2, (a[1] + b[1]) / 2};
     T cd_center[2] = {(c[0] + d[0]) / 2, (c[1] + d[1]) / 2};
@@ -158,9 +158,11 @@ real aa_energy(const ArrayXreal& center1, const double& length1, const real& the
 
     // Compute distance between segments
     real dist = segment_segment_distance(a, b, c, d, box);
+    dist = dist - 0.03;
     real angle = theta1 - theta2;
     angle_wrap(angle);
     angle = M_PI-abs(angle);
+    real approx_force = k_aa * dist;
     return 0.5 * (k_aa * dist * dist + kappa_aa * angle * angle); // Energy
 }
 
@@ -192,7 +194,6 @@ real am_energy1(const ArrayXreal& center1, const double& length1, const real& th
     angle_wrap(angle);
     angle = abs(angle);
     angle = (angle < M_PI - angle) ? angle : (M_PI - angle);
-    //printf("dist: %f\n",dist.val());
     if (dist.val()>0.8*myosin_radius){
         if (dist.val()>myosin_radius){
             printf("dist: %f\n",dist.val());
@@ -200,9 +201,13 @@ real am_energy1(const ArrayXreal& center1, const double& length1, const real& th
             printf("something is wrong\n");
             exit(1);
         }
+        real energy1 = 0.5 * k_am* val(strength) * dist * dist;
+        real energy2 = 0.5 * kappa_am * angle * angle;
+
         return 0.5 * k_am* val(strength) * dist * dist + 0.5 * kappa_am * angle * angle; // Energy
     }
     else {
+        real energy = 0.5 * kappa_am * angle * angle;
         return 0.5 * kappa_am * angle * angle;
     }
 }
@@ -252,9 +257,9 @@ std::vector<double> compute_am_force_and_energy(Filament& actin, Myosin& myosin,
     VectorXd forces_2;    
     if (turn_on_spring){
         forces_2 = -gradient(am_energy1, wrt(center1, theta1, theta2), 
-                at(center1, actin.length, theta1, center2, actin.length, theta2, box, k_am,kappa_am, myosin_radius), u);
+                at(center1, actin.length, theta1, center2, myosin.length, theta2, box, k_am,kappa_am, myosin_radius), u);
         forces.resize(forces_2.size());
-        double energy = am_energy1(center1, actin.length, theta1, center2, actin.length, theta2, box, k_am,kappa_am, myosin_radius).val();
+        double energy = am_energy1(center1, actin.length, theta1, center2, myosin.length, theta2, box, k_am,kappa_am, myosin_radius).val();
         VectorXd::Map(&forces[0], forces_2.size()) = forces_2;
     }
     else{
@@ -266,7 +271,7 @@ std::vector<double> compute_am_force_and_energy(Filament& actin, Myosin& myosin,
         forces[1] = 0;
         VectorXd::Map(&forces[2], forces_2.size()) = forces_2;    
     }
-    
+
     return forces;
 }
 #endif

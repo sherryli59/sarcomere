@@ -16,6 +16,7 @@ def plot_filaments(center,thetas,l,Lx,Ly,ax,color='k',color_spectrum=None,transp
     if np.isscalar(l):
         l = np.ones(center.shape[0])*l
     if color_spectrum is not None:
+        color_spectrum = np.sqrt(color_spectrum)
         # Use a colormap to get color values from the color spectrum
         colormap = plt.cm.Blues  # Adjust colormap if desired
         custom_colormap = mcolors.LinearSegmentedColormap.from_list(
@@ -28,6 +29,8 @@ def plot_filaments(center,thetas,l,Lx,Ly,ax,color='k',color_spectrum=None,transp
         sm.set_array([])  # Dummy array for the color bar
         
     for i in range(center.shape[0]):
+        if l[i]<0.01:
+            continue
         # Determine color based on the color spectrum
         if color_spectrum is not None:
             color = custom_colormap(norm(color_spectrum[i]))
@@ -138,12 +141,12 @@ def plot_system(frame,data,myosin_radius,actin_length,myosin_length, Lx,Ly):
         binding_ratio = np.clip(binding_ratio*3,0,1)
         crosslinking_ratio = data["/actin/crosslink_ratio"][frame].flatten()
         crosslinking_ratio = np.clip(crosslinking_ratio*3,0,1)
-        plot_filaments(actin_center, data["/actin/theta"][frame][:,0],actin_length,Lx=Lx, Ly=Ly,ax=ax, color_spectrum=crosslinking_ratio)
+        plot_filaments(actin_center, data["/actin/theta"][frame][:,0],actin_length,Lx=Lx, Ly=Ly,ax=ax, color_spectrum=cb_strength)
         actin_force = data["/actin/force"][frame]
         force_theta = np.arctan2(actin_force[:,1],actin_force[:,0])
         force_mag = np.linalg.norm(actin_force,axis=-1)
         force_centers = actin_center + actin_force/2
-        #plot_filaments(force_centers, force_theta,force_mag,Lx=Lx, Ly=Ly,ax=ax, color='grey',linestyle='dashed')
+        #plot_filaments(force_centers, force_theta,force_mag,Lx=Lx, Ly=Ly,ax=ax, color='grey')
         actin_angular_force = data["/actin/angular_force"][frame][:,0]
         angular_theta = ((actin_angular_force>0)-0.5)*np.pi
         #plot_filaments(actin_center,angular_theta,np.abs(actin_angular_force),Lx=Lx, Ly=Ly,ax=ax, color='pink',linestyle='dotted')
@@ -153,7 +156,7 @@ def plot_system(frame,data,myosin_radius,actin_length,myosin_length, Lx,Ly):
         force_theta = np.arctan2(myosin_force[:,1],myosin_force[:,0])
         force_mag = np.linalg.norm(myosin_force,axis=-1)
         force_centers = data["/myosin/center"][frame] + myosin_force/2
-        plot_filaments(force_centers, force_theta,force_mag,Lx=Lx, Ly=Ly,ax=ax,color='grey',linestyle='dashed')
+        #plot_filaments(force_centers, force_theta,force_mag,Lx=Lx, Ly=Ly,ax=ax,color='grey',linestyle='dashed')
 
         myosin_angular_force = data["/myosin/angular_force"][frame][:,0]
         myosin_theta = data["/myosin/theta"][frame][:,0]
@@ -194,9 +197,9 @@ def parse_args():
     parser.add_argument("--frame_dir", type=str, default="frames")
     parser.add_argument("--Lx", type=float, default=10)
     parser.add_argument("--Ly", type=float, default=10)
-    parser.add_argument("--myosin_radius", type=float, default=0.5)
-    parser.add_argument("--actin_length", type=float, default=3)
-    parser.add_argument("--myosin_length", type=float, default=3)
+    parser.add_argument("--myosin_radius", type=float, default=0.2)
+    parser.add_argument("--actin_length", type=float, default=1)
+    parser.add_argument("--myosin_length", type=float, default=1.5)
     parser.add_argument("--print_frame",type=int,default=1000)
     return parser.parse_args()
 

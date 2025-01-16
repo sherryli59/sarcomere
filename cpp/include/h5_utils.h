@@ -10,19 +10,33 @@
 #endif
 using vec = utils::vec;
 
-std::vector<double> flatten_2d_array(double** array, size_t rows, size_t cols) {
-    if (array == nullptr) {
-        throw std::invalid_argument("Input array is null.");
+// Serialize and pad actinIndicesPerActin
+std::vector<std::vector<int>> serializeActinIndicesPerActin(utils::MoleculeConnection& actinIndicesPerActin, int n_actins, int& max_bonds) {
+    std::vector<std::vector<int>> serialized(n_actins);
+
+    // Serialize connections for each actin
+    for (int i = 0; i < n_actins; ++i) {
+        serialized[i] = actinIndicesPerActin.getConnections(i);
     }
 
-    std::vector<double> flattened(rows * cols);
-    for (size_t i = 0; i < rows; ++i) {
-        for (size_t j = 0; j < cols; ++j) {
-            flattened[i * cols + j] = array[i][j];
+    // // Find the maximum number of bonds
+    // max_bonds = 1;
+    // for (const auto& bonds : serialized) {
+    //     if (bonds.size() > max_bonds) {
+    //         max_bonds = bonds.size();
+    //     }
+    // }
+
+    // Pad each list to have the same length (max_bonds)
+    for (auto& bonds : serialized) {
+        while (bonds.size() < max_bonds) {
+            bonds.push_back(-1);  // Use -1 as a placeholder for no bond
         }
     }
-    return flattened;
+
+    return serialized;
 }
+
 
 std::vector<double> flatten_2d_array(std::vector<vec> array) {
     size_t rows = array.size();
@@ -63,8 +77,8 @@ void create_empty_dataset(H5::H5File& file, const std::string& groupName,
 }
 
 void append_to_dataset(H5::Group& group, const std::string& datasetName, const std::vector<double> newData, const std::vector<hsize_t>& newDims) {
+    
     try {
-
         // Open the dataset.
         H5::DataSet dataset = group.openDataSet(datasetName);
 
@@ -155,11 +169,14 @@ void create_file(std::string& filename,  Filament& actin, Myosin& myosin){
     for (const auto& feature : myosin.custom_features) {
         create_empty_dataset(file, "/myosin", feature.first, initialDims, maxDims, chunkDims);
     }
-
-
+    // Create dataset for actinIndicesPerActin, 5 is max number of bonds
+    initialDims = {0, n_actins, 5};
+    maxDims = {H5S_UNLIMITED, n_actins, 5};
+    chunkDims = {10, n_actins, 5};
+    create_empty_dataset(file, "/actin", "indices_per_actin", initialDims, maxDims, chunkDims);
 }
 
-void append_to_file(std::string& filename, Filament& actin, Myosin& myosin, double& total_energy){
+void append_to_file(std::string& filename, Filament& actin, Myosin& myosin, double& total_energy, utils::MoleculeConnection& actinIndicesPerActin){
     H5::H5File file(filename, H5F_ACC_RDWR);
     H5::Group group_actin(file.openGroup("/actin"));
     H5::Group group_myosin(file.openGroup("/myosin"));
@@ -200,6 +217,24 @@ void append_to_file(std::string& filename, Filament& actin, Myosin& myosin, doub
     for (const auto& feature : myosin.custom_features) {
         append_to_dataset(group_myosin, feature.first, feature.second, {1, n_myosins, 1});
     }
+    int max_bonds = 5;
+    // Serialize actinIndicesPerActin
+    auto serialized_indices = serializeActinIndicesPerActin(actinIndicesPerActin, actin.n, max_bonds);
+
+    // Flatten the serialized indices into a 1D array for appending
+    std::vector<double> flattened_indices;
+    for (const auto& indices : serialized_indices) {
+        for (int index : indices) {
+            flattened_indices.push_back(static_cast<double>(index));
+        }
+    }
+    //print the flattened indices
+    for (int i = 0; i < flattened_indices.size(); i++){
+        std::cout << flattened_indices[i] << " ";
+    }
+
+    // Append the serialized indices to the dataset
+    append_to_dataset(group_actin, "indices_per_actin", flattened_indices, {1, n_actins, static_cast<hsize_t>(max_bonds)});
 
 }
 
@@ -259,6 +294,7 @@ void load_from_file(std::string& filename, Filament& actin, Myosin& myosin,  dou
         myosin.theta[i] = myosin_theta[i];
     }
     myosin.update_endpoints();
+    
     // //load energy
     // std::vector<double> energy = load_from_dataset(group_energy, "total_energy", dims);
     // //last element of energy is the total energy
