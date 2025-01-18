@@ -163,6 +163,7 @@ real aa_energy(const ArrayXreal& center1, const double& length1, const real& the
     angle_wrap(angle);
     angle = M_PI-abs(angle);
     real approx_force = k_aa * dist;
+    //printf("dist: %f\n",dist.val());
     return 0.5 * (k_aa * dist * dist + kappa_aa * angle * angle); // Energy
 }
 
@@ -238,6 +239,9 @@ std::vector<double> compute_aa_force_and_energy(Filament& actin,
     VectorXd forces_2 = -gradient(aa_energy, wrt(center1, theta1, theta2), 
             at(center1, actin.length, theta1, center2, actin.length, theta2, box, k_aa, kappa_aa), u);
     forces.resize(forces_2.size());
+    // printf("center1: %f %f\n",center1[0].val(),center1[1].val());
+    // printf("center2: %f %f\n",center2[0].val(),center2[1].val());
+    // printf("force values: %f %f\n",forces_2[0],forces_2[1]);
     VectorXd::Map(&forces[0], forces_2.size()) = forces_2;
     return forces;
 }

@@ -81,17 +81,11 @@ class Langevin{
             for (int i=fix_myosin; i<model.myosin.n; i++){
                 dx = model.myosin.force[i].x*beta*D*dt+model.myosin.velocity[i].x*dt+sqrt(2*D*dt)*noise[i*3];
                 dy = model.myosin.force[i].y*beta*D*dt+model.myosin.velocity[i].y*dt+sqrt(2*D*dt)*noise[i*3+1];
-                // dx = model.myosin.force[i].x*beta*D*dt+sqrt(2*D*dt)*noise[i*3];
-                // dy = model.myosin.force[i].y*beta*D*dt+sqrt(2*D*dt)*noise[i*3+1];
                 dtheta = model.myosin.angular_force[i]*beta*D*dt+sqrt(2*D*dt)*noise[i*3+2]*M_PI/5;
                 model.myosin.displace(i, dx, dy, dtheta);
             }
             int offset = model.myosin.n*3;
             for (int i=0; i<model.actin.n; i++){
-                // printf("actin %d\n", i);
-                // printf("force*beta*D*dt: %f %f\n", model.actin.force[i].x*beta*D*dt, model.actin.force[i].y*beta*D*dt);
-                // printf("velocity*dt: %f %f\n", model.actin.velocity[i].x*dt, model.actin.velocity[i].y*dt);
-                // printf("sqrt(2*D*dt)*noise: %f %f\n", sqrt(2*D*dt)*noise[offset+i*3], sqrt(2*D*dt)*noise[offset+i*3+1]);
                 dx = model.actin.force[i].x*beta*D*dt+model.actin.velocity[i].y*dt+sqrt(2*D*dt)*noise[offset+i*3];
                 dy = model.actin.force[i].y*beta*D*dt+model.actin.velocity[i].y*dt+sqrt(2*D*dt)*noise[offset+i*3+1];
                 double noise_x = sqrt(2*D*dt)*noise[offset+i*3];

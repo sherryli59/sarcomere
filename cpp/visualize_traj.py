@@ -142,7 +142,7 @@ def plot_system(frame,data,myosin_radius,actin_length,myosin_length, Lx,Ly):
         crosslinking_ratio = data["/actin/crosslink_ratio"][frame].flatten()
         crosslinking_ratio = np.clip(crosslinking_ratio*3,0,1)
         plot_filaments(actin_center, data["/actin/theta"][frame][:,0],actin_length,Lx=Lx, Ly=Ly,ax=ax, color_spectrum=cb_strength)
-        actin_force = data["/actin/force"][frame]
+        actin_force = data["/actin/force"][frame]/10
         force_theta = np.arctan2(actin_force[:,1],actin_force[:,0])
         force_mag = np.linalg.norm(actin_force,axis=-1)
         force_centers = actin_center + actin_force/2
@@ -156,7 +156,7 @@ def plot_system(frame,data,myosin_radius,actin_length,myosin_length, Lx,Ly):
         force_theta = np.arctan2(myosin_force[:,1],myosin_force[:,0])
         force_mag = np.linalg.norm(myosin_force,axis=-1)
         force_centers = data["/myosin/center"][frame] + myosin_force/2
-        #plot_filaments(force_centers, force_theta,force_mag,Lx=Lx, Ly=Ly,ax=ax,color='grey',linestyle='dashed')
+        #plot_filaments(force_centers, force_theta,force_mag,Lx=Lx, Ly=Ly,ax=ax,color='pink',linestyle='dashed')
 
         myosin_angular_force = data["/myosin/angular_force"][frame][:,0]
         myosin_theta = data["/myosin/theta"][frame][:,0]
