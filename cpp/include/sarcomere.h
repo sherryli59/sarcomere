@@ -696,4 +696,3 @@ class Sarcomere
 };
 
 #endif
-

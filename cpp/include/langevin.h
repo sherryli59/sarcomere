@@ -16,6 +16,7 @@
 #include <gsl/gsl_rng.h>
 #include <gsl/gsl_randist.h>
 #include <iostream>
+#include <omp.h>
 
 
 
@@ -64,53 +65,53 @@ class Langevin{
                 sample_step(dt, D, rng, fix_myosin);
             }
         }
-        void sample_step(double& dt, double& D, gsl_rng * rng, int& fix_myosin){
+        void sample_step(double& dt, double& D, gsl_rng * rng, int& fix_myosin) {
             model.update_system();
-            //double gamma = 1/(beta*D);
-            //get noise
-            int n_randns = (model.myosin.n+model.actin.n)*3;
-            double noise[n_randns];
-            for (int i=0; i<n_randns; i++)
-                noise[i]=gsl_rng_uniform(rng)*2-1;
-            int n_acc_randns = model.myosin.n+model.actin.n;
-            double acc_rand[n_acc_randns];
-            for (int i=0; i<n_acc_randns; i++)
-                acc_rand[i]=gsl_rng_uniform(rng);
-            double dx, dy, dtheta;
-            std::vector <double> force(2);
-            for (int i=fix_myosin; i<model.myosin.n; i++){
-                dx = model.myosin.force[i].x*beta*D*dt+model.myosin.velocity[i].x*dt+sqrt(2*D*dt)*noise[i*3];
-                dy = model.myosin.force[i].y*beta*D*dt+model.myosin.velocity[i].y*dt+sqrt(2*D*dt)*noise[i*3+1];
-                dtheta = model.myosin.angular_force[i]*beta*D*dt+sqrt(2*D*dt)*noise[i*3+2]*M_PI/5;
+
+            // Get noise
+            int n_randns = (model.myosin.n + model.actin.n) * 3;
+            std::vector<double> noise(n_randns);
+            for (int i = 0; i < n_randns; i++) {
+                noise[i] = gsl_rng_uniform(rng) * 2 - 1;
+            }
+
+            int n_acc_randns = model.myosin.n + model.actin.n;
+            std::vector<double> acc_rand(n_acc_randns);
+            for (int i = 0; i < n_acc_randns; i++) {
+                acc_rand[i] = gsl_rng_uniform(rng);
+            }
+
+            int offset = model.myosin.n * 3;
+            // Parallelize the myosin loop
+            #pragma omp parallel for shared(model, noise)
+            for (int i = fix_myosin; i < model.myosin.n; i++) {
+                double dx = model.myosin.force[i].x * beta * D * dt + model.myosin.velocity[i].x * dt + sqrt(2 * D * dt) * noise[i * 3];
+                double dy = model.myosin.force[i].y * beta * D * dt + model.myosin.velocity[i].y * dt + sqrt(2 * D * dt) * noise[i * 3 + 1];
+                double dtheta = model.myosin.angular_force[i] * beta * D * dt + sqrt(2 * D * dt) * noise[i * 3 + 2] * M_PI / 5;
+
                 model.myosin.displace(i, dx, dy, dtheta);
             }
-            int offset = model.myosin.n*3;
-            for (int i=0; i<model.actin.n; i++){
-                dx = model.actin.force[i].x*beta*D*dt+model.actin.velocity[i].y*dt+sqrt(2*D*dt)*noise[offset+i*3];
-                dy = model.actin.force[i].y*beta*D*dt+model.actin.velocity[i].y*dt+sqrt(2*D*dt)*noise[offset+i*3+1];
-                double noise_x = sqrt(2*D*dt)*noise[offset+i*3];
-                double noise_y = sqrt(2*D*dt)*noise[offset+i*3+1];
-                double velocity_x = model.actin.velocity[i].x*dt;
-                double velocity_y = model.actin.velocity[i].y*dt;
-                double force_x = model.actin.force[i].x*beta*D*dt;
-                double force_y = model.actin.force[i].y*beta*D*dt;
-                dtheta = model.actin.angular_force[i]*beta*D*dt+sqrt(2*D*dt)*noise[offset+i*3+2]*M_PI/5;
-                double noise_theta = sqrt(2*D*dt)*noise[offset+i*3+2]*M_PI/5;
-                double force_theta = model.actin.angular_force[i]*beta*D*dt;
-                // printf("angular force: %f\n", model.actin.angular_force[i]);
-                // printf("dtheta: %f\n", dtheta);
-                
-                if (dx>0.04||dy>0.04){
+
+            // Parallelize the actin loop
+            #pragma omp parallel for shared(model, noise)
+            for (int i = 0; i < model.actin.n; i++) {
+                double dx = model.actin.force[i].x * beta * D * dt + model.actin.velocity[i].x * dt + sqrt(2 * D * dt) * noise[offset + i * 3];
+                double dy = model.actin.force[i].y * beta * D * dt + model.actin.velocity[i].y * dt + sqrt(2 * D * dt) * noise[offset + i * 3 + 1];
+                double dtheta = model.actin.angular_force[i] * beta * D * dt + sqrt(2 * D * dt) * noise[offset + i * 3 + 2] * M_PI / 5;
+
+                if (dx > 0.04 || dy > 0.04) {
                     printf("actin %d\n", i);
-                    printf("force*beta*D*dt: %f %f\n", model.actin.force[i].x*beta*D*dt, model.actin.force[i].y*beta*D*dt);
-                    printf("velocity*dt: %f %f\n", model.actin.velocity[i].x*dt, model.actin.velocity[i].y*dt);
-                    printf("sqrt(2*D*dt)*noise: %f %f\n", sqrt(2*D*dt)*noise[offset+i*3], sqrt(2*D*dt)*noise[offset+i*3+1]);
+                    printf("force*beta*D*dt: %f %f\n", model.actin.force[i].x * beta * D * dt, model.actin.force[i].y * beta * D * dt);
+                    printf("velocity*dt: %f %f\n", model.actin.velocity[i].x * dt, model.actin.velocity[i].y * dt);
+                    printf("sqrt(2*D*dt)*noise: %f %f\n", sqrt(2 * D * dt) * noise[offset + i * 3], sqrt(2 * D * dt) * noise[offset + i * 3 + 1]);
                     printf("dx, dy: %f %f\n", dx, dy);
                     printf("dtheta: %f\n", dtheta);
                 }
+
                 model.actin.displace(i, dx, dy, dtheta);
             }
         }
+
 };
 
 #endif

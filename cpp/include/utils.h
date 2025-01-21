@@ -23,6 +23,11 @@ struct vec
         sum.y = y + p.y;
         return sum;
     }
+    vec& operator+=(const vec& other) {
+            x += other.x;
+            y += other.y;
+            return *this;
+        }
     //defining the - operator for the point struct
     vec operator-(const vec& p) const
     {
@@ -31,6 +36,11 @@ struct vec
         diff.y = y - p.y;
         return diff;
     }
+    vec& operator-=(const vec& other) {
+            x -= other.x;
+            y -= other.y;
+            return *this;
+        }
     //defining the * operator for the point struct
     vec operator*(double c) const
     {

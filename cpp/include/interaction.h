@@ -163,7 +163,6 @@ real aa_energy(const ArrayXreal& center1, const double& length1, const real& the
     angle_wrap(angle);
     angle = M_PI-abs(angle);
     real approx_force = k_aa * dist;
-    //printf("dist: %f\n",dist.val());
     return 0.5 * (k_aa * dist * dist + kappa_aa * angle * angle); // Energy
 }
 

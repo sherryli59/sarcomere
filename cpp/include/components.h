@@ -83,7 +83,7 @@ public:
         center[i].x += dx;
         center[i].y += dy;
         center[i].pbc_wrap(box);
-        update_endpoints_i(i);
+        update_endpoints(i);
     }
 
     void displace(int& i, double& dx, double& dy, double& dtheta) {
@@ -92,10 +92,10 @@ public:
         center[i].pbc_wrap(box);
         theta[i] += dtheta;
         utils::angle_wrap(theta[i]);
-        update_endpoints_i(i);
+        update_endpoints(i);
     }
 
-    void update_endpoints_i(int& i) {
+    void update_endpoints(int& i) {
         std::vector<double> segments(2);
         segments[0] = length * cos(theta[i]);
         segments[1] = length * sin(theta[i]);
@@ -108,7 +108,7 @@ public:
 
     void update_endpoints() {
         for (int i = 0; i < n; i++) {
-            update_endpoints_i(i);
+            update_endpoints(i);
         }
     }
 
