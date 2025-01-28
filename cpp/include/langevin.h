@@ -17,10 +17,11 @@
 #include <gsl/gsl_randist.h>
 #include <iostream>
 #include <omp.h>
+#include <mutex>  // Include the mutex header
 
 
 
-
+std::mutex save_mutex; 
 class Langevin{
     public: 
         Langevin(Sarcomere& model0, double& beta0, double& dt0, double& D0, int& update_myosin_every0,
@@ -59,11 +60,16 @@ class Langevin{
                 //bool update_myosin = (update_myosin_every>0 && i%update_myosin_every==0);
                 if (i%save_every==0){
                     std::cout << "Step " << i << std::endl;
-                    model.save_state();
-                    //model.check_energy();
+                    //save_mutex.lock();
+                    model.save_state();  // Save state protected by the mutex
+                    //save_mutex.unlock();
                 }
+                double start = omp_get_wtime();
                 sample_step(dt, D, rng, fix_myosin);
+                double end = omp_get_wtime();
+                printf("Time for step %d: %f\n", i, end-start);
             }
+
         }
         void sample_step(double& dt, double& D, gsl_rng * rng, int& fix_myosin) {
             model.update_system();
@@ -83,17 +89,22 @@ class Langevin{
 
             int offset = model.myosin.n * 3;
             // Parallelize the myosin loop
-            #pragma omp parallel for shared(model, noise)
+            //#pragma omp parallel for shared(model, noise)
             for (int i = fix_myosin; i < model.myosin.n; i++) {
                 double dx = model.myosin.force[i].x * beta * D * dt + model.myosin.velocity[i].x * dt + sqrt(2 * D * dt) * noise[i * 3];
                 double dy = model.myosin.force[i].y * beta * D * dt + model.myosin.velocity[i].y * dt + sqrt(2 * D * dt) * noise[i * 3 + 1];
                 double dtheta = model.myosin.angular_force[i] * beta * D * dt + sqrt(2 * D * dt) * noise[i * 3 + 2] * M_PI / 5;
-
+                if (dx > 0.0 || dy > 0.0) {
+                    printf("myosin %d\n", i);
+                    printf("dx: %f dy: %f\n", dx, dy);
+                    printf("force*beta*D*dt: %f %f\n", model.myosin.force[i].x * beta * D * dt, model.myosin.force[i].y * beta * D * dt);
+                    printf("velocity*dt: %f %f\n", model.myosin.velocity[i].x * dt, model.myosin.velocity[i].y * dt);
+                }
                 model.myosin.displace(i, dx, dy, dtheta);
             }
 
             // Parallelize the actin loop
-            #pragma omp parallel for shared(model, noise)
+            //#pragma omp parallel for shared(model, noise)
             for (int i = 0; i < model.actin.n; i++) {
                 double dx = model.actin.force[i].x * beta * D * dt + model.actin.velocity[i].x * dt + sqrt(2 * D * dt) * noise[offset + i * 3];
                 double dy = model.actin.force[i].y * beta * D * dt + model.actin.velocity[i].y * dt + sqrt(2 * D * dt) * noise[offset + i * 3 + 1];
@@ -101,13 +112,12 @@ class Langevin{
 
                 if (dx > 0.04 || dy > 0.04) {
                     printf("actin %d\n", i);
+                    printf("dx: %f dy: %f\n", dx, dy);
                     printf("force*beta*D*dt: %f %f\n", model.actin.force[i].x * beta * D * dt, model.actin.force[i].y * beta * D * dt);
                     printf("velocity*dt: %f %f\n", model.actin.velocity[i].x * dt, model.actin.velocity[i].y * dt);
                     printf("sqrt(2*D*dt)*noise: %f %f\n", sqrt(2 * D * dt) * noise[offset + i * 3], sqrt(2 * D * dt) * noise[offset + i * 3 + 1]);
-                    printf("dx, dy: %f %f\n", dx, dy);
-                    printf("dtheta: %f\n", dtheta);
+                    printf("noise: %f %f\n", noise[offset + i * 3], noise[offset + i * 3 + 1]);
                 }
-
                 model.actin.displace(i, dx, dy, dtheta);
             }
         }

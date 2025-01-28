@@ -92,7 +92,7 @@ int main(int argc, char* argv[]){
     Sarcomere model(n_actins, n_myosins, box, actin_length, myosin_length,
                         myosin_radius, crosslinker_length, k_on, k_off,
                        cb_mult_factor,  k_aa, kappa_aa, k_am, kappa_am, v_am,
-                        filename,rng);
+                        filename,rng, seed);
     Langevin sim(model, beta, dt, diff_coeff, update_myosin_every, update_dt_every, save_every, resume);
     if (!resume){
         if (init_struc == "sarcomere") {

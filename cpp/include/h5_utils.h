@@ -228,10 +228,10 @@ void append_to_file(std::string& filename, Filament& actin, Myosin& myosin, doub
             flattened_indices.push_back(static_cast<double>(index));
         }
     }
-    //print the flattened indices
-    for (int i = 0; i < flattened_indices.size(); i++){
-        std::cout << flattened_indices[i] << " ";
-    }
+    // //print the flattened indices
+    // for (int i = 0; i < flattened_indices.size(); i++){
+    //     std::cout << flattened_indices[i] << " ";
+    // }
 
     // Append the serialized indices to the dataset
     append_to_dataset(group_actin, "indices_per_actin", flattened_indices, {1, n_actins, static_cast<hsize_t>(max_bonds)});

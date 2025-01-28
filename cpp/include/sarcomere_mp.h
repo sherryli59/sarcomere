@@ -33,6 +33,8 @@
 #include <unordered_map>
 #include <utility>
 #include <omp.h>
+#include <thread>
+
 
 using vector = std::vector<double>;
 using interaction = geometry::am_interaction;
@@ -220,9 +222,16 @@ class Sarcomere
 
         void update_system(){
             _set_to_zero();
+            double time1 = omp_get_wtime();
             _update1();
+            double time2 = omp_get_wtime();
+            std::cout << "Update 1 time: " << time2 - time1 << std::endl;
             _update2();
+            double time3 = omp_get_wtime();
+            std::cout << "Update 2 time: " << time3 - time2 << std::endl;
             _update3();
+            double time4 = omp_get_wtime();
+            std::cout << "Update 3 time: " << time4 - time3 << std::endl;
         }
         
 
@@ -271,33 +280,52 @@ class Sarcomere
             } 
         }
 
-        void _update1(){
-
-            std::vector<int> n_actins_per_myosin;
-            for (int j = 0; j < myosin.n; j++){
-                n_actins_per_myosin.push_back(0);
-            }
-            for (int i = 0; i < actin.n; i++){
+        void _update1() {
+            std::vector<int> n_actins_per_myosin(myosin.n, 0);  // Initialize with zeros
+            // Parallelize the outer loop
+            #pragma omp parallel for
+            for (int i = 0; i < actin.n; i++) {
+                int num_threads = omp_get_max_threads();
+                int thread_id = omp_get_thread_num();
                 double partial_binding_ratio = 0;
                 double myosin_binding_ratio_sum = 0;
                 int myosin_index = -1;
+
                 auto myosin_neighbors = actin_neighbors_by_species[i].second;
-                for (int index = 0; index < myosin_neighbors.size(); index++){
+
+                // Loop through neighbors
+                for (int index = 0; index < myosin_neighbors.size(); index++) {
                     int j = myosin_neighbors[index];
-                    am_interaction[i][j] = geometry::analyze_am(actin.left_end[i],actin.right_end[i],
-                         myosin.left_end[j],myosin.right_end[j],myosin.radius,box);
+                    
+                    // Perform analysis (assume thread-safe analyze_am function)
+                    am_interaction[i][j] = geometry::analyze_am(
+                        actin.left_end[i], actin.right_end[i],
+                        myosin.left_end[j], myosin.right_end[j],
+                        myosin.radius, box
+                    );
+                    
                     myosin_binding_ratio_sum += am_interaction[i][j].myosin_binding_ratio;
-                    if (am_interaction[i][j].partial_binding_ratio>partial_binding_ratio){
+
+                    if (am_interaction[i][j].partial_binding_ratio > partial_binding_ratio) {
                         partial_binding_ratio = am_interaction[i][j].partial_binding_ratio;
                         myosin_index = j;
                     }
                 }
-                if (myosin_index>=0){
-                    n_actins_per_myosin[myosin_index]++;
-                    actinIndicesPerMyosin.addConnection(myosin_index,i);
-                    myosinIndicesPerActin.addConnection(i,myosin_index);
+
+                // If a valid myosin_index is found, update shared structures
+                if (myosin_index >= 0) {
+                    #pragma omp critical  // Ensure atomic updates to shared data
+                    {
+                        n_actins_per_myosin[myosin_index]++;
+                        actinIndicesPerMyosin.addConnection(myosin_index, i);
+                        myosinIndicesPerActin.addConnection(i, myosin_index);
+                    }
+
                     double myosin_binding_ratio = am_interaction[i][myosin_index].myosin_binding_ratio;
-                    actin_crosslink_ratio[i] = am_interaction[i][myosin_index].crosslinkable_ratio-(myosin_binding_ratio_sum-myosin_binding_ratio);
+                    actin_crosslink_ratio[i] = am_interaction[i][myosin_index].crosslinkable_ratio - 
+                                            (myosin_binding_ratio_sum - myosin_binding_ratio);
+
+                    // Update actin properties
                     actin["myosin_binding_ratio"][i] = myosin_binding_ratio;
                     actin["crosslink_ratio"][i] = actin_crosslink_ratio[i];
                     actin["partial_binding_ratio"][i] = am_interaction[i][myosin_index].partial_binding_ratio;
@@ -305,104 +333,116 @@ class Sarcomere
             }
         }
 
-        void _update2(){            
-            //Assumes that the connections have been updated
-            //To avoid double counting, we'll only consider catch-bond pairs (i,j) where i>j
-            std::vector <int> actin_neighbors;
-            for (int i = 0; i < actin.n; i++){
+
+        void _update2() {
+            std::vector<int> actin_neighbors;
+
+            #pragma omp parallel for private(actin_neighbors)
+            for (int i = 0; i < actin.n; i++) {
                 actin_neighbors = actin_neighbors_by_species[i].first;
-                std::vector <int> myosin_indices = myosinIndicesPerActin.getConnections(i);
-                for (int index = 0; index < myosin_indices.size(); index++){
+                std::vector<int> myosin_indices = myosinIndicesPerActin.getConnections(i);
+
+                for (int index = 0; index < myosin_indices.size(); index++) {
                     int j = myosin_indices[index];
-                    vec velocity = {v_am*cos(actin.theta[i]),v_am*sin(actin.theta[i])};
+                    vec velocity = {v_am * cos(actin.theta[i]), v_am * sin(actin.theta[i])};
                     double a_m_angle = actin.theta[i] - myosin.theta[j];
                     double abs_cos = std::abs(std::cos(a_m_angle));
-                    double myosin_ratio = std::min(am_interaction[i][j].partial_binding_ratio*3,1.0);
-                    actin.tension[i] = myosin_ratio*abs_cos;
+                    double myosin_ratio = std::min(am_interaction[i][j].partial_binding_ratio * 3, 1.0);
+                    actin.tension[i] = myosin_ratio * abs_cos;
                     actin_basic_tension[i] = actin.tension[i];
                     actin.velocity[i] = velocity;
                 }
-                
-                //if (actin.cb_strength[i]<1)
-                //{
-                    std::vector<int> cb_indices;
-                    std::vector<double> cb_strengths;
-                    bool add_connection = true;
-                    for (int index = 0; index < actin_neighbors.size(); index++){
-                        int j = actin_neighbors[index];
-                        //if (i>j  && actin.cb_strength[j]<1){
-                        if (i>j){
-                            double strength = _get_cb_strength(i,j);
-                            if (strength>EPS){
-                                cb_indices.push_back(j);
-                                cb_strengths.push_back(strength);
-                            }
+
+                std::vector<int> cb_indices;
+                std::vector<double> cb_strengths;
+
+                for (int index = 0; index < actin_neighbors.size(); index++) {
+                    int j = actin_neighbors[index];
+                    if (i > j) {
+                        double strength = _get_cb_strength(i, j);
+                        if (strength > EPS) {
+                            cb_indices.push_back(j);
+                            cb_strengths.push_back(strength);
                         }
                     }
-                    _set_cb(i,cb_indices,cb_strengths);
-                //}
-            }
-            // for (int i = 0; i < actin.n; i++){
-            //     if (actin.cb_strength[i]>1){
-            //                 actin.cb_strength[i] = 1;
-            //     }    
-            // }
-        }
-        
-        void _update3(){
+                }
 
-            double angle, v_factor;
-            for (int i = 0; i < actin.n; i++){
-                std::vector <int> myosin_indices = myosinIndicesPerActin.getConnections(i);
-                vec velocity = {v_am*cos(actin.theta[i]),v_am*sin(actin.theta[i])};
-                for (int index = 0; index < myosin_indices.size(); index++){
+                // Critical section to ensure safe modification of shared state
+                #pragma omp critical
+                {
+                    _set_cb(i, cb_indices, cb_strengths);
+                }
+            }
+        }
+
+        
+        void _update3() {
+            #pragma omp parallel for
+            for (int i = 0; i < actin.n; i++) {
+                std::vector<int> myosin_indices = myosinIndicesPerActin.getConnections(i);
+                vec velocity = {v_am * cos(actin.theta[i]), v_am * sin(actin.theta[i])};
+
+                for (int index = 0; index < myosin_indices.size(); index++) {
                     int j = myosin_indices[index];
                     double binding_ratio = am_interaction[i][j].myosin_binding_ratio;
                     bool turn_on_spring = true;
-                    double tension = actin_basic_tension[i]*(1/cb_mult_factor+actin.cb_strength[i]);
-                    vector force_vec =  compute_am_force_and_energy(actin, myosin, i, j, box, k_am*tension,kappa_am*tension, myosin.radius, turn_on_spring);
+                    double tension = actin_basic_tension[i] * (1 / cb_mult_factor + actin.cb_strength[i]);
+
+                    vector force_vec = compute_am_force_and_energy(
+                        actin, myosin, i, j, box, k_am * tension, kappa_am * tension, myosin.radius, turn_on_spring);
+
+                    #pragma omp atomic
                     actin.force[i].x += force_vec[0];
+                    #pragma omp atomic
                     actin.force[i].y += force_vec[1];
+                    #pragma omp atomic
                     myosin.force[j].x -= force_vec[0];
+                    #pragma omp atomic
                     myosin.force[j].y -= force_vec[1];
-                    actin.angular_force[i] +=force_vec[2];
-                    myosin.angular_force[j] +=force_vec[3];
-                    // if (actin.cb_strength[i]<0 || actin.cb_strength[i]>1){
-                    //     printf("actin %d has cb strength %f \n",i,actin.cb_strength[i]);
-                    //     exit(1);
-                    // }
-                    double binding_ratio_adjusted = std::min(am_interaction[i][j].partial_binding_ratio*3,1.0);
-                    v_factor = 0.2*std::max(actin.cb_strength[i]-0.1,0.0)* std::max(1-binding_ratio_adjusted,0.0);
-                    //printf("v_factor for actin %d is %f \n",i,v_factor);
-                    //printf("binding ratio adjusted is %f \n",binding_ratio_adjusted);
-                    myosin.velocity[j] = myosin.velocity[j] - v_factor*velocity;
-                }
-                if (actin.cb_strength[i]>EPS){
-                    v_factor = std::max(0.1-actin.cb_strength[i],0.0);
-                    actin.velocity[i].x *=v_factor;
-                    actin.velocity[i].y *=v_factor;
+                    #pragma omp atomic
+                    actin.angular_force[i] += force_vec[2];
+                    #pragma omp atomic
+                    myosin.angular_force[j] += force_vec[3];
 
+                    double binding_ratio_adjusted = std::min(am_interaction[i][j].partial_binding_ratio * 3, 1.0);
+                    double v_factor = 0.2 * std::max(actin.cb_strength[i] - 0.1, 0.0) * std::max(1 - binding_ratio_adjusted, 0.0);
+                    myosin.velocity[j] = myosin.velocity[j] - v_factor * velocity;
+                }
+
+                if (actin.cb_strength[i] > EPS) {
+                    double v_factor = std::max(0.1 - actin.cb_strength[i], 0.0);
+                    actin.velocity[i].x *= v_factor;
+                    actin.velocity[i].y *= v_factor;
                 }
             }
-            for (int i = 0; i<myosin.n; i++){
-                auto result = neighbor_list.get_neighbors_by_type(i+actin.n);
-                std::vector <int> myosin_indices = result.second;
-                for (int index = 0; index < myosin_indices.size(); index++){
+
+            // Parallelize myosin repulsion
+            #pragma omp parallel for
+            for (int i = 0; i < myosin.n; i++) {
+                auto result = neighbor_list.get_neighbors_by_type(i + actin.n);
+                std::vector<int> myosin_indices = result.second;
+
+                for (int index = 0; index < myosin_indices.size(); index++) {
                     int j = myosin_indices[index];
-                    if (i<j){
-                    _myosin_repulsion(i,myosin_indices[index]);}
-                }
-            }
-            for (int i = 0; i < actin.n; i++){
-                auto result = neighbor_list.get_neighbors_by_type(i);
-                std::vector <int> actin_indices = result.first;
-                for (int index = 0; index < actin_indices.size(); index++){
-                    int j = actin_indices[index];
-                    if (i<j){
-                    _actin_repulsion(i,actin_indices[index]);}
+                    if (i < j) {
+                        _myosin_repulsion(i, myosin_indices[index]);
+                    }
                 }
             }
 
+            // Parallelize actin repulsion
+            #pragma omp parallel for
+            for (int i = 0; i < actin.n; i++) {
+                auto result = neighbor_list.get_neighbors_by_type(i);
+                std::vector<int> actin_indices = result.first;
+
+                for (int index = 0; index < actin_indices.size(); index++) {
+                    int j = actin_indices[index];
+                    if (i < j) {
+                        _actin_repulsion(i, actin_indices[index]);
+                    }
+                }
+            }
         }
 
     
