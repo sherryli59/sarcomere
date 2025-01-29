@@ -97,15 +97,7 @@ struct vec
     {
         return x * p.x + y * p.y;
     }
-    vec normalize() const
-    {
-        double n = norm();
-        if (n == 0)
-        {
-            return *this;
-        }
-        return *this / norm();
-    }
+
 
     double norm_squared() const
     {

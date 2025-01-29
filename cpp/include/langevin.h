@@ -94,12 +94,12 @@ class Langevin{
                 double dx = model.myosin.force[i].x * beta * D * dt + model.myosin.velocity[i].x * dt + sqrt(2 * D * dt) * noise[i * 3];
                 double dy = model.myosin.force[i].y * beta * D * dt + model.myosin.velocity[i].y * dt + sqrt(2 * D * dt) * noise[i * 3 + 1];
                 double dtheta = model.myosin.angular_force[i] * beta * D * dt + sqrt(2 * D * dt) * noise[i * 3 + 2] * M_PI / 5;
-                if (dx > 0.0 || dy > 0.0) {
-                    printf("myosin %d\n", i);
-                    printf("dx: %f dy: %f\n", dx, dy);
-                    printf("force*beta*D*dt: %f %f\n", model.myosin.force[i].x * beta * D * dt, model.myosin.force[i].y * beta * D * dt);
-                    printf("velocity*dt: %f %f\n", model.myosin.velocity[i].x * dt, model.myosin.velocity[i].y * dt);
-                }
+                // if (dx > 0.0 || dy > 0.0) {
+                //     printf("myosin %d\n", i);
+                //     printf("dx: %f dy: %f\n", dx, dy);
+                //     printf("force*beta*D*dt: %f %f\n", model.myosin.force[i].x * beta * D * dt, model.myosin.force[i].y * beta * D * dt);
+                //     printf("velocity*dt: %f %f\n", model.myosin.velocity[i].x * dt, model.myosin.velocity[i].y * dt);
+                // }
                 model.myosin.displace(i, dx, dy, dtheta);
             }
 
@@ -113,6 +113,7 @@ class Langevin{
                 if (dx > 0.04 || dy > 0.04) {
                     printf("actin %d\n", i);
                     printf("dx: %f dy: %f\n", dx, dy);
+                    printf("force: %f %f\n", model.actin.force[i].x, model.actin.force[i].y);
                     printf("force*beta*D*dt: %f %f\n", model.actin.force[i].x * beta * D * dt, model.actin.force[i].y * beta * D * dt);
                     printf("velocity*dt: %f %f\n", model.actin.velocity[i].x * dt, model.actin.velocity[i].y * dt);
                     printf("sqrt(2*D*dt)*noise: %f %f\n", sqrt(2 * D * dt) * noise[offset + i * 3], sqrt(2 * D * dt) * noise[offset + i * 3 + 1]);

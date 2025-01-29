@@ -26,9 +26,12 @@ class NeighborList {
 public:
     NeighborList(double cutoff_radius, const std::vector<double>& box, double threshold)
         : cutoff_radius_(cutoff_radius), threshold_(threshold), box_(box) {
-        cell_size_ = cutoff_radius;
-        num_cells_x_ = static_cast<int>(std::ceil(box[0] / cell_size_));
-        num_cells_y_ = static_cast<int>(std::ceil(box[1] / cell_size_));
+        num_cells_x_ = static_cast<int>(std::floor(box[0] / cutoff_radius));
+        num_cells_y_ = static_cast<int>(std::floor(box[1] / cutoff_radius));
+
+        // Adjust cell size to ensure full coverage
+        cell_size_x_ = box[0] / num_cells_x_;
+        cell_size_y_ = box[1] / num_cells_y_;
     }
 
     NeighborList() {}
@@ -70,10 +73,10 @@ public:
         }
 
 
-       // Precompute neighboring cell offsets
+        // Precompute all 9 neighboring cell offsets
         std::vector<std::pair<int, int>> neighboring_cells;
-        for (int dx = 0; dx <= 1; ++dx) {
-            for (int dy = (dx == 0 ? 0 : -1); dy <= 1; ++dy) {
+        for (int dx = -1; dx <= 1; ++dx) {
+            for (int dy = -1; dy <= 1; ++dy) {
                 neighboring_cells.emplace_back(dx, dy);
             }
         }
@@ -93,23 +96,29 @@ public:
             for (size_t i = 0; i < all_positions_.size(); ++i) {
                 vec position = all_positions_[i];
                 std::pair<int, int> cell = get_cell_index(position);
-
+                if (i==34+n_actins_ || i==n_actins_){
+                    printf("i: %d, cell: %d, %d \n", i-n_actins_, cell.first, cell.second);
+                    printf("position: %f, %f \n", position.x, position.y);
+                }
+                
                 // Check current cell and precomputed neighboring cells
                 for (const auto& offset : neighboring_cells) {
                     int neighbor_x = (cell.first + offset.first + num_cells_x_) % num_cells_x_;
                     int neighbor_y = (cell.second + offset.second + num_cells_y_) % num_cells_y_;
                     std::pair<int, int> neighbor_cell = {neighbor_x, neighbor_y};
-
                     // Skip if the neighbor cell is empty
                     if (cell_list_.count(neighbor_cell) == 0) continue;
 
                     // Iterate over particles in the neighboring cell
                     for (int j : cell_list_[neighbor_cell]) {
-                        // Enforce unique processing for pairs
                         if (i >= j) continue;
-
                         // Compute the distance and check if it's within the cutoff radius
                         double distance = all_positions_[i].distance(all_positions_[j], box_);
+                        if (i==34+n_actins_ || j==34+n_actins_){
+                            if (i>=n_actins_ && j>=n_actins_){
+                                printf("i: %d, j: %d, distance: %f \n", i-n_actins_, j-n_actins_, distance);
+                            }
+                        }
                         if (distance < cutoff_radius_) {
                             // Update thread-local neighbor list
                             thread_local_neighbor_list[thread_id][i].emplace_back(j, species_types_[j]);
@@ -164,7 +173,6 @@ public:
         #pragma omp parallel for
         for (size_t i = 0; i < myosin_positions_.size(); ++i) {
             if (displacement(myosin_positions_[i], last_myosin_positions_[i]) > threshold_) {
-                printf("displacement for myosin %d : %f\n",i, displacement(myosin_positions_[i], last_myosin_positions_[i]));
                 needs_rebuild = true;
                 #pragma omp cancel for
             }
@@ -172,7 +180,6 @@ public:
         #pragma omp barrier 
         return false;
     }
-
     // Access the neighbor list for a specific particle
     const std::vector<std::pair<int, ParticleType>>& get_neighbors(int index) const {
         return neighbor_list_[index];
@@ -197,7 +204,7 @@ public:
 private:
     double cutoff_radius_;
     double threshold_;  // Skin distance threshold to determine neighbor list rebuild
-    double cell_size_;
+    double cell_size_x_, cell_size_y_;
     int num_cells_x_, num_cells_y_, n_actins_;
     std::vector<double> box_;
 
@@ -222,14 +229,17 @@ private:
     // Cell list to hold particle indices by cell
     std::unordered_map<std::pair<int, int>, std::vector<int>, pair_hash> cell_list_;
 
-    // Calculate the cell index for a given position
     std::pair<int, int> get_cell_index(const vec& position) const {
-        int cell_x = static_cast<int>(std::floor(position.x / cell_size_)) % num_cells_x_;
-        int cell_y = static_cast<int>(std::floor(position.y / cell_size_)) % num_cells_y_;
-        if (cell_x < 0) cell_x += num_cells_x_;
-        if (cell_y < 0) cell_y += num_cells_y_;
+        int cell_x = static_cast<int>(std::floor((position.x+box_[0]) / cell_size_x_)) % num_cells_x_;
+        int cell_y = static_cast<int>(std::floor((position.y+box_[1]) / cell_size_y_))% num_cells_y_;
+
+        // Correct modulo operation to handle negative values
+        cell_x = (cell_x % num_cells_x_ + num_cells_x_) % num_cells_x_;
+        cell_y = (cell_y % num_cells_y_ + num_cells_y_) % num_cells_y_;
+
         return {cell_x, cell_y};
     }
+    
 
     // Calculate displacement between two points with periodic boundary conditions
     double displacement(const vec& current, const vec& last) const {
