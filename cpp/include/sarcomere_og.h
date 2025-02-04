@@ -607,9 +607,6 @@ class Sarcomere
             actin.force[j].y -= force_vec[1];
             actin.angular_force[i] += force_vec[2];
             actin.angular_force[j] += force_vec[3];
-            printf("setting cb: %d %d\n", i, j);
-            printf("strength: %f\n", strength);
-            printf("force_vec: %f %f %f %f\n", force_vec[0], force_vec[1], force_vec[2], force_vec[3]);
             actin.cb_strength[i] += normalized_strength;
             actin.cb_strength[j] += normalized_strength;
             actin_n_bonds[i] += 1;

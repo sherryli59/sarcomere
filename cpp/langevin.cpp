@@ -47,7 +47,7 @@ int main(int argc, char* argv[]){
             ("update_dt_every", "Update dt every", cxxopts::value<int>(update_dt_every)->default_value("500"))
             ("update_myosin_every", "Update myosin every", cxxopts::value<int>(update_myosin_every)->default_value("1"))
             ("save_every", "Save every", cxxopts::value<int>(save_every)->default_value("200"))
-            ("k_on", "k_on", cxxopts::value<double>(k_on)->default_value("1000"))
+            ("k_on", "k_on", cxxopts::value<double>(k_on)->default_value("100"))
             ("k_off", "k_off", cxxopts::value<double>(k_off)->default_value("1"))
             ("cb_mult_factor", "Catch bond multiplier factor", cxxopts::value<double>(cb_mult_factor)->default_value("1000"))
             ("k_aa", "k_aa", cxxopts::value<double>(k_aa)->default_value("300"))
@@ -108,6 +108,9 @@ int main(int argc, char* argv[]){
         }
         else if (init_struc == "cb"){
             sim.model.cb();
+        }
+        else if (init_struc == "bad_cb"){
+            sim.model.bad_cb();
         }
     }
     sim.run_langevin(nsteps, rng, fix_myosin);

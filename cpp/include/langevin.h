@@ -64,10 +64,10 @@ class Langevin{
                     model.save_state();  // Save state protected by the mutex
                     //save_mutex.unlock();
                 }
-                double start = omp_get_wtime();
+                //double start = omp_get_wtime();
                 sample_step(dt, D, rng, fix_myosin);
-                double end = omp_get_wtime();
-                printf("Time for step %d: %f\n", i, end-start);
+                //double end = omp_get_wtime();
+                //printf("Time for step %d: %f\n", i, end-start);
             }
 
         }

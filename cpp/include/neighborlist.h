@@ -32,6 +32,29 @@ public:
         // Adjust cell size to ensure full coverage
         cell_size_x_ = box[0] / num_cells_x_;
         cell_size_y_ = box[1] / num_cells_y_;
+
+        for (int dx = -1; dx <= 1; ++dx) {
+            for (int dy = -1; dy <= 1; ++dy) {
+                if (num_cells_x_ > 2 && num_cells_y_ > 2) {
+                    neighboring_cells.emplace_back(dx, dy);
+                    continue;
+                }
+                if (dx == 0 && dy == 0) {
+                    neighboring_cells.emplace_back(dx, dy);
+                    continue;
+                }
+                // If num_cells_x_ == 1, don't add any neighbors in x-direction
+                if (num_cells_x_ == 1 && dx != 0) continue;
+                // If num_cells_y_ == 1, don't add any neighbors in y-direction
+                if (num_cells_y_ == 1 && dy != 0) continue;
+                // If num_cells_x_ == 2, only include dx = 1
+                if (num_cells_x_ == 2 && dx == -1) continue;
+                // If num_cells_y_ == 2, only include dy = 1
+                if (num_cells_y_ == 2 && dy == -1) continue;
+                // Default case: Include all normal neighbors
+                neighboring_cells.emplace_back(dx, dy);
+            }
+        }
     }
 
     NeighborList() {}
@@ -72,15 +95,6 @@ public:
             cell_list_[cell].push_back(i);
         }
 
-
-        // Precompute all 9 neighboring cell offsets
-        std::vector<std::pair<int, int>> neighboring_cells;
-        for (int dx = -1; dx <= 1; ++dx) {
-            for (int dy = -1; dy <= 1; ++dy) {
-                neighboring_cells.emplace_back(dx, dy);
-            }
-        }
-
         // Thread-local storage for neighbor lists
         std::vector<std::vector<std::vector<std::pair<size_t, ParticleType>>>> thread_local_neighbor_list(omp_get_max_threads());
         for (auto& local_list : thread_local_neighbor_list) {
@@ -96,10 +110,6 @@ public:
             for (size_t i = 0; i < all_positions_.size(); ++i) {
                 vec position = all_positions_[i];
                 std::pair<int, int> cell = get_cell_index(position);
-                if (i==34+n_actins_ || i==n_actins_){
-                    printf("i: %d, cell: %d, %d \n", i-n_actins_, cell.first, cell.second);
-                    printf("position: %f, %f \n", position.x, position.y);
-                }
                 
                 // Check current cell and precomputed neighboring cells
                 for (const auto& offset : neighboring_cells) {
@@ -114,11 +124,6 @@ public:
                         if (i >= j) continue;
                         // Compute the distance and check if it's within the cutoff radius
                         double distance = all_positions_[i].distance(all_positions_[j], box_);
-                        if (i==34+n_actins_ || j==34+n_actins_){
-                            if (i>=n_actins_ && j>=n_actins_){
-                                printf("i: %d, j: %d, distance: %f \n", i-n_actins_, j-n_actins_, distance);
-                            }
-                        }
                         if (distance < cutoff_radius_) {
                             // Update thread-local neighbor list
                             thread_local_neighbor_list[thread_id][i].emplace_back(j, species_types_[j]);
@@ -207,6 +212,7 @@ private:
     double cell_size_x_, cell_size_y_;
     int num_cells_x_, num_cells_y_, n_actins_;
     std::vector<double> box_;
+    std::vector<std::pair<int, int>> neighboring_cells; 
 
     std::vector<vec> actin_positions_;
     std::vector<vec> myosin_positions_;

@@ -186,6 +186,24 @@ class Sarcomere
             }
         }
 
+        void bad_cb(){
+            std::vector<vector> actin_positions = {{0.2,-0.015},{-0.2,0.015},{1.9,-0.015},{2.7,0.015}};
+            for (int i = 0; i < actin_positions.size(); i++){
+                actin.center[i].x = actin_positions[i][0];
+                actin.center[i].y = actin_positions[i][1];
+            }
+            actin.theta[0] = 0;
+            actin.theta[1] = M_PI;
+            actin.theta[2] = M_PI;
+            actin.theta[3] = 0;
+            std::vector<vector> myosin_positions = {{-1.,0},{1.,0},{3.6,0}};
+            for (int i = 0; i < myosin_positions.size(); i++){
+                myosin.center[i].x = myosin_positions[i][0];
+                myosin.center[i].y = myosin_positions[i][1];
+                myosin.theta[i] = 0;
+            }
+        }
+
         void sarcomeric_structure(){
             std::vector<vector> myosin_positions;
             box[0] = 5.32;
@@ -224,7 +242,6 @@ class Sarcomere
         }
 
         void update_system() {
-            //omp_set_num_threads(1);
             neighbor_list.set_species_positions(actin.center, myosin.center);
             if (neighbor_list.needs_rebuild()) {
                 neighbor_list.rebuild_neighbor_list();
@@ -356,7 +373,7 @@ class Sarcomere
             #pragma omp for schedule(dynamic)
             for (int i = 0; i < actin.n; i++) {
                 auto& local_actinIndicesPerMyosin = actinIndicesPerMyosin_temp[thread_id];
-                double partial_binding_ratio = 0;
+                double partial_binding_ratio = -1;
                 double myosin_binding_ratio_sum = 0;
                 int myosin_index = -1;
                 auto myosin_neighbors = actin_neighbors_by_species[i].second;
@@ -366,7 +383,7 @@ class Sarcomere
                         actin.left_end[i], actin.right_end[i], myosin.left_end[j], myosin.right_end[j],
                         myosin.radius, box);
                     myosin_binding_ratio_sum += am_interaction[i][j].myosin_binding_ratio;
-                    if (am_interaction[i][j].partial_binding_ratio > partial_binding_ratio) {
+                    if (am_interaction[i][j].myosin_binding_ratio>0 && am_interaction[i][j].partial_binding_ratio > partial_binding_ratio) {
                         partial_binding_ratio = am_interaction[i][j].partial_binding_ratio;
                         myosin_index = j;
                     }
@@ -375,8 +392,10 @@ class Sarcomere
                     local_actinIndicesPerMyosin.addConnection(myosin_index, i);
                     myosinIndicesPerActin.addConnection(i, myosin_index);
                     double myosin_binding_ratio = am_interaction[i][myosin_index].myosin_binding_ratio;
+                    actin_crosslink_ratio[i] = am_interaction[i][myosin_index].crosslinkable_ratio-(myosin_binding_ratio_sum-myosin_binding_ratio);
+                    //actin_crosslink_ratio[i] = am_interaction[i][myosin_index].crosslinkable_ratio;
                     actin["myosin_binding_ratio"][i] = myosin_binding_ratio;
-                    actin["crosslink_ratio"][i] = am_interaction[i][myosin_index].crosslinkable_ratio-(myosin_binding_ratio_sum-myosin_binding_ratio);
+                    actin["crosslink_ratio"][i] = actin_crosslink_ratio[i];
                     actin["partial_binding_ratio"][i] = am_interaction[i][myosin_index].partial_binding_ratio;
                 }
             }
@@ -394,12 +413,13 @@ class Sarcomere
                     double a_m_angle = actin.theta[i] - myosin.theta[j];
                     double abs_cos = std::abs(std::cos(a_m_angle));
                     double myosin_ratio = std::min(am_interaction[i][j].partial_binding_ratio * 3, 1.0);
-                    actin_basic_tension[i] = myosin_ratio * abs_cos;
-                    actin.velocity[i] = velocity;
-                    std::vector<int> cb_indices;
-                    std::vector<double> cb_strengths;
-                    bool add_connection = true;
-                    for (int index = 0; index < actin_neighbors.size(); index++){
+                    //actin_basic_tension[i] = myosin_ratio * abs_cos;
+                    actin_basic_tension[i] = abs_cos;
+                    actin.velocity[i] = velocity;                  
+                }
+                std::vector<double> cb_strengths;
+                std::vector<int> cb_indices;
+                for (int index = 0; index < actin_neighbors.size(); index++){
                         int j = actin_neighbors[index];
                         if (i>j){
                             double strength = _get_cb_strength(i,j);
@@ -408,9 +428,8 @@ class Sarcomere
                                 cb_strengths.push_back(strength);
                             }
                         }
-                    }
-                    _set_cb(i, cb_indices,cb_strengths);
                 }
+                _set_cb(i, cb_indices,cb_strengths);
             }
         }
 
@@ -442,8 +461,8 @@ class Sarcomere
                     double v_factor = 0.2*std::max(actin.cb_strength[i]-0.1,0.0)* std::max(1-binding_ratio_adjusted,0.0);
                     local_myosin_velocities[j] -= v_factor * velocity;
                 }
-                if (actin.cb_strength[i]>EPS){
-                    double v_factor = std::max(0.1-actin.cb_strength[i],0.0);
+                if (actin.cb_strength[i]>0.3){
+                    double v_factor = std::max(0.3-actin.cb_strength[i],0.0);
                     actin.velocity[i].x *=v_factor;
                     actin.velocity[i].y *=v_factor;
                 }
@@ -473,9 +492,6 @@ class Sarcomere
         }
 
         void _myosin_repulsion(int& i, int& j){
-            if (i==15 || j==15){
-                printf("i: %d, j: %d \n", i, j);
-            }
             int thread_id = omp_get_thread_num();
             vec center_displacement = myosin.center[i] - myosin.center[j];
             center_displacement.pbc_wrap(box);
@@ -486,11 +502,9 @@ class Sarcomere
                     myosin.right_end[i], myosin.left_end[j], myosin.right_end[j], box);
                 double distance = result.first;
                 if (distance<2*myosin.radius){
-                    printf("distance: %f \n", distance);
-                    printf("myosin i: %f, %f, myosin j: %f, %f \n", myosin.center[i].x, myosin.center[i].y, myosin.center[j].x, myosin.center[j].y);
                     vec normal_vector = result.second["vector"];
                     double norm = normal_vector.norm();
-                    double factor = std::min((100*(2*myosin.radius - distance)/(2*myosin.radius)),50.);
+                    double factor = std::min((100*(2*myosin.radius - distance)/(2*myosin.radius)),40.);
                     if (norm==0){
                         normal_vector.x = center_displacement.x;
                         normal_vector.y = center_displacement.y;
@@ -547,7 +561,7 @@ class Sarcomere
                 if (distance < min_dist){
                     vec normal_vector = result.second["vector"];
                     double norm = normal_vector.norm();
-                    double factor = (20*(min_dist - distance)/min_dist);
+                    double factor = std::min(20*(min_dist - distance)/min_dist,10.);
                     if (norm==0){
                         normal_vector.x = center_displacement.x;
                         normal_vector.y = center_displacement.y;
@@ -582,9 +596,9 @@ class Sarcomere
             double cos_angle = std::cos(angle);
             bool crosslink = false;
             vec right_i, right_j;
-            if (cos_angle<0 && actin_crosslink_ratio[i]>EPS && actin_crosslink_ratio[j]>EPS){
-                right_i = actin.left_end[i] + (actin.right_end[i]-actin.left_end[i])*actin_crosslink_ratio[i];
-                right_j = actin.left_end[j] + (actin.right_end[j]-actin.left_end[j])*actin_crosslink_ratio[j];
+            if (actin_crosslink_ratio[i]>EPS && actin_crosslink_ratio[j]>EPS){
+                // right_i = actin.left_end[i] + (actin.right_end[i]-actin.left_end[i])*actin_crosslink_ratio[i];
+                // right_j = actin.left_end[j] + (actin.right_end[j]-actin.left_end[j])*actin_crosslink_ratio[j];
                 double distance = geometry::segment_segment_distance(actin.left_end[i], 
                     actin.right_end[i], actin.left_end[j], actin.right_end[j], box);
                 if (distance<crosslinker_length){
@@ -594,12 +608,13 @@ class Sarcomere
             if (crosslink){ 
                 double strength = 0;
                 double abs_cos_angle = std::abs(cos_angle);
-                if (actin_basic_tension[i]>EPS && actin_basic_tension[j]>EPS){
+                if (cos_angle<0 && actin_basic_tension[i]>EPS && actin_basic_tension[j]>EPS){
                     int myosin_index_i = myosinIndicesPerActin.getConnections(i)[0];
                     int myosin_index_j = myosinIndicesPerActin.getConnections(j)[0];
                     if (myosin_index_i != myosin_index_j){
                         //printf("actin % d and actin %d are bound to myosin %d and %d \n", i, j, myosin_index_i, myosin_index_j);
                         double crosslink_ratio = std::sqrt(std::min(actin_crosslink_ratio[i]*3,1.0) * std::min(actin_crosslink_ratio[j]*3,1.0));
+                        //printf("actin %d has crosslink ratio %f and actin %d has crosslink ratio %f \n", i, actin_crosslink_ratio[i], j, actin_crosslink_ratio[j]);
                         //strength = crosslink_ratio * actin_basic_tension[i]*actin_basic_tension[j]*abs_cos_angle;
                         strength =  crosslink_ratio * actin_basic_tension[i]*actin_basic_tension[j]*(abs_cos_angle*abs_cos_angle);
                     }
@@ -623,7 +638,8 @@ class Sarcomere
             auto& local_actin_cb_strengths = actin_cb_strengths_temp[thread_id];
             auto& local_myosin_forces = myosin_forces_temp[thread_id];
             auto& local_myosin_angular_forces = myosin_angular_forces_temp[thread_id];
-
+            double angle = actin.theta[i] - actin.theta[j];
+            double cos_angle = std::cos(angle);
             if (normalized_strength<1/cb_mult_factor && (actin_n_bonds[i]>=2 || actin_n_bonds[j]>=2)){
                 return;
             }
@@ -644,9 +660,6 @@ class Sarcomere
                 if (rand >= k_on){ //k_on is actually k_on * dt
                     // printf("not forming bond between %d and %d\n",i,j);
                     return;
-                }
-                else {
-                    //printf("forming bond between %d and %d\n",i,j);
                 }
             }
             double strength = normalized_strength*cb_mult_factor;
