@@ -156,7 +156,7 @@ class Sarcomere
 
         void partial_fix(){
             std::vector<vector> myosin_positions;
-            myosin_positions = {{0,-0.5},{0,0.5}};
+            myosin_positions = {{0,-2},{0,-1},{0,0},{0,1},{0,2}};
             for (int i = 0; i < myosin_positions.size(); i++){
                 myosin.center[i].x = myosin_positions[i][0];
                 myosin.center[i].y = myosin_positions[i][1];
@@ -393,7 +393,6 @@ class Sarcomere
                     myosinIndicesPerActin.addConnection(i, myosin_index);
                     double myosin_binding_ratio = am_interaction[i][myosin_index].myosin_binding_ratio;
                     actin_crosslink_ratio[i] = am_interaction[i][myosin_index].crosslinkable_ratio-(myosin_binding_ratio_sum-myosin_binding_ratio);
-                    //actin_crosslink_ratio[i] = am_interaction[i][myosin_index].crosslinkable_ratio;
                     actin["myosin_binding_ratio"][i] = myosin_binding_ratio;
                     actin["crosslink_ratio"][i] = actin_crosslink_ratio[i];
                     actin["partial_binding_ratio"][i] = am_interaction[i][myosin_index].partial_binding_ratio;

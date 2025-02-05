@@ -89,6 +89,7 @@ public:
         neighbor_list_.clear();
         neighbor_list_.resize(all_positions_.size());
         cell_list_.clear();
+
         // Populate the cell list with particle indices
         for (size_t i = 0; i < all_positions_.size(); ++i) {
             std::pair<int, int> cell = get_cell_index(all_positions_[i]);
@@ -97,6 +98,7 @@ public:
 
         // Thread-local storage for neighbor lists
         std::vector<std::vector<std::vector<std::pair<size_t, ParticleType>>>> thread_local_neighbor_list(omp_get_max_threads());
+        #pragma omp parallel for
         for (auto& local_list : thread_local_neighbor_list) {
             local_list.resize(all_positions_.size());
         }
@@ -105,7 +107,6 @@ public:
         #pragma omp parallel
         {
             int thread_id = omp_get_thread_num();
-
             #pragma omp for schedule(dynamic)
             for (size_t i = 0; i < all_positions_.size(); ++i) {
                 vec position = all_positions_[i];
@@ -134,9 +135,10 @@ public:
             }
         }
 
-        // Merge thread-local neighbor lists into the global neighbor list
-        for (const auto& local_list : thread_local_neighbor_list) {
-            for (size_t i = 0; i < all_positions_.size(); ++i) {
+
+        #pragma omp parallel for schedule(dynamic)
+        for (size_t i = 0; i < all_positions_.size(); ++i) {
+            for (const auto& local_list : thread_local_neighbor_list) {
                 neighbor_list_[i].insert(
                     neighbor_list_[i].end(),
                     local_list[i].begin(),
@@ -146,10 +148,11 @@ public:
         }
 
 
-        
+
         // Update last known positions after rebuilding the neighbor list
         last_actin_positions_ = actin_positions_;
         last_myosin_positions_ = myosin_positions_;
+
     }
 
     // Set current particle positions separately for each species

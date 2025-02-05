@@ -207,8 +207,9 @@ real am_energy1(const ArrayXreal& center1, const double& length1, const real& th
         return 0.5 * k_am* val(strength) * dist * dist + 0.5 * kappa_am * angle * angle; // Energy
     }
     else {
-        real energy = 0.5 * kappa_am * angle * angle;
-        return 0.5 * kappa_am * angle * angle;
+        //real energy = 0.5 * kappa_am * angle * angle;
+        real energy = 0.5 * k_am/10 * val(strength) * dist * dist + 0.5 * kappa_am * angle * angle;
+        return energy;
     }
 }
 
