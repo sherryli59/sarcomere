@@ -1,7 +1,7 @@
-#include "include/langevin.h"
-#include "include/sarcomere.h"
-#include "include/components.h"
-#include "include/cxxopts.hpp"
+#include "langevin.h"
+#include "sarcomere.h"
+#include "components.h"
+#include "cxxopts.hpp"
 #include <vector>
 #include <gsl/gsl_rng.h>
 #include <gsl/gsl_randist.h>
@@ -12,7 +12,7 @@ int main(int argc, char* argv[]){
     double dt = 0.001;
     double beta = 241;
     double diff_coeff = 0.1;
-    int update_dt_every = 500;
+    int update_dt_every = 500; 
     int update_myosin_every = 1;
     int save_every = 500;
     double k_on = 100;
@@ -92,7 +92,7 @@ int main(int argc, char* argv[]){
     Sarcomere model(n_actins, n_myosins, box, actin_length, myosin_length,
                         myosin_radius, crosslinker_length, k_on, k_off,
                        cb_mult_factor,  k_aa, kappa_aa, k_am, kappa_am, v_am,
-                        filename,rng, seed);
+                        filename,rng, seed, fix_myosin);
     Langevin sim(model, beta, dt, diff_coeff, update_myosin_every, update_dt_every, save_every, resume);
     if (!resume){
         if (init_struc == "sarcomere") {

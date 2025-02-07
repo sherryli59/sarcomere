@@ -1,1 +1,6 @@
-build/sarcomere --e_catch_bond=-5 --e_al=-0.2 --e_am=-0.3 --f_myosin=50 --n_actins=10 --n_myosins=2 --n_alpha_actinins=10 --update_dt_every=500 --Lx=6 --Ly=6 --beta=5 --save_every=500 --filename=data/traj.h5 --beta=2 --nsteps=1000000
+rm langevin_fix.out
+nohup build/sarcomere  --n_actins=800 --n_myosins=36 --filename=data/langevin_fix2.h5 --initial_structure=partial --Lx=12 --Ly=5 --nsteps=30000 --save_every=200 --fix_myosin=5 > langevin_fix.out &
+wait
+python visualize_traj.py --filename="data/langevin_fix2.h5" --frame_dir="0206" --Lx=12 --Ly=8 --myosin_radius=0.2 --actin_length=1.0 --myosin_length=1.5
+
+
