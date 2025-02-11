@@ -71,7 +71,6 @@ real am_energy1(const ArrayXreal& center1, const double& length1, const real& th
                    val(a[0]), val(a[1]), val(b[0]), val(b[1]),
                    val(c[0]), val(c[1]), val(d[0]), val(d[1]));
             printf("something is wrong\n");
-            exit(1);
         }
         return 0.5 * k_am * val(strength) * dist * dist + 0.5 * kappa_am * angle * angle;
     }

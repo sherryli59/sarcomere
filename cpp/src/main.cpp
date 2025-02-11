@@ -32,7 +32,7 @@ int main(int argc, char* argv[]){
     double myosin_radius = 0.2;
     double crosslinker_length = 0.05;
     bool resume = false;
-    int fix_myosin = 0;
+    int n_fixed_myosins = 0;
     std::string filename = "data/traj.h5";
     std::string init_struc = "random";
     try {
@@ -64,7 +64,7 @@ int main(int argc, char* argv[]){
             ("myosin_radius", "Myosin radius", cxxopts::value<double>(myosin_radius)->default_value("0.2"))
             ("crosslinker_length", "Crosslinker length", cxxopts::value<double>(crosslinker_length)->default_value("0.06"))
             ("resume", "Resume", cxxopts::value<bool>(resume)->default_value("false"))
-            ("fix_myosin", "Fix myosin", cxxopts::value<int>(fix_myosin)->default_value("0"))
+            ("n_fixed_myosins", "Number of fixed myosins", cxxopts::value<int>(n_fixed_myosins)->default_value("0"))
             ("filename", "Filename", cxxopts::value<std::string>(filename)->default_value("data/traj.h5"))
             ("initial_structure", "Type of initial structure", cxxopts::value<std::string>(init_struc)->default_value("random"))
             ("h, help", "Print usage");
@@ -92,7 +92,7 @@ int main(int argc, char* argv[]){
     Sarcomere model(n_actins, n_myosins, box, actin_length, myosin_length,
                         myosin_radius, crosslinker_length, k_on, k_off,
                        cb_mult_factor,  k_aa, kappa_aa, k_am, kappa_am, v_am,
-                        filename,rng, seed, fix_myosin);
+                        filename,rng, seed, n_fixed_myosins);
     Langevin sim(model, beta, dt, diff_coeff, update_myosin_every, update_dt_every, save_every, resume);
     if (!resume){
         if (init_struc == "sarcomere") {
@@ -100,11 +100,11 @@ int main(int argc, char* argv[]){
         // else if (init_struc == "sarcomere"){
         //     sim.model.sarcomeric_structure();
         // }
-        else if (init_struc == "fix_myosin"){
+        else if (init_struc == "n_fixed_myosins"){
             sim.model.myosin_on_a_lattice();
         }
         else if (init_struc == "partial"){
-            sim.model.partial_fix();
+            sim.model.partial_fix(n_fixed_myosins);
         }
         else if (init_struc == "cb"){
             sim.model.cb();
@@ -113,7 +113,7 @@ int main(int argc, char* argv[]){
             sim.model.bad_cb();
         }
     }
-    sim.run_langevin(nsteps, rng, fix_myosin);
+    sim.run_langevin(nsteps, rng, n_fixed_myosins);
     gsl_rng_free(rng);
     return 0;
 }

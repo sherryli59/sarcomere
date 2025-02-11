@@ -83,10 +83,10 @@ void Sarcomere::myosin_on_a_lattice() {
     update_system();
 }
 
-void Sarcomere::partial_fix(){
+void Sarcomere::partial_fix(int& n_fixed){
     std::vector<vector> myosin_positions;
-    myosin_positions = {{0,-2},{0,-1},{0,0},{0,1},{0,2}};
-    for (int i = 0; i < myosin_positions.size(); i++){
+    myosin_positions = {{0,-2},{0,-1},{0,0},{0,1},{0,2},{0,-2.5},{0,-1.5},{0,-0.5},{0,0.5},{0,1.5}};
+    for (int i = 0; i < n_fixed; i++){
         myosin.center[i].x = myosin_positions[i][0];
         myosin.center[i].y = myosin_positions[i][1];
         myosin.theta[i] = 0;
@@ -94,7 +94,6 @@ void Sarcomere::partial_fix(){
     for (int i = 0; i <myosin.n; i++){
         myosin.theta[i] = 0;
     }
-    //myosin.n = myosin_positions.size();
     myosin.update_endpoints();
     update_system();
 }

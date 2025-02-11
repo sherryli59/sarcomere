@@ -113,7 +113,6 @@ void NeighborList::rebuild_neighbor_list() {
             }
         }
     }
-
     // Merge thread-local neighbor lists into the main neighbor list.
     #pragma omp parallel for schedule(dynamic)
     for (size_t i = 0; i < all_positions_.size(); ++i) {

@@ -61,7 +61,7 @@ public:
 
     // Public Methods
     void myosin_on_a_lattice();
-    void partial_fix();
+    void partial_fix(int& n_fixed_myosins);
     void cb();
     void bad_cb();
     void sarcomeric_structure();
