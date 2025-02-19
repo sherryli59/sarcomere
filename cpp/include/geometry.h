@@ -36,8 +36,6 @@ namespace geometry {
     // Compute the shortest distance between two segments and return a map containing a normal vector and associated information.
     std::pair<double, std::map<std::string, vec>> segment_segment_distance_w_normal(const vec& a, const vec& b, const vec& c, const vec& d, const std::vector<double>& box);
 
-    // Compute the dot product of two 2D vectors.
-    double dotProduct(double x1, double y1, double x2, double y2);
 
     // Structure to store actin–myosin interaction information.
     struct am_interaction {

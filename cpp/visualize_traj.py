@@ -165,7 +165,7 @@ def plot_system(frame,data,myosin_radius,actin_length,myosin_length, Lx,Ly):
         #plot_filaments(data["/myosin/center"][frame],angular_theta,np.abs(myosin_angular_force),Lx=Lx, Ly=Ly,ax=ax, color='pink',linestyle='dotted')
         ax.set_xlim(-Lx/2, Lx/2)
         ax.set_ylim(-Ly/2, Ly/2)
-        #ax.set_aspect("equal")
+        ax.set_aspect(1)
         return fig,ax
 
 def plot(ind, nframes, nworkers,**kwargs):

@@ -21,17 +21,17 @@ Langevin::Langevin(Sarcomere& model0, double& beta0, double& dt0, double& D0,
         printf("Resuming from file %s\n", model.filename.c_str());
         // Print myosin details.
         for (int i = 0; i < model.myosin.n; i++) {
-            printf("Myosin %d: %f %f\n", i, model.myosin.center[i].x, model.myosin.center[i].y);
-            printf("Myosin endpoints: (%f %f), (%f %f)\n",
-                   model.myosin.left_end[i].x, model.myosin.left_end[i].y,
-                   model.myosin.right_end[i].x, model.myosin.right_end[i].y);
+            printf("Myosin %d: %f %f %f\n", i, model.myosin.center[i].x, model.myosin.center[i].y, model.myosin.center[i].z);
+            printf("Myosin endpoints: (%f %f %f), (%f %f %f)\n",
+                   model.myosin.left_end[i].x, model.myosin.left_end[i].y, model.myosin.left_end[i].z,
+                   model.myosin.right_end[i].x, model.myosin.right_end[i].y, model.myosin.right_end[i].z);
         }
         // Print actin details.
         for (int i = 0; i < model.actin.n; i++) {
-            printf("Actin %d: %f %f\n", i, model.actin.center[i].x, model.actin.center[i].y);
-            printf("Actin endpoints: (%f %f), (%f %f)\n",
-                   model.actin.left_end[i].x, model.actin.left_end[i].y,
-                   model.actin.right_end[i].x, model.actin.right_end[i].y);
+            printf("Actin %d: %f %f %f\n", i, model.actin.center[i].x, model.actin.center[i].y, model.actin.center[i].z);
+            printf("Actin endpoints: (%f %f %f), (%f %f %f)\n",
+                   model.actin.left_end[i].x, model.actin.left_end[i].y, model.actin.left_end[i].z,
+                   model.actin.right_end[i].x, model.actin.right_end[i].y, model.actin.right_end[i].z);
         }
     } else {
         model.new_file();
@@ -75,7 +75,7 @@ void Langevin::sample_step(double& dt, double& D, gsl_rng* rng, int& fix_myosin)
     model.update_system();
 
     // Generate noise for both myosin and actin particles.
-    int n_randns = (model.myosin.n + model.actin.n) * 3;
+    int n_randns = (model.myosin.n + model.actin.n) * 5;
     std::vector<double> noise(n_randns);
     for (int i = 0; i < n_randns; i++) {
         noise[i] = gsl_rng_uniform(rng) * 2 - 1;
@@ -87,48 +87,46 @@ void Langevin::sample_step(double& dt, double& D, gsl_rng* rng, int& fix_myosin)
         acc_rand[i] = gsl_rng_uniform(rng);
     }
 
-    int offset = model.myosin.n * 3;
+    int offset = model.myosin.n * 5;
 
     // Update myosin particles.
     for (int i = fix_myosin; i < model.myosin.n; i++) {
         double dx = model.myosin.force[i].x * beta * D * dt +
                     model.myosin.velocity[i].x * dt +
-                    sqrt(2 * D * dt) * noise[i * 3];
+                    sqrt(2 * D * dt) * noise[i * 5];
         double dy = model.myosin.force[i].y * beta * D * dt +
                     model.myosin.velocity[i].y * dt +
-                    sqrt(2 * D * dt) * noise[i * 3 + 1];
-        double dtheta = model.myosin.angular_force[i] * beta * D * dt +
-                        sqrt(2 * D * dt) * noise[i * 3 + 2] * M_PI / 5;
-        model.myosin.displace(i, dx, dy, dtheta);
+                    sqrt(2 * D * dt) * noise[i * 5 + 1];
+        double dz = model.myosin.force[i].z * beta * D * dt +
+                    model.myosin.velocity[i].z * dt +
+                    sqrt(2 * D * dt) * noise[i * 5 + 2];
+        double dtheta = model.myosin.angular_force[i][0] * beta * D * dt +
+                        sqrt(2 * D * dt) * noise[i * 5 + 3] * M_PI / 5;
+        double dphi = model.myosin.angular_force[i][1] * beta * D * dt +
+                        sqrt(2 * D * dt) * noise[i * 5 + 4] * M_PI / 5;
+        model.myosin.displace(i, dx, dy, dz, dtheta, dphi);
     }
 
     // Update actin particles.
     for (int i = 0; i < model.actin.n; i++) {
         double dx = model.actin.force[i].x * beta * D * dt +
                     model.actin.velocity[i].x * dt +
-                    sqrt(2 * D * dt) * noise[offset + i * 3];
+                    sqrt(2 * D * dt) * noise[offset + i * 5];
         double dy = model.actin.force[i].y * beta * D * dt +
                     model.actin.velocity[i].y * dt +
-                    sqrt(2 * D * dt) * noise[offset + i * 3 + 1];
-        double dtheta = model.actin.angular_force[i] * beta * D * dt +
-                        sqrt(2 * D * dt) * noise[offset + i * 3 + 2] * M_PI / 5;
+                    sqrt(2 * D * dt) * noise[offset + i * 5 + 1];
+        double dz = model.actin.force[i].z * beta * D * dt +
+                    model.actin.velocity[i].z * dt +
+                    sqrt(2 * D * dt) * noise[offset + i * 5 + 2];
+        double dtheta = model.actin.angular_force[i][0] * beta * D * dt +
+                        sqrt(2 * D * dt) * noise[offset + i * 5 + 3] * M_PI / 5;
+        double dphi = model.actin.angular_force[i][1] * beta * D * dt +
+                        sqrt(2 * D * dt) * noise[offset + i * 5 + 4] * M_PI / 5;
 
         // (Optional debug printing if the displacement is large.)
         if (dx > 0.04 || dy > 0.04) {
-            printf("actin %d\n", i);
-            printf("dx: %f dy: %f\n", dx, dy);
-            printf("force: %f %f\n", model.actin.force[i].x, model.actin.force[i].y);
-            printf("force*beta*D*dt: %f %f\n",
-                   model.actin.force[i].x * beta * D * dt,
-                   model.actin.force[i].y * beta * D * dt);
-            printf("velocity*dt: %f %f\n",
-                   model.actin.velocity[i].x * dt, model.actin.velocity[i].y * dt);
-            printf("sqrt(2*D*dt)*noise: %f %f\n",
-                   sqrt(2 * D * dt) * noise[offset + i * 3],
-                   sqrt(2 * D * dt) * noise[offset + i * 3 + 1]);
-            printf("noise: %f %f\n",
-                   noise[offset + i * 3], noise[offset + i * 3 + 1]);
+            printf("actin %d displacement too large \n", i);
         }
-        model.actin.displace(i, dx, dy, dtheta);
+        model.actin.displace(i, dx, dy, dz, dtheta, dphi);
     }
 }

@@ -22,7 +22,8 @@ std::vector<std::vector<int>> serializeActinIndicesPerActin(
     utils::MoleculeConnection& actinIndicesPerActin, int n_actins, int& max_bonds);
 
 // Flatten a vector of 2D points (vec) into a 1D array of doubles.
-std::vector<double> flatten_2d_array(std::vector<vec> array);
+std::vector<double> flatten_3d_array(std::vector<vec> array);
+std::vector<double> flatten_2d_array(std::vector<std::vector<double>> array);
 
 // Create an empty (extendable) dataset within the specified group of the file.
 void create_empty_dataset(H5::H5File& file, const std::string& groupName,

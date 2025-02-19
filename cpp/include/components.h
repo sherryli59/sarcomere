@@ -23,10 +23,11 @@ public:
     double length;
     std::vector<vec> center;
     std::vector<double> theta;
+    std::vector<double> phi;
     std::vector<vec> left_end;
     std::vector<vec> right_end;
     std::vector<vec> force;
-    std::vector<double> angular_force;
+    std::vector<std::vector<double>> angular_force;
     std::vector<vec> velocity;
     std::vector<double> tension;
     std::vector<double> cb_strength;
@@ -41,11 +42,12 @@ public:
     Filament(const Filament& other);
 
     // Member functions.
-    void displace(int& i, double& dx, double& dy);
-    void displace(int& i, double& dx, double& dy, double& dtheta);
+    void displace(int& i, double& dx, double& dy, double& dz);
+    void displace(int& i, double& dx, double& dy, double& dz, double& dtheta, double& dphi);
     void update_endpoints(int& i);
     void update_endpoints();
-    void update_theta(std::vector<double> new_theta);
+    void update_theta(std::vector<double>  new_theta);
+    void update_phi(std::vector<double>  new_phi);
     void update_center(std::vector<vec> new_center);
 
     // Register a new 1D feature of length n.
@@ -58,7 +60,6 @@ public:
 class Myosin : public Filament {
 public:
     double radius;
-
     // Constructors.
     Myosin();
     Myosin(int n0, double length0, double radius0, std::vector<double> box0, gsl_rng* rng);

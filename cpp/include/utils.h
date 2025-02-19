@@ -8,39 +8,45 @@
 #include <numeric>
 #include <utility>
 #include <omp.h>
+#include <iostream>
+#include <stdexcept>
+
 
 namespace utils {
 
 //------------------------------------------------------------------------------
-// The vec structure: represents a 2D vector/point and provides common operations.
+// The vec structure: represents a 3D vector/point and provides common operations.
 //------------------------------------------------------------------------------
 struct vec {
     double x;
     double y;
+    double z;
 
     // Addition operator.
     vec operator+(const vec& p) const {
-        return vec { x + p.x, y + p.y };
+        return vec { x + p.x, y + p.y + z + p.z };
     }
     vec& operator+=(const vec& other) {
         x += other.x;
         y += other.y;
+        z += other.z;
         return *this;
     }
 
     // Subtraction operator.
     vec operator-(const vec& p) const {
-        return vec { x - p.x, y - p.y };
+        return vec { x - p.x, y - p.y, z - p.z };
     }
     vec& operator-=(const vec& other) {
         x -= other.x;
         y -= other.y;
+        z -= other.z;
         return *this;
     }
 
     // Multiplication by scalar.
     vec operator*(double c) const {
-        return vec { x * c, y * c };
+        return vec { x * c, y * c , z * c};
     }
     friend vec operator*(double c, const vec& v) {
         return v * c;
@@ -48,17 +54,17 @@ struct vec {
 
     // Division by scalar.
     vec operator/(double c) const {
-        return vec { x / c, y / c };
+        return vec { x / c, y / c , z / c};
     }
 
     // Euclidean norm.
     double norm() const {
-        return std::sqrt(x*x + y*y);
+        return std::sqrt(x*x + y*y + z*z);
     }
 
     // Unary minus.
     vec operator-() const {
-        return vec { -x, -y };
+        return vec { -x, -y, -z };
     }
 
     // Wrap the coordinates according to periodic boundary conditions.
@@ -66,20 +72,23 @@ struct vec {
     void pbc_wrap(const std::vector<double>& box) {
         x = x - box[0] * std::round(x / box[0]);
         y = y - box[1] * std::round(y / box[1]);
+        z = z - box[2] * std::round(z / box[2]);
     }
 
     // Euclidean distance (no periodic boundaries).
     double distance(const vec& p) const {
-        return std::sqrt((x - p.x) * (x - p.x) + (y - p.y) * (y - p.y));
+        return std::sqrt((x - p.x) * (x - p.x) + (y - p.y) * (y - p.y))+ (z - p.z) * (z - p.z);
     }
 
     // Distance squared with periodic boundary conditions.
     double distance_squared(const vec& p, const std::vector<double>& box) const {
         double dx = x - p.x;
         double dy = y - p.y;
+        double dz = z - p.z;
         dx = dx - box[0] * std::round(dx / box[0]);
         dy = dy - box[1] * std::round(dy / box[1]);
-        return dx * dx + dy * dy;
+        dz = dz - box[2] * std::round(dz / box[2]);
+        return dx * dx + dy * dy + dz * dz;
     }
     
     // Distance computed with periodic boundary conditions.
@@ -89,14 +98,14 @@ struct vec {
 
     // Dot product.
     double dot(const vec& p) const {
-        return x * p.x + y * p.y;
+        return x * p.x + y * p.y + z * p.z;
     }
     
 
 
     // Squared norm.
     double norm_squared() const {
-        return x * x + y * y;
+        return x * x + y * y + z * z;
     }
 };
 
@@ -110,14 +119,9 @@ double pbc_wrap(double x, double& box);
 // Wrap an angle into the interval (–π, π] (or any 2π interval).
 void angle_wrap(double& theta);
 
-// Compute the dot product of two 2D vectors (given as four doubles).
-double dotProduct(double x1, double y1, double x2, double y2);
+// Wrap an angle into the interval [0, π) if is_range_pi is true, or [–π, π) otherwise.
+void angle_wrap(double& theta, bool& is_range_pi);
 
-// Given two segments (defined by their endpoints) and a distance d, compute the
-// ratio between the two points on segment 1 that are at distance d from segment 2.
-double analyze_overlap(double* P1_left, double* P1_right, 
-                         double* P2_left, double* P2_right, double d, 
-                         std::vector<double> box);
 
 //------------------------------------------------------------------------------
 // MoleculeConnection class declaration
@@ -155,6 +159,12 @@ std::vector<size_t> sort_indices(const std::vector<T>& vec) {
               [&vec](size_t a, size_t b) { return vec[a] > vec[b]; });
     return indices;
 }
+
+// Overload += operator for std::vector<double>
+std::vector<double>& operator+=(std::vector<double>& a, const std::vector<double>& b);
+
+// Overload + operator for std::vector<double>
+std::vector<double> operator+(const std::vector<double>& a, const std::vector<double>& b);
 
 // Reduces a temporary array (with one sub-array per thread) into a target array.
 template <typename T>

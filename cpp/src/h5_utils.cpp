@@ -25,18 +25,32 @@ std::vector<std::vector<int>> serializeActinIndicesPerActin(
 }
 
 
-std::vector<double> flatten_2d_array(std::vector<vec> array)
+std::vector<double> flatten_3d_array(std::vector<vec> array)
 {
     size_t rows = array.size();
-    std::vector<double> flattened(rows * 2);
+    std::vector<double> flattened(rows * 3);
     #pragma omp parallel for
     for (size_t i = 0; i < rows; ++i) {
-        flattened[i * 2]     = array[i].x;
-        flattened[i * 2 + 1] = array[i].y;
+        flattened[i * 3]     = array[i].x;
+        flattened[i * 3 + 1] = array[i].y;
+        flattened[i * 3 + 2] = array[i].z;
     }
     return flattened;
 }
 
+std::vector<double> flatten_2d_array(std::vector<std::vector<double>> array)
+{
+    size_t rows = array.size();
+    size_t cols = array[0].size();
+    std::vector<double> flattened(rows * cols);
+    #pragma omp parallel for
+    for (size_t i = 0; i < rows; ++i) {
+        for (size_t j = 0; j < cols; ++j) {
+            flattened[i * cols + j] = array[i][j];
+        }
+    }
+    return flattened;
+}
 
 void create_empty_dataset(H5::H5File& file, const std::string& groupName,
                           const std::string& datasetName,
@@ -90,6 +104,8 @@ void append_to_dataset(H5::Group& group, const std::string& datasetName,
         }
         for (size_t i = 1; i < newDims.size(); ++i) {
             if (newDims[i] != currentSize[i]) {
+                printf("datasetName: %s\n", datasetName.c_str());
+                printf("newDims[%zu]: %zu, currentSize[%zu]: %zu\n", i, newDims[i], i, currentSize[i]);
                 throw std::runtime_error("Non-append dimensions do not match dataset.");
             }
         }
@@ -137,10 +153,10 @@ void create_file(std::string& filename, Filament& actin, Myosin& myosin)
     hsize_t n_actins  = static_cast<hsize_t>(actin.n);
     hsize_t n_myosins = static_cast<hsize_t>(myosin.n);
 
-    // Create datasets for actin.
-    std::vector<hsize_t> initialDims = {0, n_actins, 2};
-    std::vector<hsize_t> maxDims     = {H5S_UNLIMITED, n_actins, 2};
-    std::vector<hsize_t> chunkDims   = {10, n_actins, 2};
+    // Create datasets for  actin.
+    std::vector<hsize_t> initialDims = {0, n_actins, 3};
+    std::vector<hsize_t> maxDims     = {H5S_UNLIMITED, n_actins, 3};
+    std::vector<hsize_t> chunkDims   = {10, n_actins, 3};
     create_empty_dataset(file, "/actin", "center", initialDims, maxDims, chunkDims);
     create_empty_dataset(file, "/actin", "velocity", initialDims, maxDims, chunkDims);
     create_empty_dataset(file, "/actin", "force", initialDims, maxDims, chunkDims);
@@ -149,7 +165,7 @@ void create_file(std::string& filename, Filament& actin, Myosin& myosin)
     maxDims     = {H5S_UNLIMITED, n_actins, 1};
     chunkDims   = {10, n_actins, 1};
     create_empty_dataset(file, "/actin", "theta", initialDims, maxDims, chunkDims);
-    create_empty_dataset(file, "/actin", "angular_force", initialDims, maxDims, chunkDims);
+    create_empty_dataset(file, "/actin", "phi", initialDims, maxDims, chunkDims);
     create_empty_dataset(file, "/actin", "cb_strength", initialDims, maxDims, chunkDims);
 
     // Create datasets for any custom actin features.
@@ -157,10 +173,15 @@ void create_file(std::string& filename, Filament& actin, Myosin& myosin)
         create_empty_dataset(file, "/actin", feature.first, initialDims, maxDims, chunkDims);
     }
 
+    initialDims = {0, n_actins, 2};
+    maxDims     = {H5S_UNLIMITED, n_actins, 2};
+    chunkDims   = {10, n_actins, 2};
+    create_empty_dataset(file, "/actin", "angular_force", initialDims, maxDims, chunkDims);
+
     // Create datasets for myosin.
-    initialDims = {0, n_myosins, 2};
-    maxDims     = {H5S_UNLIMITED, n_myosins, 2};
-    chunkDims   = {10, n_myosins, 2};
+    initialDims = {0, n_myosins, 3};
+    maxDims     = {H5S_UNLIMITED, n_myosins, 3};
+    chunkDims   = {10, n_myosins, 3};
     create_empty_dataset(file, "/myosin", "center", initialDims, maxDims, chunkDims);
     create_empty_dataset(file, "/myosin", "velocity", initialDims, maxDims, chunkDims);
     create_empty_dataset(file, "/myosin", "force", initialDims, maxDims, chunkDims);
@@ -169,16 +190,22 @@ void create_file(std::string& filename, Filament& actin, Myosin& myosin)
     maxDims     = {H5S_UNLIMITED, n_myosins, 1};
     chunkDims   = {10, n_myosins, 1};
     create_empty_dataset(file, "/myosin", "theta", initialDims, maxDims, chunkDims);
-    create_empty_dataset(file, "/myosin", "angular_force", initialDims, maxDims, chunkDims);
-
+    create_empty_dataset(file, "/myosin", "phi", initialDims, maxDims, chunkDims);
     for (const auto& feature : myosin.custom_features) {
         create_empty_dataset(file, "/myosin", feature.first, initialDims, maxDims, chunkDims);
     }
+    
+    initialDims = {0, n_myosins, 2};
+    maxDims     = {H5S_UNLIMITED, n_myosins, 2};
+    chunkDims   = {10, n_myosins, 2};
+    create_empty_dataset(file, "/myosin", "angular_force", initialDims, maxDims, chunkDims);
+
+
 
     // Create dataset for actin indices (connections) with a fixed maximum number of bonds.
-    initialDims = {0, n_actins, 5};
-    maxDims     = {H5S_UNLIMITED, n_actins, 5};
-    chunkDims   = {10, n_actins, 5};
+    initialDims = {0, n_actins, 10};
+    maxDims     = {H5S_UNLIMITED, n_actins, 10};
+    chunkDims   = {10, n_actins, 10};
     create_empty_dataset(file, "/actin", "indices_per_actin", initialDims, maxDims, chunkDims);
 }
 
@@ -192,40 +219,46 @@ void append_to_file(std::string& filename, Filament& actin, Myosin& myosin,
     hsize_t n_actins  = static_cast<hsize_t>(actin.n);
     hsize_t n_myosins = static_cast<hsize_t>(myosin.n);
 
-    std::vector<double> flattened_actin_center = flatten_2d_array(actin.center);
-    append_to_dataset(group_actin, "center", flattened_actin_center, {1, n_actins, 2});
+    std::vector<double> flattened_actin_center = flatten_3d_array(actin.center);
+    append_to_dataset(group_actin, "center", flattened_actin_center, {1, n_actins, 3});
 
-    std::vector<double> flattened_actin_velocity = flatten_2d_array(actin.velocity);
-    append_to_dataset(group_actin, "velocity", flattened_actin_velocity, {1, n_actins, 2});
+    std::vector<double> flattened_actin_velocity = flatten_3d_array(actin.velocity);
+    append_to_dataset(group_actin, "velocity", flattened_actin_velocity, {1, n_actins, 3});
 
-    std::vector<double> flattened_actin_force = flatten_2d_array(actin.force);
-    append_to_dataset(group_actin, "force", flattened_actin_force, {1, n_actins, 2});
+    std::vector<double> flattened_actin_force = flatten_3d_array(actin.force);
+    append_to_dataset(group_actin, "force", flattened_actin_force, {1, n_actins, 3});
+
+    std::vector<double> flattened_actin_angular_force = flatten_2d_array(actin.angular_force);
+    append_to_dataset(group_actin, "angular_force", flattened_actin_angular_force, {1, n_actins, 2});
 
     append_to_dataset(group_actin, "theta", actin.theta, {1, n_actins, 1});
-    append_to_dataset(group_actin, "angular_force", actin.angular_force, {1, n_actins, 1});
+    append_to_dataset(group_actin, "phi", actin.phi, {1, n_actins, 1});
     append_to_dataset(group_actin, "cb_strength", actin.cb_strength, {1, n_actins, 1});
 
     for (const auto& feature : actin.custom_features) {
         append_to_dataset(group_actin, feature.first, feature.second, {1, n_actins, 1});
     }
 
-    std::vector<double> flattened_myosin_center = flatten_2d_array(myosin.center);
-    append_to_dataset(group_myosin, "center", flattened_myosin_center, {1, n_myosins, 2});
+    std::vector<double> flattened_myosin_center = flatten_3d_array(myosin.center);
+    append_to_dataset(group_myosin, "center", flattened_myosin_center, {1, n_myosins, 3});
 
-    std::vector<double> flattened_myosin_velocity = flatten_2d_array(myosin.velocity);
-    append_to_dataset(group_myosin, "velocity", flattened_myosin_velocity, {1, n_myosins, 2});
+    std::vector<double> flattened_myosin_velocity = flatten_3d_array(myosin.velocity);
+    append_to_dataset(group_myosin, "velocity", flattened_myosin_velocity, {1, n_myosins, 3});
 
-    std::vector<double> flattened_myosin_force = flatten_2d_array(myosin.force);
-    append_to_dataset(group_myosin, "force", flattened_myosin_force, {1, n_myosins, 2});
+    std::vector<double> flattened_myosin_force = flatten_3d_array(myosin.force);
+    append_to_dataset(group_myosin, "force", flattened_myosin_force, {1, n_myosins, 3});
+
+    std::vector<double> flattened_myosin_angular_force = flatten_2d_array(myosin.angular_force);
+    append_to_dataset(group_myosin, "angular_force",flattened_myosin_angular_force, {1, n_myosins, 2});
 
     append_to_dataset(group_myosin, "theta", myosin.theta, {1, n_myosins, 1});
-    append_to_dataset(group_myosin, "angular_force", myosin.angular_force, {1, n_myosins, 1});
+    append_to_dataset(group_myosin, "phi", myosin.phi, {1, n_myosins, 1});
 
     for (const auto& feature : myosin.custom_features) {
         append_to_dataset(group_myosin, feature.first, feature.second, {1, n_myosins, 1});
     }
 
-    int max_bonds = 5;
+    int max_bonds = 10;
     // Serialize actinIndicesPerActin.
     auto serialized_indices = serializeActinIndicesPerActin(actinIndicesPerActin, actin.n, max_bonds);
 
@@ -279,28 +312,40 @@ void load_from_file(std::string& filename, Filament& actin, Myosin& myosin,
     std::vector<hsize_t> dims;
     std::vector<double> actin_center = load_from_dataset(group_actin, "center", dims);
     // Extract the most recent actin center data.
-    actin_center = std::vector<double>(actin_center.end() - 2 * n_actins, actin_center.end());
+    actin_center = std::vector<double>(actin_center.end() - 3 * n_actins, actin_center.end());
     for (int i = 0; i < actin.n; i++) {
-        actin.center[i].x = actin_center[2 * i];
-        actin.center[i].y = actin_center[2 * i + 1];
+        actin.center[i].x = actin_center[3 * i];
+        actin.center[i].y = actin_center[3 * i + 1];
+        actin.center[i].z = actin_center[3 * i + 2];
     }
     std::vector<double> actin_theta = load_from_dataset(group_actin, "theta", dims);
     actin_theta = std::vector<double>(actin_theta.end() - n_actins, actin_theta.end());
     for (int i = 0; i < actin.n; i++) {
         actin.theta[i] = actin_theta[i];
     }
+    std::vector<double> actin_phi = load_from_dataset(group_actin, "phi", dims);
+    actin_phi = std::vector<double>(actin_phi.end() - n_actins, actin_phi.end());
+    for (int i = 0; i < actin.n; i++) {
+        actin.phi[i] = actin_phi[i];
+    }
     actin.update_endpoints();
 
     std::vector<double> myosin_center = load_from_dataset(group_myosin, "center", dims);
-    myosin_center = std::vector<double>(myosin_center.end() - 2 * n_myosins, myosin_center.end());
+    myosin_center = std::vector<double>(myosin_center.end() - 3 * n_myosins, myosin_center.end());
     for (int i = 0; i < myosin.n; i++) {
-        myosin.center[i].x = myosin_center[2 * i];
-        myosin.center[i].y = myosin_center[2 * i + 1];
+        myosin.center[i].x = myosin_center[3 * i];
+        myosin.center[i].y = myosin_center[3 * i + 1];
+        myosin.center[i].z = myosin_center[3 * i + 2];
     }
     std::vector<double> myosin_theta = load_from_dataset(group_myosin, "theta", dims);
     myosin_theta = std::vector<double>(myosin_theta.end() - n_myosins, myosin_theta.end());
     for (int i = 0; i < myosin.n; i++) {
         myosin.theta[i] = myosin_theta[i];
+    }
+    std::vector<double> myosin_phi = load_from_dataset(group_myosin, "phi", dims);
+    myosin_phi = std::vector<double>(myosin_phi.end() - n_myosins, myosin_phi.end());
+    for (int i = 0; i < myosin.n; i++) {
+        myosin.phi[i] = myosin_phi[i];
     }
     myosin.update_endpoints();
 }

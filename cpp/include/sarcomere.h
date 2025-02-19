@@ -47,7 +47,8 @@ public:
 
     std::vector<std::vector<vec>> actin_forces_temp;
     std::vector<std::vector<vec>> myosin_forces_temp, myosin_velocities_temp;
-    std::vector<std::vector<double>> actin_angular_forces_temp, myosin_angular_forces_temp, actin_cb_strengths_temp;
+    std::vector<std::vector<std::vector<double>>> actin_angular_forces_temp, myosin_angular_forces_temp;
+    std::vector<std::vector<double>> actin_cb_strengths_temp;
     std::vector<utils::MoleculeConnection> actinIndicesPerMyosin_temp;
     std::vector<gsl_rng*> rng_engines;
 

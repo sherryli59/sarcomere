@@ -1,37 +1,44 @@
 #include "neighborlist.h"
-#include <cstdio>
-#include <omp.h>
 
-// Constructor with parameters.
+// Constructor with parameters for 3D.
 NeighborList::NeighborList(double cutoff_radius, const std::vector<double>& box, double threshold)
     : cutoff_radius_(cutoff_radius), threshold_(threshold), box_(box)
 {
+    // Assume box has three dimensions.
     num_cells_x_ = static_cast<int>(std::floor(box[0] / cutoff_radius));
     num_cells_y_ = static_cast<int>(std::floor(box[1] / cutoff_radius));
+    num_cells_z_ = static_cast<int>(std::floor(box[2] / cutoff_radius));
 
-    // Adjust cell size to ensure full coverage.
     cell_size_x_ = box[0] / num_cells_x_;
     cell_size_y_ = box[1] / num_cells_y_;
+    cell_size_z_ = box[2] / num_cells_z_;
 
-    // Precompute offsets for neighboring cells.
+    // Precompute offsets for neighboring cells in 3D.
+    // Using a triple nested loop for dx, dy, dz from -1 to 1.
     for (int dx = -1; dx <= 1; ++dx) {
         for (int dy = -1; dy <= 1; ++dy) {
-            if (num_cells_x_ > 2 && num_cells_y_ > 2) {
-                neighboring_cells.emplace_back(dx, dy);
-                continue;
+            for (int dz = -1; dz <= 1; ++dz) {
+                // If we have more than one cell in every dimension, include all neighbors.
+                if (num_cells_x_ > 2 && num_cells_y_ > 2 && num_cells_z_ > 2) {
+                    neighboring_cells.emplace_back(std::make_tuple(dx, dy, dz));
+                    continue;
+                }
+                // Always include (0,0,0).
+                if (dx == 0 && dy == 0 && dz == 0) {
+                    neighboring_cells.emplace_back(std::make_tuple(dx, dy, dz));
+                    continue;
+                }
+                // If there is only one cell in a given direction, skip offsets in that direction.
+                if (num_cells_x_ == 1 && dx != 0) continue;
+                if (num_cells_y_ == 1 && dy != 0) continue;
+                if (num_cells_z_ == 1 && dz != 0) continue;
+                // For two cells, only include positive offsets.
+                if (num_cells_x_ == 2 && dx == -1) continue;
+                if (num_cells_y_ == 2 && dy == -1) continue;
+                if (num_cells_z_ == 2 && dz == -1) continue;
+                // Otherwise include this neighbor.
+                neighboring_cells.emplace_back(std::make_tuple(dx, dy, dz));
             }
-            if (dx == 0 && dy == 0) {
-                neighboring_cells.emplace_back(dx, dy);
-                continue;
-            }
-            // If there is only one cell in a given direction, skip neighbors in that direction.
-            if (num_cells_x_ == 1 && dx != 0) continue;
-            if (num_cells_y_ == 1 && dy != 0) continue;
-            // For two cells, only include positive offsets.
-            if (num_cells_x_ == 2 && dx == -1) continue;
-            if (num_cells_y_ == 2 && dy == -1) continue;
-            // Default: include this neighbor.
-            neighboring_cells.emplace_back(dx, dy);
         }
     }
 }
@@ -39,20 +46,35 @@ NeighborList::NeighborList(double cutoff_radius, const std::vector<double>& box,
 // Default constructor.
 NeighborList::NeighborList() {}
 
+// Compute the 3D cell index for a position using PBC.
+// Returns a tuple of (cell_x, cell_y, cell_z).
+std::tuple<int, int, int> NeighborList::get_cell_index(const vec& position) const {
+    int cell_x = static_cast<int>(std::floor((position.x + box_[0]) / cell_size_x_)) % num_cells_x_;
+    int cell_y = static_cast<int>(std::floor((position.y + box_[1]) / cell_size_y_)) % num_cells_y_;
+    int cell_z = static_cast<int>(std::floor((position.z + box_[2]) / cell_size_z_)) % num_cells_z_;
+
+    // Correct negative indices.
+    cell_x = (cell_x % num_cells_x_ + num_cells_x_) % num_cells_x_;
+    cell_y = (cell_y % num_cells_y_ + num_cells_y_) % num_cells_y_;
+    cell_z = (cell_z % num_cells_z_ + num_cells_z_) % num_cells_z_;
+
+    return std::make_tuple(cell_x, cell_y, cell_z);
+}
+
 // Initialize the neighbor list using separate actin and myosin positions.
 void NeighborList::initialize(const std::vector<vec>& actin_positions, const std::vector<vec>& myosin_positions) {
     actin_positions_ = actin_positions;
     n_actins_ = actin_positions.size();
     myosin_positions_ = myosin_positions;
 
-    // Save the current positions for later displacement checking.
+    // Save current positions for later displacement checking.
     last_actin_positions_ = actin_positions;
     last_myosin_positions_ = myosin_positions;
 
     // Concatenate positions into a single vector.
     concatenate_positions();
 
-    // Record the species type for each concatenated particle.
+    // Record species type for each particle.
     track_species_types();
 
     // Resize the neighbor list container.
@@ -62,18 +84,17 @@ void NeighborList::initialize(const std::vector<vec>& actin_positions, const std
     rebuild_neighbor_list();
 }
 
-// Rebuild the neighbor list using a cell list approach.
+// Rebuild the neighbor list using a cell list approach in 3D.
 void NeighborList::rebuild_neighbor_list() {
     printf("Rebuilding neighbor list\n");
 
-    // Clear the previous neighbor list and cell list.
     neighbor_list_.clear();
     neighbor_list_.resize(all_positions_.size());
-    cell_list_.clear();
+    cell_list_.clear();  // cell_list_ is now a map from tuple<int, int, int> to vector<int>
 
     // Populate the cell list with particle indices.
     for (size_t i = 0; i < all_positions_.size(); ++i) {
-        std::pair<int, int> cell = get_cell_index(all_positions_[i]);
+        auto cell = get_cell_index(all_positions_[i]);
         cell_list_[cell].push_back(i);
     }
 
@@ -91,16 +112,19 @@ void NeighborList::rebuild_neighbor_list() {
         #pragma omp for schedule(dynamic)
         for (size_t i = 0; i < all_positions_.size(); ++i) {
             vec position = all_positions_[i];
-            std::pair<int, int> cell = get_cell_index(position);
+            auto cell = get_cell_index(position);
             
-            // Check particles in the current cell and its neighbors.
-            for (const auto& offset : neighboring_cells) {
-                int neighbor_x = (cell.first + offset.first + num_cells_x_) % num_cells_x_;
-                int neighbor_y = (cell.second + offset.second + num_cells_y_) % num_cells_y_;
-                std::pair<int, int> neighbor_cell = {neighbor_x, neighbor_y};
+            // Check particles in the current cell and its neighbors in 3D.
+            for (const auto& offset_tuple : neighboring_cells) {
+                int dx = std::get<0>(offset_tuple);
+                int dy = std::get<1>(offset_tuple);
+                int dz = std::get<2>(offset_tuple);
+                int neighbor_x = (std::get<0>(cell) + dx + num_cells_x_) % num_cells_x_;
+                int neighbor_y = (std::get<1>(cell) + dy + num_cells_y_) % num_cells_y_;
+                int neighbor_z = (std::get<2>(cell) + dz + num_cells_z_) % num_cells_z_;
+                auto neighbor_cell = std::make_tuple(neighbor_x, neighbor_y, neighbor_z);
                 if (cell_list_.count(neighbor_cell) == 0)
                     continue;
-
                 for (int j : cell_list_[neighbor_cell]) {
                     if (i >= static_cast<size_t>(j))
                         continue;
@@ -113,6 +137,7 @@ void NeighborList::rebuild_neighbor_list() {
             }
         }
     }
+
     // Merge thread-local neighbor lists into the main neighbor list.
     #pragma omp parallel for schedule(dynamic)
     for (size_t i = 0; i < all_positions_.size(); ++i) {
@@ -162,7 +187,7 @@ bool NeighborList::needs_rebuild() const {
         }
     }
     #pragma omp barrier 
-    return false;
+    return needs_rebuild;
 }
 
 // Return the neighbor list for a specific particle.
@@ -181,24 +206,12 @@ std::pair<std::vector<int>, std::vector<int>> NeighborList::get_neighbors_by_typ
         if (type == ParticleType::Actin) {
             actin_neighbors.push_back(neighbor_index);
         } else if (type == ParticleType::Myosin) {
-            // Adjust index for myosin particles.
             myosin_neighbors.push_back(neighbor_index - static_cast<int>(n_actins_));
         }
     }
-    return {actin_neighbors, myosin_neighbors};
+    return std::make_pair(actin_neighbors, myosin_neighbors);
 }
 
-// Get the cell index corresponding to a position.
-std::pair<int, int> NeighborList::get_cell_index(const vec& position) const {
-    int cell_x = static_cast<int>(std::floor((position.x + box_[0]) / cell_size_x_)) % num_cells_x_;
-    int cell_y = static_cast<int>(std::floor((position.y + box_[1]) / cell_size_y_)) % num_cells_y_;
-
-    // Correct for negative values.
-    cell_x = (cell_x % num_cells_x_ + num_cells_x_) % num_cells_x_;
-    cell_y = (cell_y % num_cells_y_ + num_cells_y_) % num_cells_y_;
-
-    return {cell_x, cell_y};
-}
 
 // Compute the displacement between two positions (with periodic boundaries).
 double NeighborList::displacement(const vec& current, const vec& last) const {

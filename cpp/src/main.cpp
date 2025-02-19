@@ -5,6 +5,7 @@
 #include <vector>
 #include <gsl/gsl_rng.h>
 #include <gsl/gsl_randist.h>
+#include <iostream>
 
 int main(int argc, char* argv[]){
     int nsteps = 500000;
@@ -27,6 +28,7 @@ int main(int argc, char* argv[]){
     int n_myosins = 4;
     double Lx = 10;
     double Ly = 10;
+    double Lz = 10;
     double actin_length = 1;
     double myosin_length = 1.5;
     double myosin_radius = 0.2;
@@ -59,6 +61,7 @@ int main(int argc, char* argv[]){
             ("n_myosins", "Number of myosins", cxxopts::value<int>(n_myosins)->default_value("4"))
             ("Lx", "Lx", cxxopts::value<double>(Lx)->default_value("10"))
             ("Ly", "Ly", cxxopts::value<double>(Ly)->default_value("10"))
+            ("Lz", "Lz", cxxopts::value<double>(Lz)->default_value("10"))
             ("actin_length", "Actin length", cxxopts::value<double>(actin_length)->default_value("1"))
             ("myosin_length", "Myosin length", cxxopts::value<double>(myosin_length)->default_value("1.5"))
             ("myosin_radius", "Myosin radius", cxxopts::value<double>(myosin_radius)->default_value("0.2"))
@@ -84,9 +87,10 @@ int main(int argc, char* argv[]){
 
     gsl_rng * rng = gsl_rng_alloc(gsl_rng_mt19937);
     gsl_rng_set(rng,seed);
-    std::vector <double> box(2);
+    std::vector <double> box(3);
     box[0] = Lx;
     box[1] = Ly;
+    box[2] = Lz;
     k_on *= dt;
     k_off *= dt;
     Sarcomere model(n_actins, n_myosins, box, actin_length, myosin_length,
@@ -97,12 +101,6 @@ int main(int argc, char* argv[]){
     if (!resume){
         if (init_struc == "sarcomere") {
         sim.model.sarcomeric_structure();}
-        // else if (init_struc == "sarcomere"){
-        //     sim.model.sarcomeric_structure();
-        // }
-        else if (init_struc == "n_fixed_myosins"){
-            sim.model.myosin_on_a_lattice();
-        }
         else if (init_struc == "partial"){
             sim.model.partial_fix(n_fixed_myosins);
         }

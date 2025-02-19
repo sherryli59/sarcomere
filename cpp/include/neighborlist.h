@@ -48,7 +48,7 @@ public:
 
 private:
     // Helper functions.
-    std::pair<int, int> get_cell_index(const vec& position) const;
+    std::tuple<int, int, int> get_cell_index(const vec& position) const;
     double displacement(const vec& current, const vec& last) const;
     void concatenate_positions();
     void track_species_types();
@@ -57,9 +57,9 @@ private:
     double cutoff_radius_;
     double threshold_;
     std::vector<double> box_;
-    int num_cells_x_, num_cells_y_;
-    double cell_size_x_, cell_size_y_;
-    std::vector<std::pair<int, int>> neighboring_cells;
+    int num_cells_x_, num_cells_y_, num_cells_z_;
+    double cell_size_x_, cell_size_y_, cell_size_z_;
+    std::vector<std::tuple<int, int, int>> neighboring_cells;
 
     std::vector<vec> actin_positions_;
     std::vector<vec> myosin_positions_;
@@ -71,15 +71,23 @@ private:
     std::vector<ParticleType> species_types_;
     std::vector<std::vector<std::pair<int, ParticleType>>> neighbor_list_;
 
-    // A hash functor for std::pair<int,int> so it can be used in an unordered_map.
     struct pair_hash {
-        template <class T1, class T2>
-        std::size_t operator()(const std::pair<T1, T2>& pair) const {
-            return std::hash<T1>()(pair.first) ^ std::hash<T2>()(pair.second);
-        }
+    // Hash function for std::pair
+    template <typename T1, typename T2>
+    std::size_t operator()(const std::pair<T1, T2>& pair) const {
+        return std::hash<T1>{}(pair.first) ^ (std::hash<T2>{}(pair.second) << 1);
+    }
+
+    // Hash function for std::tuple<int, int, int>
+    std::size_t operator()(const std::tuple<int, int, int>& t) const {
+        std::size_t h1 = std::hash<int>{}(std::get<0>(t));
+        std::size_t h2 = std::hash<int>{}(std::get<1>(t));
+        std::size_t h3 = std::hash<int>{}(std::get<2>(t));
+        return h1 ^ (h2 << 1) ^ (h3 << 2);
+    }
     };
 
-    std::unordered_map<std::pair<int, int>, std::vector<int>, pair_hash> cell_list_;
+    std::unordered_map<std::tuple<int, int, int>, std::vector<int>, pair_hash> cell_list_;
 };
 
 #endif // NEIGHBORLIST_H
