@@ -2,6 +2,7 @@
 #include <cstdio>
 #include <stdexcept>
 #include <cmath>
+#include <cassert>
 #include <gsl/gsl_rng.h>
 #include <gsl/gsl_randist.h>
 
@@ -29,7 +30,7 @@ Filament::Filament(int n0, double length0, std::vector<double> box0, gsl_rng* rn
         angular_force[i].resize(2); // 2D angular force vector.
     }
     velocity.resize(n);
-    tension.resize(n);
+    f_load.resize(n);
     cb_strength.resize(n);
     
     // Randomly initialize the center positions and theta values.
@@ -37,7 +38,7 @@ Filament::Filament(int n0, double length0, std::vector<double> box0, gsl_rng* rn
         center[i].x = gsl_ran_flat(rng, -0.5 * box[0], 0.5 * box[0]);
         center[i].y = gsl_ran_flat(rng, -0.5 * box[1], 0.5 * box[1]);
         center[i].z = gsl_ran_flat(rng, -0.5 * box[2], 0.5 * box[2]);
-        theta[i] = gsl_ran_flat(rng, 0, 2 * M_PI);
+        theta[i] = gsl_ran_flat(rng, -M_PI, M_PI);
         phi[i] = gsl_ran_flat(rng, 0, M_PI);
     }
     update_endpoints();
@@ -61,7 +62,7 @@ Filament::Filament(const Filament& other) {
     force = other.force;
     angular_force = other.angular_force;
     velocity = other.velocity;
-    tension = other.tension;
+    f_load = other.f_load;
     custom_features = other.custom_features;
 }
 
@@ -94,7 +95,6 @@ void Filament::update_endpoints(int& i) {
     segment.x = length * sin(phi[i]) * cos(theta[i]);  // X component
     segment.y = length * sin(phi[i]) * sin(theta[i]);  // Y component
     segment.z = length * cos(phi[i]);                 // Z component
-
     left_end[i] = center[i] - 0.5 * segment;
     right_end[i] = center[i] + 0.5 * segment;
 }
@@ -171,3 +171,4 @@ Myosin::Myosin(int n0, double length0, double radius0, std::vector<double> box0,
 Myosin::Myosin(const Myosin& other) : Filament(other) {
     radius = other.radius;
 }
+

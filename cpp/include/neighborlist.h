@@ -40,6 +40,24 @@ public:
     // Check if the neighbor list needs to be rebuilt (based on displacement).
     bool needs_rebuild() const;
 
+      // Step 0: Clear and resize internal containers.
+    void clearAndResizeContainers();
+
+    // Step 1: Populate the cell list with particle indices.
+    void populateCellList();
+
+    // Step 2: Create thread-local storage for neighbor lists.
+    // The TLS container is passed by reference and resized appropriately.
+    void createThreadLocalStorage(std::vector<std::vector<std::vector<std::pair<size_t, ParticleType>>>> &tls) const;
+
+    // Step 3: Compute neighbors in parallel.
+    void computeNeighbors(std::vector<std::vector<std::vector<std::pair<size_t, ParticleType>>>> &tls);
+
+    // Step 4: Merge thread-local neighbor lists into the main neighbor list.
+    void mergeThreadLocalLists(const std::vector<std::vector<std::vector<std::pair<size_t, ParticleType>>>> &tls);
+
+    // Step 5: Update the last known positions.
+    void updateLastKnownPositions();
     // Return a pair of vectors (first: actin neighbors, second: myosin neighbors) for a given particle.
     std::pair<std::vector<int>, std::vector<int>> get_neighbors_by_type(int index) const;
 
@@ -52,7 +70,6 @@ private:
     double displacement(const vec& current, const vec& last) const;
     void concatenate_positions();
     void track_species_types();
-
     // Data members.
     double cutoff_radius_;
     double threshold_;

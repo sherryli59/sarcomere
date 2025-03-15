@@ -19,10 +19,15 @@ void angle_wrap(double& theta) {
 // Wrap an angle into the interval [0, π) if is_range_pi is true, or [–π, π) otherwise.
 void angle_wrap(double& theta, bool& is_range_pi){
     if (is_range_pi) {
-        theta = theta - M_PI * std::round(theta / M_PI);
+        theta = theta - M_PI * std::round(theta / M_PI) + M_PI/2;
     } else {
         theta = theta - 2 * M_PI * std::round(theta / (2 * M_PI));
     }
+}
+
+std::ostream& operator<<(std::ostream &os, const vec &v) {
+    os << "(" << v.x << ", " << v.y << ", " << v.z << ")";
+    return os;
 }
 
 // Overload += operator for std::vector<double>

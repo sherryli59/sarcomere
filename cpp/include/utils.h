@@ -24,7 +24,7 @@ struct vec {
 
     // Addition operator.
     vec operator+(const vec& p) const {
-        return vec { x + p.x, y + p.y + z + p.z };
+        return vec { x + p.x, y + p.y,  z + p.z };
     }
     vec& operator+=(const vec& other) {
         x += other.x;
@@ -107,11 +107,16 @@ struct vec {
     double norm_squared() const {
         return x * x + y * y + z * z;
     }
+
 };
 
 //------------------------------------------------------------------------------
 // Free function declarations (definitions are provided in utils.cpp)
 //------------------------------------------------------------------------------
+
+// Overload operator<< for vec
+std::ostream& operator<<(std::ostream &os, const vec &v);
+
 
 // Wrap a coordinate value using periodic boundary conditions.
 double pbc_wrap(double x, double& box);

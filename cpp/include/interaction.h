@@ -31,119 +31,108 @@ template<typename T, typename std::enable_if_t<std::is_arithmetic_v<T>, int> = 0
 T smooth_round(T x) {
     return std::round(x);  // Use standard round function
 }
-// // Function to calculate the norm of an array
-// template<typename T>
-// T norm(T* x, int dim) {
-//     T norm_val = 0;
-//     for (int i = 0; i < dim; i++) {
-//         norm_val += x[i] * x[i];
-//     }
-//     return sqrt(norm_val);
-// }
-
-// // Function to calculate the norm of a vector
-// template<typename T>
-// T norm(const std::vector<T>& x) {
-//     T norm_val = 0;
-//     for (int i = 0; i < x.size(); i++) {
-//         norm_val += x[i] * x[i];
-//     }
-//     return sqrt(norm_val);
-// }
 
 
-// Template function for computing the shortest distance between two segments with PBC in 3D.
-// The segments are defined as:
-//   Segment 1: P(s) = a + s*(b - a), with s in [0,1]
-//   Segment 2: Q(t) = c + t*(d - c), with t in [0,1]
+// Helper clamp function.
 template<typename T>
-T segment_segment_distance(const T* a, const T* b, const T* c, const T* d, const std::vector<double>& box) {
-    double EPS = 1e-9;
-    // Helper lambda: dot product of two 3D vectors.
-    auto dot3 = [](const T* x, const T* y) -> T {
-        return x[0] * y[0] + x[1] * y[1] + x[2] * y[2];
-    };
+T clamp(T x, T lo, T hi) {
+    return max(lo, min(x, hi));
+}
 
-    // Helper lambda: subtract two 3D vectors: out = x - y.
-    auto subtract3 = [&](const T* x, const T* y, T* out) {
+template<typename T>
+T segment_segment_distance(const T* A, const T* B, 
+                           const T* C, const T* D, 
+                           const std::vector<double>& box) {
+    const double EPS = 1e-9;
+    // Helper lambda: adjust a point to its minimum image
+    auto pbc_diff = [](const T* x,const T* y, const std::vector<double>& box, T* out) {
         out[0] = x[0] - y[0];
         out[1] = x[1] - y[1];
         out[2] = x[2] - y[2];
+        out[0] -= box[0] * smooth_round(out[0] / box[0]);
+        out[1] -= box[1] * smooth_round(out[1] / box[1]);
+        out[2] -= box[2] * smooth_round(out[2] / box[2]);
     };
-
-    // Helper lambda: add two 3D vectors: out = x + y.
-    auto add3 = [&](const T* x, const T* y, T* out) {
-        out[0] = x[0] + y[0];
-        out[1] = x[1] + y[1];
-        out[2] = x[2] + y[2];
-    };
-
-    // Helper lambda: multiply vector x by scalar, store in out.
-    auto multiply3 = [&](const T* x, T scalar, T* out) {
-        out[0] = x[0] * scalar;
-        out[1] = x[1] * scalar;
-        out[2] = x[2] * scalar;
-    };
-
-    // Helper lambda: compute the norm (magnitude) of a 3D vector.
-    auto norm3 = [&](const T* x) -> T {
-        return sqrt(dot3(x, x));
-    };
-
-    // Helper lambda: Adjust a vector difference for periodic boundary conditions.
-    auto pbc_adjust = [&](const T* diff, const std::vector<double>& box, T* out) {
-        out[0] = diff[0] - box[0] * smooth_round(diff[0] / box[0]);
-        out[1] = diff[1] - box[1] * smooth_round(diff[1] / box[1]);
-        out[2] = diff[2] - box[2] * smooth_round(diff[2] / box[2]);
-    };
-
-    // Compute direction vectors for the segments.
+    // Compute direction vectors with periodic boundary conditions.
+    // u = pbc_diff(B, A, box)
+    // v = pbc_diff(D, C, box)
+    // w = pbc_diff(A, C, box)
     T u[3], v[3], w[3];
-    subtract3(b, a, u);   // u = b - a
-    subtract3(d, c, v);   // v = d - c
-    subtract3(a, c, w);   // w = a - c
+    pbc_diff(B, A, box, u);
+    pbc_diff(D, C, box, v);
+    pbc_diff(A, C, box, w);
 
-    // Apply PBC adjustments.
-    T u_pbc[3], v_pbc[3], w_pbc[3];
-    pbc_adjust(u, box, u_pbc);
-    pbc_adjust(v, box, v_pbc);
-    pbc_adjust(w, box, w_pbc);
+    // Lambda for 3D dot product.
+    auto dot3 = [](const T* x, const T* y) -> T {
+        return x[0]*y[0] + x[1]*y[1] + x[2]*y[2];
+    };
 
-    // Compute scalar coefficients.
-    T a_val = dot3(u_pbc, u_pbc);
-    T b_val = dot3(u_pbc, v_pbc);
-    T c_val = dot3(v_pbc, v_pbc);
-    T d_val = dot3(u_pbc, w_pbc);
-    T e_val = dot3(v_pbc, w_pbc);
-    T D_val = a_val * c_val - b_val * b_val;
+    // Lambda for computing squared norm.
+    auto norm_sq = [&](const T* x) -> T {
+        return dot3(x, x);
+    };
 
-    T s, t;
-    if (abs(D_val) < EPS) {
-        s = 0;
-        t = (c_val > EPS ? e_val / c_val : 0);
+    // Compute coefficients.
+    T a = dot3(u, u);      // |u|²
+    T b = dot3(u, v);
+    T c = dot3(v, v);      // |v|²
+    T d_val = dot3(u, w);
+    T e_val = dot3(v, w);
+    T denom = a * c - b * b;
+
+    // Unconstrained optimum:
+    T t_opt = 0, s_opt = 0;
+    if (abs(denom) > EPS) {
+        t_opt = (b * e_val - c * d_val) / denom;
+        s_opt = (a * e_val - b * d_val) / denom;
     } else {
-        s = (b_val * e_val - c_val * d_val) / D_val;
-        t = (a_val * e_val - b_val * d_val) / D_val;
+        // Nearly parallel: set t_opt = 0 and optimize s.
+        t_opt = 0;
+        s_opt = (c > EPS ? dot3(v, w) / c : 0);
     }
 
-    // Clamp parameters to [0,1].
-    s = std::max((T)0, std::min((T)1, s));
-    t = std::max((T)0, std::min((T)1, t));
+    // Evaluate candidate (t,s) by computing squared distance.
+    T best_dist2 = std::numeric_limits<T>::infinity();
+    T best_t = 0, best_s = 0;
+    auto evaluate = [&](T t, T s) {
+        T diff[3];
+        for (int i = 0; i < 3; ++i)
+            diff[i] = w[i] + u[i] * t - v[i] * s;
+        T d2 = norm_sq(diff);
+        if (d2 < best_dist2) {
+            best_dist2 = d2;
+            best_t = t;
+            best_s = s;
+        }
+    };
 
-    // Compute the closest points on the segments.
-    T P[3], Q[3], s_u[3], t_v[3];
-    multiply3(u_pbc, s, s_u);
-    add3(a, s_u, P);
-    multiply3(v_pbc, t, t_v);
-    add3(c, t_v, Q);
+    // If unconstrained optimum lies within [0,1]^2, evaluate it.
+    if (t_opt >= 0 && t_opt <= 1 && s_opt >= 0 && s_opt <= 1) {
+        evaluate(t_opt, s_opt);
+    }
 
-    // Compute the difference vector between the closest points, then apply PBC.
-    T dP[3];
-    subtract3(P, Q, dP);
-    T dP_pbc[3];
-    pbc_adjust(dP, box, dP_pbc);
+    // Otherwise, check boundaries.
+    // For t fixed at 0 and 1, optimize s.
+    for (int i = 0; i < 2; ++i) {
+        T t_candidate = (i == 0) ? 0 : 1;
+        T temp[3];
+        for (int j = 0; j < 3; ++j)
+            temp[j] = w[j] + u[j] * t_candidate;
+        T s_candidate = clamp(dot3(v, temp) / c, T(0), T(1));
+        evaluate(t_candidate, s_candidate);
+    }
 
-    return norm3(dP_pbc);
+    // For s fixed at 0 and 1, optimize t.
+    for (int j = 0; j < 2; ++j) {
+        T s_candidate = (j == 0) ? 0 : 1;
+        T temp[3];
+        for (int i = 0; i < 3; ++i)
+            temp[i] = s_candidate * v[i] - w[i];
+        T t_candidate = clamp(dot3(u, temp) / a, T(0), T(1));
+        evaluate(t_candidate, s_candidate);
+    }
+
+    return sqrt(best_dist2);
 }
 
 
@@ -177,6 +166,6 @@ std::vector<double> compute_am_force_and_energy(Filament& actin, Myosin& myosin,
                                                 int& actin_index, int& myosin_index,
                                                 const std::vector<double>& box,
                                                 const double k_am, const double kappa_am,
-                                                const double myosin_radius, const bool turn_on_spring);
+                                                const double myosin_radius);
 
 #endif  // INTERACTION_H

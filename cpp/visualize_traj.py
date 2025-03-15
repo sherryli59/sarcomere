@@ -213,12 +213,10 @@ if __name__ == "__main__":
     myosin_radius = args.myosin_radius
     actin_length = args.actin_length
     myosin_length = args.myosin_length
+    traj = h5py.File(filename, 'r')
+    data = hdf5_to_dict(traj)
 
-    traj = h5py.File(filename, 'r')
-    data = hdf5_to_dict(traj)
-    # energy = data["/energy/total_energy"]
-    traj = h5py.File(filename, 'r')
-    data = hdf5_to_dict(traj)
+
     nframes = data["/actin/center"].shape[0]
     print(f"Number of frames: {nframes}")
     if args.print_frame<nframes:
