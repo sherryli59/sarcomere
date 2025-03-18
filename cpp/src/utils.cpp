@@ -19,7 +19,9 @@ void angle_wrap(double& theta) {
 // Wrap an angle into the interval [0, π) if is_range_pi is true, or [–π, π) otherwise.
 void angle_wrap(double& theta, bool& is_range_pi){
     if (is_range_pi) {
-        theta = theta - M_PI * std::round(theta / M_PI) + M_PI/2;
+        theta = std::fmod(theta, M_PI);
+        if (theta < 0){
+            theta += M_PI;}
     } else {
         theta = theta - 2 * M_PI * std::round(theta / (2 * M_PI));
     }

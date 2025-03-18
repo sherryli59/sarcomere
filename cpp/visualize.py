@@ -2,9 +2,13 @@ import argparse
 import os
 import h5py
 import numpy as np
-from ovito.data import DataCollection, Particles, Bonds
-from ovito.io import export_file
+from ovito.data import DataCollection, Particles, Bonds, SimulationCell
 from ovito.pipeline import Pipeline, PythonScriptSource
+import ovito
+import joblib
+from joblib import Parallel, delayed
+from ovito.vis import Viewport, OSPRayRenderer,TachyonRenderer, CoordinateTripodOverlay
+from ovito.qt_compat import QtCore
 
 
 # For constructing our custom pipeline node.
@@ -32,8 +36,8 @@ def build_data_collection(frame, data, myosin_radius, actin_length, myosin_lengt
     """
     # Retrieve data for this frame.
     actin_center  = data["/actin/center"][frame]
-    actin_theta   = data["/actin/theta"][frame]  # Orientation in xy-plane.
-    actin_phi     = data["/actin/phi"][frame]      # Orientation in z-plane.
+    actin_theta   = data["/actin/theta"][frame]
+    actin_phi     = data["/actin/phi"][frame]
     cb_strength   = data["/actin/cb_strength"][frame].flatten()
 
     myosin_center = data["/myosin/center"][frame]
@@ -47,67 +51,110 @@ def build_data_collection(frame, data, myosin_radius, actin_length, myosin_lengt
 
     ### Process Actin Filaments ###
     actin_positions = []
-    actin_colors    = []
-    actin_bonds     = []
-    actin_indices   = {}
+    actin_colors = []
+    actin_bonds = []
+    actin_indices = {}
 
     for i in range(actin_center.shape[0]):
         x, y, z = actin_center[i]
         theta = actin_theta[i]
-        phi   = actin_phi[i]
+        phi = actin_phi[i]
 
-        # Compute endpoints.
-        delta_x = 0.5 * actin_length * np.cos(theta) * np.cos(phi)
-        delta_y = 0.5 * actin_length * np.sin(theta) * np.cos(phi)
-        delta_z = 0.5 * actin_length * np.sin(phi)
+        delta_x = 0.5 * actin_length * np.cos(theta) * np.sin(phi)
+        delta_y = 0.5 * actin_length * np.sin(theta) * np.sin(phi)
+        delta_z = 0.5 * actin_length * np.cos(phi)
+
 
         p1 = [x - delta_x, y - delta_y, z - delta_z]
         p2 = [x + delta_x, y + delta_y, z + delta_z]
         actin_positions.extend([p1, p2])
         actin_indices[i] = (len(actin_positions) - 2, len(actin_positions) - 1)
 
-        # Use a blue–red gradient based on catch-bond strength.
         color = [cb_strength[i], 0, 1 - cb_strength[i]]
         actin_colors.extend([color, color])
         actin_bonds.append((actin_indices[i][0], actin_indices[i][1]))
 
     ### Process Myosin Filaments ###
     myosin_positions = []
-    myosin_colors    = []
-    myosin_bonds     = []
-    myosin_indices   = {}
+    myosin_colors = []
+    myosin_bonds = []
+    myosin_indices = {}
 
     for i in range(myosin_center.shape[0]):
         x, y, z = myosin_center[i]
         theta = myosin_theta[i]
-        phi   = myosin_phi[i]
+        phi = myosin_phi[i]
 
-        # Compute endpoints.
-        delta_x = 0.5 * myosin_length * np.cos(theta) * np.cos(phi)
-        delta_y = 0.5 * myosin_length * np.sin(theta) * np.cos(phi)
-        delta_z = 0.5 * myosin_length * np.sin(phi)
+        delta_x = 0.5 * myosin_length * np.cos(theta) * np.sin(phi)
+        delta_y = 0.5 * myosin_length * np.sin(theta) * np.sin(phi)
+        delta_z = 0.5 * myosin_length * np.cos(phi)
 
         p1 = [x - delta_x, y - delta_y, z - delta_z]
         p2 = [x + delta_x, y + delta_y, z + delta_z]
         myosin_positions.extend([p1, p2])
         myosin_indices[i] = (len(myosin_positions) - 2, len(myosin_positions) - 1)
 
-        # Myosin is always orange.
         myosin_colors.extend([[1, 0.5, 0], [1, 0.5, 0]])
         myosin_bonds.append((myosin_indices[i][0], myosin_indices[i][1]))
 
-    # Combine actin and myosin data.
-    all_positions = np.vstack((actin_positions, myosin_positions))
-    all_colors    = np.vstack((actin_colors, myosin_colors))
-    all_bonds     = np.array(actin_bonds + myosin_bonds)
+        # Calculate offset for myosin bonds
+    n_actin_particles = len(actin_positions)
+    
+    # Adjust myosin bond indices for global particle list
+    myosin_bonds_adjusted = [
+        (idx1 + n_actin_particles, idx2 + n_actin_particles)
+        for (idx1, idx2) in myosin_bonds
+    ]
+    
+    # # Create final bond list
+    # all_bonds = np.array(actin_bonds + myosin_bonds_adjusted)
 
-    # Add properties.
+    # # Set radii explicitly
+    # actin_bond_radii = np.full(len(actin_bonds), 0.01) 
+    # myosin_bond_radii = np.full(len(myosin_bonds), myosin_radius)  
+    # all_bond_radii = np.concatenate([actin_bond_radii, myosin_bond_radii])
+
+
+    all_bonds = np.array(myosin_bonds_adjusted)
+
+    # Set radii explicitly
+    actin_bond_radii = np.full(len(actin_bonds), 0.01) 
+    myosin_bond_radii = np.full(len(myosin_bonds), myosin_radius)  
+    all_bond_radii = myosin_bond_radii  
+
+    # Combine data
+    all_positions = np.vstack((actin_positions, myosin_positions))
+    all_colors = np.vstack((actin_colors, myosin_colors))
+    # Create radii arrays
+    actin_radii = np.full((len(actin_positions),), 0.01)
+    myosin_radii = np.full((len(myosin_positions),), myosin_radius)
+    all_radii = np.concatenate((actin_radii, myosin_radii))
+
+    # Add properties to particles and bonds
     particles.create_property('Position', data=all_positions)
     particles.create_property('Color', data=all_colors)
+    particles.create_property('Radius', data=all_radii)
     bonds.create_property('Topology', data=all_bonds)
+    bonds.create_property('Radius', data=all_bond_radii)  
+    bonds.vis.enabled = True
+    # bonds.vis.shading = BondsVis.Shading.Flat
+    # bonds.vis.radius_mapping.enabled = True  # <-- Critical for using Radius property
+    # bonds.vis.radius_mapping.radius = 1.0    # <-- Scaling factor for your radii
+    # Assign bonds to particles
+    particles.bonds = bonds
 
+    # Create simulation cell
+    cell = SimulationCell()
+    cell.matrix = [
+        [Lx, 0, 0, -Lx/2],  # Center box at origin
+        [0, Ly, 0, -Ly/2],
+        [0, 0, Lz, -Lz/2]
+    ]
+    cell.pbc = (True, True, True)  # Set periodic boundary conditions as needed
+
+    dc.objects.append(cell)
     dc.objects.append(particles)
-    dc.objects.append(bonds)
+
     return dc
 
 
@@ -139,6 +186,47 @@ def parse_args():
     parser.add_argument("--myosin_length", type=float, default=1.5)
     return parser.parse_args()
 
+def render_image(data, data_path, ind, n_workers):
+    nframes = data["/actin/center"].shape[0]
+    frame_start = int(ind*(nframes-1)/n_workers)
+    frame_end = int((ind+1)*(nframes-1)/n_workers)
+    if ind == n_workers-1:
+        frame_end = nframes
+    # Build a list of DataCollections – one for each frame.
+    data_list = []
+    for frame in range(frame_start, frame_end):
+        dc = build_data_collection(frame, data, args.myosin_radius,
+                                   args.actin_length, args.myosin_length,
+                                   args.Lx, args.Ly, args.Lz)
+        data_list.append(dc)
+
+    # Define the create function for the PythonScriptSource
+    def create(frame, data_collection):
+        dc = build_data_collection(frame, data, args.myosin_radius, args.actin_length, args.myosin_length,args.Lx, args.Ly, args.Lz)
+        data_collection.objects.extend(dc.objects)
+
+     # Create a pipeline with the PythonScriptSource
+    pipeline = Pipeline(source=PythonScriptSource(function=create))
+    pipeline.compute()
+    pipeline.add_to_scene()
+    # cell_vis = pipeline.source.data.cell.vis
+    # cell_vis.enabled = False
+    vp = Viewport(type = Viewport.Type.Ortho)
+    vp.camera_pos = (-10, -15, 15)
+    vp.camera_dir = (2, 3, -3)
+    vp.fov = 3.5
+    vp.zoom_all()
+
+    # Create the overlay.
+    tripod = CoordinateTripodOverlay()
+    tripod.size = 0.07
+    tripod.alignment = QtCore.Qt.AlignmentFlag.AlignRight | QtCore.Qt.AlignmentFlag.AlignBottom
+    vp.overlays.append(tripod)
+    for frame in range(frame_start, frame_end):
+        #make directory if it doesn't exist
+        vp.render_image(filename=data_path+f"frame_{frame:04d}.png", 
+                        size=(480,240), background=(1,1,1), frame=frame,
+                        renderer=TachyonRenderer())
 
 # --- Main execution ---
 if __name__ == "__main__":
@@ -150,29 +238,18 @@ if __name__ == "__main__":
     nframes = data["/actin/center"].shape[0]
     print(f"Total frames: {nframes}")
     #pring actin center
-    last_frame = data["/myosin/phi"][-1]
-    print(last_frame)
-    # Build a list of DataCollections – one for each frame.
-    data_list = []
-    for frame in range(nframes):
-        dc = build_data_collection(frame, data, args.myosin_radius,
-                                   args.actin_length, args.myosin_length,
-                                   args.Lx, args.Ly, args.Lz)
-        data_list.append(dc)
+    myosin_centers = data["/myosin/center"][5:]
+    # compute center-center distance by doing the unsqueeze operation
+    center_center_distance = np.linalg.norm(np.expand_dims(myosin_centers, axis=-2) - np.expand_dims(myosin_centers, axis=-3), axis=-1)
+    center_center_distance = center_center_distance[center_center_distance<0.4]
+    center_center_distance = center_center_distance[center_center_distance>0]
+    print(center_center_distance)
+    cb_strength   = data["/actin/cb_strength"]
+    print(np.average(cb_strength, axis=-1))
+    exit()
+    resolution = (1920, 1080)
+    output_dir = "frames/"
+    os.makedirs(output_dir, exist_ok=True)
+    cpu_workers = joblib.cpu_count()
+    Parallel(n_jobs=cpu_workers)(delayed(render_image)(data, output_dir,ind, cpu_workers) for ind in range(cpu_workers))
 
-    # Define the create function for the PythonScriptSource
-    def create(frame, data_collection):
-        dc = build_data_collection(frame, data, args.myosin_radius, args.actin_length, args.myosin_length,args.Lx, args.Ly, args.Lz)
-        data_collection.objects.extend(dc.objects)
-
-    # Create a pipeline with the PythonScriptSource
-    pipeline = Pipeline(source=PythonScriptSource(function=create))
-
-    # Create a scene and add the pipeline.
-    scene = ovito.scene.Scene()
-    scene.add_pipeline(pipeline)
-
-    # Export the entire scene as an OVITO session file.
-    # The output format identifier is "ovito/session".
-    export_file(scene, args.output_file, "ovito/session", multiple_frames=True)
-    print(f"Saved OVITO session to '{args.output_file}'")
