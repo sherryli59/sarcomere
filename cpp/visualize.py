@@ -2,27 +2,13 @@ import argparse
 import os
 import h5py
 import numpy as np
-from ovito.data import DataCollection, Particles, Bonds
-from ovito.io import export_file
-from ovito.pipeline import Pipeline, PythonScriptSource
+# from ovito.data import DataCollection, Particles, Bonds
+# from ovito.pipeline import Pipeline, PythonScriptSource
+# from ovito.vis import Viewport
 
+# # For constructing our custom pipeline node.
+# from ovito.pipeline import PipelineNode, Pipeline
 
-# For constructing our custom pipeline node.
-from ovito.pipeline import PipelineNode, Pipeline
-
-# --- Custom dynamic sources that returns the pre-built DataCollection for a given frame ---
-class MyDynamicSource(PipelineNode):
-    def __init__(self, data_list):
-        # Initialize the base class with pipeline=None
-        super().__init__(pipeline=None)
-        self.data_list = data_list
-
-    def compute(self, frame, **kwargs):
-        # Convert frame to integer index.
-        frame_index = int(frame)
-        if frame_index < 0 or frame_index >= len(self.data_list):
-            raise IndexError("Frame index out of range.")
-        return self.data_list[frame_index]
 
 
 # --- Function to build a DataCollection for one frame ---
@@ -148,7 +134,9 @@ if __name__ == "__main__":
     with h5py.File(args.filename, "r") as f:
         data = hdf5_to_dict(f)
     nframes = data["/actin/center"].shape[0]
+    cb_strength = data["/actin/cb_strength"]
     print(f"Total frames: {nframes}")
+    print(np.average(cb_strength, axis=-1))
     #pring actin center
     last_frame = data["/myosin/phi"][-1]
     print(last_frame)
@@ -167,12 +155,16 @@ if __name__ == "__main__":
 
     # Create a pipeline with the PythonScriptSource
     pipeline = Pipeline(source=PythonScriptSource(function=create))
+    data = pipeline.compute()
+    data.cell.vis.enabled = False 
+    data.cell.vis.box_size = (args.Lx, args.Ly, args.Lz)
+    resolution = (1920, 1080)
+    output_dir = "frames"
+    os.makedirs(output_dir, exist_ok=True)
 
-    # Create a scene and add the pipeline.
-    scene = ovito.scene.Scene()
-    scene.add_pipeline(pipeline)
+    # Render each frame as an image.
+    for frame in range(nframes):
+        filename = os.path.join(output_dir, f"frame_{frame:04d}.png")
+        ovito.scene.render_image(filename, resolution=resolution, frame=frame)
+        print(f"Rendered frame {frame} to {filename}")
 
-    # Export the entire scene as an OVITO session file.
-    # The output format identifier is "ovito/session".
-    export_file(scene, args.output_file, "ovito/session", multiple_frames=True)
-    print(f"Saved OVITO session to '{args.output_file}'")

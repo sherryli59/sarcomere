@@ -108,7 +108,9 @@ void Sarcomere::cb(){
         actin.center[i].z = actin_positions[i][2]; // set z coordinate to 0
     }
     actin.theta[0] = 0;
+    actin.phi[0] = M_PI/2;
     actin.theta[1] = M_PI;
+    actin.phi[1] = M_PI/2;
     
     std::vector<vector> myosin_positions = {
         {-1.33, 0, 0}, {1.33, 0, 0}
@@ -118,7 +120,7 @@ void Sarcomere::cb(){
         myosin.center[i].y = myosin_positions[i][1];
         myosin.center[i].z = myosin_positions[i][2]; // set z coordinate to 0
         myosin.theta[i] = 0;
-        myosin.phi[i] = 0;
+        myosin.phi[i] = M_PI/2;
 
     }
 }
@@ -198,6 +200,10 @@ void Sarcomere::update_system() {
 
         // Step 4: Reduce actin catch-bond strengths
         utils::reduce_array(actin_cb_strengths_temp, actin.cb_strength);
+        //print actin.cb_strength
+        for (int i = 0; i < actin.n; i++){
+            printf("actin.cb_strength[%d]: %f\n", i, actin.cb_strength[i]);
+        }
         #pragma omp barrier  
 
         // Step 5: Concatenate actinIndicesPerMyosin connections
@@ -376,6 +382,7 @@ void Sarcomere::_process_catch_bonds(int& i) {
             if (i>j){
                 double cos_angle = std::cos(actin.theta[i] - actin.theta[j]);
                 double strength = _get_cb_strength(i,j);
+                printf("strength: %f\n", strength);
                 if (strength>EPS){
                     cb_indices.push_back(j);
                     cb_strengths.push_back(strength);
@@ -636,6 +643,7 @@ void Sarcomere::_set_cb(int& i, int& j, double& normalized_strength, bool& add_c
             // printf("not forming bond between %d and %d\n",i,j);
             return;
         }
+        printf("forming bond between %d and %d\n",i,j);
     }
     vector force_vec = compute_aa_force_and_energy(actin,i, j, box,k_aa,kappa_aa); 
     local_actin_forces[i].x += force_vec[0];

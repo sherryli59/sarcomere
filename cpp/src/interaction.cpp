@@ -42,10 +42,18 @@ real am_energy1(const ArrayXreal& center1, const double& length1, const real& th
     real dir1[3] = { sin(phi1)*cos(theta1), sin(phi1)*sin(theta1), cos(phi1) };
     real dir2[3] = { sin(phi2)*cos(theta2), sin(phi2)*sin(theta2), cos(phi2) };
     real dot_val = dir1[0]*dir2[0] + dir1[1]*dir2[1] + dir1[2]*dir2[2];
-    real strength = abs(cos(acos(dot_val))); // essentially abs(dot_val)
+    real strength = abs(dot_val);
+    real angle;
 
+    if (dot_val == 1) {
+        angle = 0;
+    } else if (dot_val == -1) {
+        angle = M_PI;
+    } else {
+        angle = acos(dot_val);
+    }
     // Compute the angular difference between the filaments.
-    real angle = acos(dot_val);
+    //real angle = acos(dot_val);
     // Adjust angle to minimal value.
     angle = (angle < M_PI - angle) ? angle : (M_PI - angle);
 
@@ -85,7 +93,16 @@ real am_energy(const real& theta1, const real& phi1,
     real dir2_z = cos(phi2);
 
     real dot_val = dir1_x * dir2_x + dir1_y * dir2_y + dir1_z * dir2_z;
-    real angle = acos(dot_val);  // angle in [0, π]
+    real angle;
+    if (dot_val == 1) {
+        angle = 0;
+    } else if (dot_val == -1) {
+        angle = M_PI;
+    } else {
+        angle = acos(dot_val);
+    }
+    angle = (angle < M_PI - angle) ? angle : (M_PI - angle);
+    //real angle = acos(dot_val);  // angle in [0, π]
     return 0.5 * kappa_am * angle * angle;
 }
 
@@ -128,8 +145,15 @@ real aa_energy(const ArrayXreal& center1, const double& length1,
     real dir2[3] = { sin(phi2)*cos(theta2), sin(phi2)*sin(theta2), cos(phi2) };
 
     real dot_val = dir1[0]*dir2[0] + dir1[1]*dir2[1] + dir1[2]*dir2[2];
-    real angle = acos(dot_val);
-
+    real angle;
+    if (dot_val == 1) {
+        angle = 0;
+    } else if (dot_val == -1) {
+        angle = M_PI;
+    } else {
+        angle = acos(dot_val);
+    }
+    //real angle = acos(dot_val);
     return 0.5 * (k_aa * dist * dist + kappa_aa * angle * angle);
 }
 

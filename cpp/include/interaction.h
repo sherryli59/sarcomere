@@ -16,6 +16,8 @@ using Eigen::VectorXd;
 using autodiff::ArrayXreal;
 using autodiff::real;
 
+const autodiff::real autodiff_infinity = autodiff::real(std::numeric_limits<double>::infinity());
+
 //---------------------------------------------------------------------
 // Template Functions (must be in the header)
 //---------------------------------------------------------------------
@@ -49,9 +51,9 @@ T segment_segment_distance(const T* A, const T* B,
         out[0] = x[0] - y[0];
         out[1] = x[1] - y[1];
         out[2] = x[2] - y[2];
-        out[0] -= box[0] * smooth_round(out[0] / box[0]);
-        out[1] -= box[1] * smooth_round(out[1] / box[1]);
-        out[2] -= box[2] * smooth_round(out[2] / box[2]);
+        out[0] -= T(box[0]) * smooth_round(out[0] / T(box[0]));
+        out[1] -= T(box[1]) * smooth_round(out[1] / T(box[1]));
+        out[2] -= T(box[2]) * smooth_round(out[2] / T(box[2]));
     };
     // Compute direction vectors with periodic boundary conditions.
     // u = pbc_diff(B, A, box)
@@ -92,7 +94,7 @@ T segment_segment_distance(const T* A, const T* B,
     }
 
     // Evaluate candidate (t,s) by computing squared distance.
-    T best_dist2 = std::numeric_limits<T>::infinity();
+    T best_dist2 = autodiff_infinity;
     T best_t = 0, best_s = 0;
     auto evaluate = [&](T t, T s) {
         T diff[3];
@@ -110,7 +112,6 @@ T segment_segment_distance(const T* A, const T* B,
     if (t_opt >= 0 && t_opt <= 1 && s_opt >= 0 && s_opt <= 1) {
         evaluate(t_opt, s_opt);
     }
-
     // Otherwise, check boundaries.
     // For t fixed at 0 and 1, optimize s.
     for (int i = 0; i < 2; ++i) {
@@ -131,7 +132,6 @@ T segment_segment_distance(const T* A, const T* B,
         T t_candidate = clamp(dot3(u, temp) / a, T(0), T(1));
         evaluate(t_candidate, s_candidate);
     }
-
     return sqrt(best_dist2);
 }
 

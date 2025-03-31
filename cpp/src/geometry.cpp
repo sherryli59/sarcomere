@@ -74,7 +74,6 @@ double segment_segment_distance(const vec& A, const vec& B,
     if (t_opt >= 0.0 && t_opt <= 1.0 && s_opt >= 0.0 && s_opt <= 1.0) {
         evaluate(t_opt, s_opt);
     }
-
     // Otherwise, check boundaries.
     // Check t = 0 and t = 1, and optimize s.
     for (int i = 0; i < 2; i++) {
@@ -110,7 +109,6 @@ std::pair<double, std::map<std::string, vec>> segment_segment_distance_w_normal(
     vec u = pbc_diff(B, A, box);  // AB direction
     vec v = pbc_diff(D, C, box);  // CD direction
     vec w = pbc_diff(A, C, box);  // From C to A
-
     // Squared lengths and dot products.
     double a = u.dot(u);         // |u|^2
     double b = u.dot(v);

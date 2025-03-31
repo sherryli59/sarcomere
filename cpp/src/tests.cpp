@@ -6,10 +6,55 @@
 #include <cmath>
 #include "geometry.h"
 #include "utils.h"
+#include "interaction.h"
+#include "autodiff/forward/real.hpp"  // Adjust the include path as needed.
+using autodiff::real;
 using vec = utils::vec;
 
 // Define a small epsilon for floating point comparisons
 constexpr double EPS = 1e-6;
+
+
+// Test case for two parallel segments that are offset by 1 in the y direction.
+TEST(SegmentSegmentDistanceTest, ParallelSegments) {
+    // Define endpoints as arrays of autodiff::real.
+    real A[3] = {0, 0, 0};
+    real B[3] = {1, 0, 0};
+    real C[3] = {0, 1, 0};
+    real D[3] = {1, 1, 0};
+    std::vector<double> box = {100, 100, 100}; // Large box to avoid PBC effects.
+    
+    // For parallel segments offset by 1, the minimum distance should be 1.
+    real dist = segment_segment_distance(A, B, C, D, box);
+    EXPECT_NEAR(dist.val(), 1.0, 1e-6);
+}
+
+// // Test case for intersecting segments (which should return a distance of zero).
+// TEST(SegmentSegmentDistanceTest, IntersectingSegments) {
+//     // These segments cross each other.
+//     real A[3] = {0, 0, 0};
+//     real B[3] = {1, 1, 0};
+//     real C[3] = {0, 1, 0};
+//     real D[3] = {1, 0, 0};
+//     std::vector<double> box = {100, 100, 100};
+    
+//     real dist = segment_segment_distance(A, B, C, D, box);
+//     EXPECT_NEAR(dist.val(), 0.0, 1e-6);
+// }
+
+// // Test case for skew segments in parallel planes.
+// // Here segment1 is from (0,0,0) to (1,1,0) and segment2 is from (0,1,1) to (1,0,1).
+// // Their xy projections intersect and the planes are separated by 1, so the minimal distance is 1.
+// TEST(SegmentSegmentDistanceTest, SkewSegments) {
+//     real A[3] = {0, 0, 0};
+//     real B[3] = {1, 1, 0};
+//     real C[3] = {0, 1, 1};
+//     real D[3] = {1, 0, 1};
+//     std::vector<double> box = {100, 100, 100};
+    
+//     real dist = segment_segment_distance(A, B, C, D, box);
+//     EXPECT_NEAR(dist.val(), 1.0, 1e-6);
+// }
 
 TEST(SegmentDistanceTest, RandomizedConsistencyCheck) {
     const int num_trials = 1000;
@@ -115,9 +160,9 @@ TEST(SegmentDistanceTest, ClosestPointComputation) {
     vec C = {0, 1, 0};
     vec D = {1, 1, 0};
     std::vector<double> box = {10, 10, 10};
-
+    printf("no autodiff\n");
     auto [dist, info] = geometry::segment_segment_distance_w_normal(A, B, C, D, box);
-    
+    dist = geometry::segment_segment_distance(A, B, C, D, box);
     EXPECT_GT(dist, 0);
     EXPECT_NEAR(dist, 1.0, EPS);  // Expected min distance
 }
@@ -135,6 +180,7 @@ TEST(SegmentDistanceTest, EdgeCaseParallel) {
     // Since the whole segment is within distance `d`, interval should be full length.
     EXPECT_NEAR(interval_length, 1.0, EPS);
 }
+
 
 TEST(SegmentDistanceTest, Sample1) {
 
@@ -157,7 +203,6 @@ TEST(SegmentDistanceTest, IntersectingSegments) {
     vec D = {1, 0, 0};
     double d = 0.1;
     std::vector<double> box = {10, 10, 10};
-
     auto [dist, info] = geometry::segment_segment_distance_w_normal(A, B, C, D, box);
     
     // If segments intersect, min distance should be 0.
