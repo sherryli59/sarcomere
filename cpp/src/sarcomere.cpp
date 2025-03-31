@@ -91,7 +91,7 @@ void Sarcomere::partial_fix(int& n_fixed){
     }
     for (int i = 0; i < myosin.n; i++){
         myosin.theta[i] = 0;
-        myosin.phi[i] = 0;
+        myosin.phi[i] = M_PI/2;
     }
     myosin.update_endpoints();
     update_system();
@@ -121,7 +121,6 @@ void Sarcomere::cb(){
         myosin.center[i].z = myosin_positions[i][2]; // set z coordinate to 0
         myosin.theta[i] = 0;
         myosin.phi[i] = M_PI/2;
-
     }
 }
 
@@ -138,7 +137,7 @@ void Sarcomere::sarcomeric_structure(){
         myosin.center[i].y = myosin_positions[i][1];
         myosin.center[i].z = myosin_positions[i][2]; // set z coordinate to 0
         myosin.theta[i] = 0;
-        myosin.phi[i] = 0;
+        myosin.phi[i] = M_PI/2;
     }
 
     myosin.update_endpoints();

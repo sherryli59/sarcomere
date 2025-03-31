@@ -12,7 +12,7 @@ class RunLangevinBenchmark : public benchmark::Fixture {
 public:
     void SetUp(const ::benchmark::State& state) override {
         // Set up simulation parameters (use smaller nsteps for benchmarking).
-        nsteps = 5;          // Use a moderate number of steps for timing.
+        nsteps = 10;          // Use a moderate number of steps for timing.
         seed = 123;
         dt = 0.00001;
         beta = 241.0;

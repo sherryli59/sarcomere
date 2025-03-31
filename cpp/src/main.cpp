@@ -104,6 +104,7 @@ int main(int argc, char* argv[]){
                         base_lifetime, lifetime_coeff, diff_coeff_ratio,
                           k_aa, kappa_aa, k_am, kappa_am, v_am,
                         filename,rng, seed, n_fixed_myosins, dt, directional);
+
     Langevin sim(model, beta, dt, actin_diff_coeff, myosin_diff_coeff, update_myosin_every, update_dt_every, save_every, resume);
     if (!resume){
         if (init_struc == "sarcomere") {
@@ -116,7 +117,10 @@ int main(int argc, char* argv[]){
             sim.model.cb();
         }
     }
-    sim.volume_exclusion(1, rng,n_fixed_myosins);
+    for (int i = 0; i < n_myosins; i++) {
+        printf("myosin phi: %f \n", model.myosin.phi[i]);
+    }
+    //sim.volume_exclusion(1, rng,n_fixed_myosins);
     sim.run_langevin(nsteps, rng, n_fixed_myosins);
     gsl_rng_free(rng);
     return 0;
