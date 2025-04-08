@@ -94,7 +94,7 @@ def plot_myosin(center,thetas,l,Lx,Ly,radius,ax,color='k'):
     for i in range(center.shape[0]):
         x = center[i,0]
         y = center[i,1]
-        theta = thetas[i]
+        theta = s[i]
         delta_x = l/2 * np.cos(theta) - radius * np.sin(theta)
         delta_y = l/2 * np.sin(theta) + radius * np.cos(theta)
         #plot a rectangle to represent the myosin

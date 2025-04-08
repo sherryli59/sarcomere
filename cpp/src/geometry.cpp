@@ -30,71 +30,90 @@ double clamp(double x, double lo, double hi) {
 // This function computes the shortest distance between segments AB and CD by solving
 // the constrained optimization problem: minimize || (A+t*(B-A)) - (C+s*(D-C)) ||^2 subject to t,s in [0,1].
 double segment_segment_distance(const vec& A, const vec& B, 
-                                              const vec& C, const vec& D, 
-                                              const std::vector<double>& box) {
-    // Compute direction vectors (PBC applied)
-    vec u = pbc_diff(B, A, box);  // Direction of segment AB
-    vec v = pbc_diff(D, C, box);  // Direction of segment CD
-    vec w = pbc_diff(A, C, box);  // Vector from C to A
-
-    double a = u.dot(u);         // Squared length of AB
-    double b = u.dot(v);
-    double c = v.dot(v);         // Squared length of CD
-    double d_val = u.dot(w);
-    double e_val = v.dot(w);
-
-    double denom = a * c - b * b; // Denominator in the unconstrained solution
-
-    // Unconstrained optimum:
-    double t_opt = 0.0, s_opt = 0.0;
-    if (std::fabs(denom) > EPS) {
-        t_opt = (b * e_val - c * d_val) / denom;
-        s_opt = (a * e_val - b * d_val) / denom;
-    } else {
-        // Segments are nearly parallel: choose t_opt = 0 and optimize s.
-        t_opt = 0.0;
-        s_opt = (v.dot(w)) / c;
-    }
-
-    // We'll check the unconstrained optimum and also boundary candidates.
-    double best_dist2 = std::numeric_limits<double>::infinity();
-    double best_t = 0.0, best_s = 0.0;
-
-    auto evaluate = [&](double t, double s) {
-        vec diff = w + u * t - v * s;
-        double d2 = diff.norm_squared();
-        if (d2 < best_dist2) {
-            best_dist2 = d2;
-            best_t = t;
-            best_s = s;
+        const vec& C, const vec& D, 
+        const std::vector<double>& box)
+    {
+        // Make local copies of the first segment's endpoints.
+        vec A_adj = A;
+        vec B_adj = B;
+        
+        // Compute the midpoints of the two segments.
+        vec actin_mid = (A + B) / 2;
+        vec myosin_mid = (C + D) / 2;
+        
+        // Compute the displacement between midpoints.
+        vec displacement = actin_mid - myosin_mid;
+        
+        // Compute the shift vector using the box dimensions.
+        vec shift;
+        shift.x = -box[0] * round(displacement.x / box[0]);
+        shift.y = -box[1] * round(displacement.y / box[1]);
+        shift.z = -box[2] * round(displacement.z / box[2]);
+        
+        // Shift the first segment's endpoints so that they are in the minimum image.
+        A_adj = A_adj + shift;
+        B_adj = B_adj + shift;
+        
+        // Now compute the vectors between the adjusted A, B and original C, D.
+        vec u = B_adj - A_adj;   // Direction of segment AB.
+        vec v = D - C;           // Direction of segment CD.
+        vec w = A_adj - C;       // Vector from C to adjusted A.
+        
+        // Precompute dot products.
+        double a = u.dot(u);
+        double b = u.dot(v);
+        double c = v.dot(v);
+        double d_val = u.dot(w);
+        double e_val = v.dot(w);
+        
+        double denom = a * c - b * b;
+        
+        // Compute unconstrained optimum parameters.
+        double t_opt = 0.0, s_opt = 0.0;
+        if (std::fabs(denom) > EPS) {
+            t_opt = (b * e_val - c * d_val) / denom;
+            s_opt = (a * e_val - b * d_val) / denom;
+        } else {
+            // Nearly parallel: fix t = 0 and optimize over s.
+            t_opt = 0.0;
+            s_opt = clamp(v.dot(w) / c, 0.0, 1.0);
         }
-    };
-
-    // If unconstrained optimum lies within [0,1]^2, use it.
-    if (t_opt >= 0.0 && t_opt <= 1.0 && s_opt >= 0.0 && s_opt <= 1.0) {
-        evaluate(t_opt, s_opt);
-    }
-    // Otherwise, check boundaries.
-    // Check t = 0 and t = 1, and optimize s.
-    for (int i = 0; i < 2; i++) {
-        double t_candidate = (i == 0) ? 0.0 : 1.0;
-        // For fixed t, f(s) = || w + t*u - s*v ||^2 is quadratic in s.
-        // The optimum (unconstrained) is s = (v dot (w + t*u)) / c.
-        double s_candidate = clamp(v.dot(w + u * t_candidate) / c, 0.0, 1.0);
-        evaluate(t_candidate, s_candidate);
-    }
-    // Check s = 0 and s = 1, and optimize t.
-    for (int j = 0; j < 2; j++) {
-        double s_candidate = (j == 0) ? 0.0 : 1.0;
-        // For fixed s, f(t) = || w + t*u - s*v ||^2 is quadratic in t.
-        // The optimum is t = (u dot (s*v - w)) / a.
-        double t_candidate = clamp(u.dot(s_candidate * v - w) / a, 0.0, 1.0);
-        evaluate(t_candidate, s_candidate);
-    }
-
-    return std::sqrt(best_dist2);
-}
-
+        
+        // Search for the best (t,s) in [0,1]^2.
+        double best_dist2 = std::numeric_limits<double>::infinity();
+        double best_t = 0.0, best_s = 0.0;
+        
+        auto evaluate = [&](double t, double s) {
+            vec diff = w + u * t - v * s;
+            double d2 = diff.norm_squared();
+            if (d2 < best_dist2) {
+                best_dist2 = d2;
+                best_t = t;
+                best_s = s;
+            }
+        };
+        
+        // Evaluate the unconstrained optimum if it lies within [0,1]^2.
+        if (t_opt >= 0.0 && t_opt <= 1.0 && s_opt >= 0.0 && s_opt <= 1.0) {
+            evaluate(t_opt, s_opt);
+        }
+        
+        // Evaluate boundaries: t = 0 and t = 1, optimizing s.
+        for (int i = 0; i < 2; i++) {
+            double t_candidate = (i == 0) ? 0.0 : 1.0;
+            double s_candidate = clamp(v.dot(w + u * t_candidate) / c, 0.0, 1.0);
+            evaluate(t_candidate, s_candidate);
+        }
+        // Evaluate boundaries: s = 0 and s = 1, optimizing t.
+        for (int j = 0; j < 2; j++) {
+            double s_candidate = (j == 0) ? 0.0 : 1.0;
+            double t_candidate = clamp(u.dot(s_candidate * v - w) / a, 0.0, 1.0);
+            evaluate(t_candidate, s_candidate);
+        }
+        
+        return std::sqrt(best_dist2);
+        
+    }    
 
 
 // Compute the shortest distance between two line segments by solving
@@ -105,36 +124,58 @@ std::pair<double, std::map<std::string, vec>> segment_segment_distance_w_normal(
     const vec& C, const vec& D, 
     const std::vector<double>& box)
 {
-    // Compute direction vectors (with PBC adjustments)
-    vec u = pbc_diff(B, A, box);  // AB direction
-    vec v = pbc_diff(D, C, box);  // CD direction
-    vec w = pbc_diff(A, C, box);  // From C to A
-    // Squared lengths and dot products.
-    double a = u.dot(u);         // |u|^2
+    // Make local copies of the first segment's endpoints.
+    vec A_adj = A;
+    vec B_adj = B;
+    
+    // Compute the midpoints of the two segments.
+    vec actin_mid = (A + B) / 2;
+    vec myosin_mid = (C + D) / 2;
+    
+    // Compute the displacement between midpoints.
+    vec displacement = actin_mid - myosin_mid;
+    
+    // Compute the shift vector using the box dimensions.
+    vec shift;
+    shift.x = -box[0] * round(displacement.x / box[0]);
+    shift.y = -box[1] * round(displacement.y / box[1]);
+    shift.z = -box[2] * round(displacement.z / box[2]);
+    
+    // Shift the first segment's endpoints so that they are in the minimum image.
+    A_adj = A_adj + shift;
+    B_adj = B_adj + shift;
+    
+    // Now compute the vectors between the adjusted A, B and original C, D.
+    vec u = B_adj - A_adj;   // Direction of segment AB.
+    vec v = D - C;           // Direction of segment CD.
+    vec w = A_adj - C;       // Vector from C to adjusted A.
+    
+    // Precompute dot products.
+    double a = u.dot(u);
     double b = u.dot(v);
-    double c = v.dot(v);         // |v|^2
+    double c = v.dot(v);
     double d_val = u.dot(w);
     double e_val = v.dot(w);
-
-    double denom = a * c - b * b; // Denom for unconstrained optimum
-
-    // Unconstrained optimum parameters:
+    
+    double denom = a * c - b * b;
+    
+    // Compute unconstrained optimum parameters.
     double t_opt = 0.0, s_opt = 0.0;
     if (std::fabs(denom) > EPS) {
         t_opt = (b * e_val - c * d_val) / denom;
         s_opt = (a * e_val - b * d_val) / denom;
     } else {
-        // Segments nearly parallel: fix t = 0 and optimize s.
+        // Nearly parallel: fix t = 0 and optimize over s.
         t_opt = 0.0;
         s_opt = clamp(v.dot(w) / c, 0.0, 1.0);
     }
     
-    // We'll search for the best (t,s) in [0,1]^2 by evaluating:
+    // Search for the best (t,s) in [0,1]^2.
     double best_dist2 = std::numeric_limits<double>::infinity();
     double best_t = 0.0, best_s = 0.0;
     
     auto evaluate = [&](double t, double s) {
-        vec diff = w + u * t - v * s;  // P(t) - Q(s)
+        vec diff = w + u * t - v * s;
         double d2 = diff.norm_squared();
         if (d2 < best_dist2) {
             best_dist2 = d2;
@@ -143,19 +184,18 @@ std::pair<double, std::map<std::string, vec>> segment_segment_distance_w_normal(
         }
     };
     
-    // If unconstrained optimum lies in [0,1]^2, evaluate it.
+    // Evaluate the unconstrained optimum if it lies within [0,1]^2.
     if (t_opt >= 0.0 && t_opt <= 1.0 && s_opt >= 0.0 && s_opt <= 1.0) {
         evaluate(t_opt, s_opt);
     }
     
-    // Evaluate boundaries:
-    // 1. t = 0 and t = 1, optimizing over s.
+    // Evaluate boundaries: t = 0 and t = 1, optimizing s.
     for (int i = 0; i < 2; i++) {
         double t_candidate = (i == 0) ? 0.0 : 1.0;
         double s_candidate = clamp(v.dot(w + u * t_candidate) / c, 0.0, 1.0);
         evaluate(t_candidate, s_candidate);
     }
-    // 2. s = 0 and s = 1, optimizing over t.
+    // Evaluate boundaries: s = 0 and s = 1, optimizing t.
     for (int j = 0; j < 2; j++) {
         double s_candidate = (j == 0) ? 0.0 : 1.0;
         double t_candidate = clamp(u.dot(s_candidate * v - w) / a, 0.0, 1.0);
@@ -164,14 +204,13 @@ std::pair<double, std::map<std::string, vec>> segment_segment_distance_w_normal(
     
     double distance = std::sqrt(best_dist2);
     
-    // Compute the closest points on each segment:
-    vec P = A + u * best_t;  // Closest point on AB
-    vec Q = C + v * best_s;  // Closest point on CD
+    // Compute the closest points on the segments.
+    vec P = A_adj + u * best_t;  // Closest point on the shifted segment AB.
+    vec Q = C + v * best_s;      // Closest point on segment CD.
     
-    // Compute the normal vector from Q to P (apply PBC if needed).
+    // Compute the normal vector from Q to P (using pbc_diff if further adjustment is needed).
     vec normal = pbc_diff(P, Q, box);
     
-    // Package the extra information in a map.
     std::map<std::string, vec> info;
     info["start"] = P;
     info["end"] = Q;
@@ -179,6 +218,7 @@ std::pair<double, std::map<std::string, vec>> segment_segment_distance_w_normal(
     
     return std::make_pair(distance, info);
 }
+
 
 
 void apply_pbc(vec& actin_left, vec& actin_right, 

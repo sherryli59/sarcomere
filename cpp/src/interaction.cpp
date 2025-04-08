@@ -59,18 +59,22 @@ real am_energy1(const ArrayXreal& center1, const double& length1, const real& th
 
     if (dist > 0.8 * myosin_radius) {
         if (dist > myosin_radius) {
+            
             // Optionally print debug messages.
-            printf("dist: %f\n"
+            printf("something's wrong. dist: %f\n"
                 "left1: %f, %f, %f\n"
                 "right1: %f, %f, %f\n"
                 "left2: %f, %f, %f\n"
                 "right2: %f, %f, %f\n",
+                "box: %f, %f, %f\n",
                 dist.val(),
                 x1_start.val(), y1_start.val(), z1_start.val(),
                 x1_end.val(), y1_end.val(), z1_end.val(),
                 x2_start.val(), y2_start.val(), z2_start.val(),
-                x2_end.val(), y2_end.val(), z2_end.val());
-                exit(1);
+                x2_end.val(), y2_end.val(), z2_end.val(),
+                box[0], box[1], box[2]);
+            printf("box: %f, %f, %f\n", box[0], box[1], box[2]);
+            exit(1);
             // Additional debugging info...
         }
         return 0.5 * k_am * strength * dist * dist + 0.5 * kappa_am * angle * angle;
@@ -153,8 +157,9 @@ real aa_energy(const ArrayXreal& center1, const double& length1,
     } else {
         angle = acos(dot_val);
     }
+    real offset = abs(angle - M_PI);
     //real angle = acos(dot_val);
-    return 0.5 * (k_aa * dist * dist + kappa_aa * angle * angle);
+    return 0.5 * (k_aa * dist * dist + kappa_aa * offset * offset);
 }
 
 std::vector<double> compute_aa_force_and_energy(Filament& actin,

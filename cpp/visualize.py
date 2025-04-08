@@ -251,7 +251,6 @@ if __name__ == "__main__":
     print(center_center_distance)
     cb_strength   = data["/actin/cb_strength"]
     print(np.average(cb_strength, axis=-1))
-    exit()
     resolution = (1920, 1080)
     output_dir = "frames/"
     os.makedirs(output_dir, exist_ok=True)

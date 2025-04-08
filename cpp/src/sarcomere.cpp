@@ -199,10 +199,8 @@ void Sarcomere::update_system() {
 
         // Step 4: Reduce actin catch-bond strengths
         utils::reduce_array(actin_cb_strengths_temp, actin.cb_strength);
-        //print actin.cb_strength
-        for (int i = 0; i < actin.n; i++){
-            printf("actin.cb_strength[%d]: %f\n", i, actin.cb_strength[i]);
-        }
+
+
         #pragma omp barrier  
 
         // Step 5: Concatenate actinIndicesPerMyosin connections
@@ -381,7 +379,6 @@ void Sarcomere::_process_catch_bonds(int& i) {
             if (i>j){
                 double cos_angle = std::cos(actin.theta[i] - actin.theta[j]);
                 double strength = _get_cb_strength(i,j);
-                printf("strength: %f\n", strength);
                 if (strength>EPS){
                     cb_indices.push_back(j);
                     cb_strengths.push_back(strength);
@@ -633,7 +630,7 @@ void Sarcomere::_set_cb(int& i, int& j, double& normalized_strength, bool& add_c
     if (actin_actin_bonds_prev[i][j] == 1) {
         double k_off_adjusted = dt * abs_cos_angle/(base_lifetime+lifetime_coeff*f_load);
         if (rand < k_off_adjusted){ //k_off is actually k_off * dt
-            //printf("breaking bond between %d and %d\n",i,j);
+            printf("breaking bond between %d and %d\n",i,j);
             return;
         }
     }

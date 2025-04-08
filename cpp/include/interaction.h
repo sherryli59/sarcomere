@@ -46,24 +46,53 @@ T segment_segment_distance(const T* A, const T* B,
                            const T* C, const T* D, 
                            const std::vector<double>& box) {
     const double EPS = 1e-9;
-    // Helper lambda: adjust a point to its minimum image
-    auto pbc_diff = [](const T* x,const T* y, const std::vector<double>& box, T* out) {
-        out[0] = x[0] - y[0];
-        out[1] = x[1] - y[1];
-        out[2] = x[2] - y[2];
-        out[0] -= T(box[0]) * smooth_round(out[0] / T(box[0]));
-        out[1] -= T(box[1]) * smooth_round(out[1] / T(box[1]));
-        out[2] -= T(box[2]) * smooth_round(out[2] / T(box[2]));
-    };
-    // Compute direction vectors with periodic boundary conditions.
-    // u = pbc_diff(B, A, box)
-    // v = pbc_diff(D, C, box)
-    // w = pbc_diff(A, C, box)
+    
+    // --- Global PBC Adjustment via Midpoints ---
+    // Create local copies for A and B.
+    T A_adj[3], B_adj[3];
+    for (int i = 0; i < 3; ++i) {
+        A_adj[i] = A[i];
+        B_adj[i] = B[i];
+    }
+    
+    // Compute midpoints of segment AB and segment CD.
+    T midA[3], midCD[3];
+    for (int i = 0; i < 3; ++i) {
+        midA[i] = (A_adj[i] + B_adj[i]) / T(2);
+        midCD[i] = (C[i] + D[i]) / T(2);
+    }
+    
+    // Compute displacement between the midpoints.
+    T disp[3];
+    for (int i = 0; i < 3; ++i) {
+        disp[i] = midA[i] - midCD[i];
+    }
+    
+    // Compute the shift vector using the box dimensions.
+    T shift[3];
+    for (int i = 0; i < 3; ++i) {
+        shift[i] = -T(box[i]) * smooth_round(disp[i] / T(box[i]));
+    }
+    
+    // Apply the shift to the first segment's endpoints.
+    for (int i = 0; i < 3; ++i) {
+        A_adj[i] += shift[i];
+        B_adj[i] += shift[i];
+    }
+    
+    // --- End Global PBC Adjustment ---
+    
+    // Now compute the direction vectors using simple arithmetic.
+    // u = B_adj - A_adj (direction of first segment)
+    // v = D - C        (direction of second segment)
+    // w = A_adj - C    (vector from C to adjusted A)
     T u[3], v[3], w[3];
-    pbc_diff(B, A, box, u);
-    pbc_diff(D, C, box, v);
-    pbc_diff(A, C, box, w);
-
+    for (int i = 0; i < 3; ++i) {
+        u[i] = B_adj[i] - A_adj[i];
+        v[i] = D[i] - C[i];
+        w[i] = A_adj[i] - C[i];
+    }
+    
     // Lambda for 3D dot product.
     auto dot3 = [](const T* x, const T* y) -> T {
         return x[0]*y[0] + x[1]*y[1] + x[2]*y[2];
@@ -73,7 +102,7 @@ T segment_segment_distance(const T* A, const T* B,
     auto norm_sq = [&](const T* x) -> T {
         return dot3(x, x);
     };
-
+    
     // Compute coefficients.
     T a = dot3(u, u);      // |u|²
     T b = dot3(u, v);
@@ -81,8 +110,8 @@ T segment_segment_distance(const T* A, const T* B,
     T d_val = dot3(u, w);
     T e_val = dot3(v, w);
     T denom = a * c - b * b;
-
-    // Unconstrained optimum:
+    
+    // Compute unconstrained optimum.
     T t_opt = 0, s_opt = 0;
     if (abs(denom) > EPS) {
         t_opt = (b * e_val - c * d_val) / denom;
@@ -92,7 +121,7 @@ T segment_segment_distance(const T* A, const T* B,
         t_opt = 0;
         s_opt = (c > EPS ? dot3(v, w) / c : 0);
     }
-
+    
     // Evaluate candidate (t,s) by computing squared distance.
     T best_dist2 = autodiff_infinity;
     T best_t = 0, best_s = 0;
@@ -107,13 +136,13 @@ T segment_segment_distance(const T* A, const T* B,
             best_s = s;
         }
     };
-
-    // If unconstrained optimum lies within [0,1]^2, evaluate it.
+    
+    // If the unconstrained optimum lies within [0,1]^2, evaluate it.
     if (t_opt >= 0 && t_opt <= 1 && s_opt >= 0 && s_opt <= 1) {
         evaluate(t_opt, s_opt);
     }
-    // Otherwise, check boundaries.
-    // For t fixed at 0 and 1, optimize s.
+    
+    // Evaluate boundaries: fix t = 0 and t = 1, optimizing s.
     for (int i = 0; i < 2; ++i) {
         T t_candidate = (i == 0) ? 0 : 1;
         T temp[3];
@@ -122,8 +151,8 @@ T segment_segment_distance(const T* A, const T* B,
         T s_candidate = clamp(dot3(v, temp) / c, T(0), T(1));
         evaluate(t_candidate, s_candidate);
     }
-
-    // For s fixed at 0 and 1, optimize t.
+    
+    // Evaluate boundaries: fix s = 0 and s = 1, optimizing t.
     for (int j = 0; j < 2; ++j) {
         T s_candidate = (j == 0) ? 0 : 1;
         T temp[3];
@@ -132,8 +161,10 @@ T segment_segment_distance(const T* A, const T* B,
         T t_candidate = clamp(dot3(u, temp) / a, T(0), T(1));
         evaluate(t_candidate, s_candidate);
     }
+    
     return sqrt(best_dist2);
 }
+
 
 
 //---------------------------------------------------------------------

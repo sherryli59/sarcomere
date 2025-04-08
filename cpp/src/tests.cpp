@@ -140,6 +140,74 @@ TEST(SegmentDistanceTest, RandomizedConsistencyCheck) {
     }
 }
 
+TEST(SegmentDistanceTest, ConsistencyCheckTwoFixedSegments) {
+    // Define the endpoints for the two segments.
+    // left1: -2.201754, -1.011057, -0.079458
+    // right1: -2.715330, -1.386165, -0.851166
+    // left2: -3.796951, -1.378295, -1.758961
+    // right2: -2.573441, -1.224273, -0.904971
+    // Segment 1: from left1 to right1.
+    vec A = {-2.201754, -1.011057, -0.079458};
+    vec B = {-2.715330, -1.386165, -0.851166};
+    // Segment 2: from left2 to right2.
+    vec C = {-3.796951, -1.378295, -1.758961};
+    vec D = {-2.573441, -1.224273, -0.904971};
+
+    // Define a periodic box; adjust dimensions as required.
+    std::vector<double> box = {7, 5, 3};
+    //std::vector<double> box = {10, 10, 10};
+
+    // Apply periodic boundary conditions if applicable.
+    geometry::apply_pbc(A, B, C, D, box);
+
+    // Compute the minimum distance between the two segments and additional info.
+    auto [d_min, info] = geometry::segment_segment_distance_w_normal(A, B, C, D, box);
+    real a[3] = {A.x, A.y, A.z};
+    real b[3] = {B.x, B.y, B.z};
+    real c[3] = {C.x, C.y, C.z};
+    real d[3] = {D.x, D.y, D.z};
+    real d_min2 = segment_segment_distance(a, b, c, d, box);
+    printf("d: %f\n", d_min2.val());
+    printf("d_min: %f\n", d_min);
+    constexpr double delta = 1e-2;  // A small offset for testing near the threshold.
+
+    // Compute the subsegment of AB that is within (d_min + delta) of CD.
+    auto [interval_length, start, end] =
+        geometry::subsegment_within_distance(A, B, C, D, d_min + delta);
+    printf("interval_length: %f\n", interval_length);
+    // Check that the subsegment is non-empty.
+    if (interval_length <= EPS) {
+        std::cerr << "FAIL: Expected non-empty subsegment for d = " << d_min + delta << "\n";
+        std::cerr << "Segment A: " << A << ", B: " << B << "\n";
+        std::cerr << "Segment C: " << C << ", D: " << D << "\n";
+        std::cerr << "subsegment_within_distance returned: (length: " << interval_length
+                  << ", start: " << start << ", end: " << end << ")\n";
+        std::cerr << "segment_segment_distance_w_normal returned: (d_min: " << d_min 
+                  << ", start: " << info["start"] << ", end: " << info["end"]
+                  << ", normal: " << info["normal"] << ")\n";
+        FAIL() << "Non-empty subsegment expected but got empty.";
+    }
+
+    // Now, slightly reduce the threshold.
+    double d_lower = std::max(0.0, d_min - delta);
+    auto [interval_length_reduced, start_reduced, end_reduced] =
+        geometry::subsegment_within_distance(A, B, C, D, d_lower);
+
+    // Verify that the subsegment is empty with the reduced threshold.
+    if (std::abs(interval_length_reduced) > EPS) {
+        std::cerr << "FAIL: Expected empty subsegment for d = " << d_lower << "\n";
+        std::cerr << "Segment A: " << A << ", B: " << B << "\n";
+        std::cerr << "Segment C: " << C << ", D: " << D << "\n";
+        std::cerr << "subsegment_within_distance returned: (length: " << interval_length_reduced
+                  << ", start: " << start_reduced << ", end: " << end_reduced << ")\n";
+        std::cerr << "segment_segment_distance_w_normal returned: (d_min: " << d_min 
+                  << ", start: " << info["start"] << ", end: " << info["end"]
+                  << ", normal: " << info["normal"] << ")\n";
+        FAIL() << "Empty subsegment expected but got non-empty.";
+    }
+}
+
+
 TEST(SegmentDistanceTest, NoOverlap) {
     vec A = {0, 0, 0};
     vec B = {1, 0, 0};
@@ -160,7 +228,6 @@ TEST(SegmentDistanceTest, ClosestPointComputation) {
     vec C = {0, 1, 0};
     vec D = {1, 1, 0};
     std::vector<double> box = {10, 10, 10};
-    printf("no autodiff\n");
     auto [dist, info] = geometry::segment_segment_distance_w_normal(A, B, C, D, box);
     dist = geometry::segment_segment_distance(A, B, C, D, box);
     EXPECT_GT(dist, 0);
@@ -193,7 +260,6 @@ TEST(SegmentDistanceTest, Sample1) {
     geometry::apply_pbc(A, B, C, D, box);
     auto [interval_length, start, end] = geometry::subsegment_within_distance(A, B, C, D, d);
     auto [dist, info] = geometry::segment_segment_distance_w_normal(A, B, C, D, box);
-    printf("dist: %f, interval_length: %f\n", dist, interval_length);
 }
 
 TEST(SegmentDistanceTest, IntersectingSegments) {
