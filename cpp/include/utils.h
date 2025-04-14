@@ -118,6 +118,8 @@ struct vec {
 std::ostream& operator<<(std::ostream &os, const vec &v);
 
 
+bool compare_indices(const std::vector<int>& a, const std::vector<int>& b);
+
 // Wrap a coordinate value using periodic boundary conditions.
 double pbc_wrap(double x, double& box);
 

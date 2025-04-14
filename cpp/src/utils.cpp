@@ -8,6 +8,18 @@ namespace utils {
 // Definitions of free functions
 //------------------------------------------------------------------------------
 
+
+bool compare_indices(const std::vector<int>& a, const std::vector<int>& b) {
+    if (a.size() != b.size()) {
+        return false;
+    }
+    std::vector<int> sorted_a = a;
+    std::vector<int> sorted_b = b;
+    std::sort(sorted_a.begin(), sorted_a.end());
+    std::sort(sorted_b.begin(), sorted_b.end());
+    return std::equal(sorted_a.begin(), sorted_a.end(), sorted_b.begin());
+}
+
 double pbc_wrap(double x, double& box) {
     return x - box * std::round(x / box);
 }
@@ -26,6 +38,7 @@ void angle_wrap(double& theta, bool& is_range_pi){
         theta = theta - 2 * M_PI * std::round(theta / (2 * M_PI));
     }
 }
+
 
 std::ostream& operator<<(std::ostream &os, const vec &v) {
     os << "(" << v.x << ", " << v.y << ", " << v.z << ")";
