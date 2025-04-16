@@ -125,9 +125,9 @@ void Sarcomere::cb(){
 
 void Sarcomere::sarcomeric_structure(){
     std::vector<vector> myosin_positions;
-    box[0] = 5.32;
-    box[1] = 5.32;
-    box[2] = 5.32; // set box's third dimension
+    box[0] = 5.2;
+    box[1] = 5.2;
+    box[2] = 5.2; // set box's third dimension
     myosin_positions = {
         {-1.33, -1.0, 0}, {1.33, -1.0, 0}, {-1.33, 0.0, 0}, {1.33, 0.0, 0}, {-1.33, 1.0, 0}, {1.33, 1.0, 0}
     };
@@ -153,7 +153,7 @@ void Sarcomere::sarcomeric_structure(){
         actin.center[i].y = actin_positions[i][1];
         actin.center[i].z = actin_positions[i][2]; // set z coordinate to 0
         actin.theta[i] = 0;
-        actin.phi[i] = 0;
+        actin.phi[i] = M_PI/2;
     }
     int n = actin_positions.size();
     actin_positions = {
@@ -168,7 +168,7 @@ void Sarcomere::sarcomeric_structure(){
         actin.center[i+n].y = actin_positions[i][1];
         actin.center[i+n].z = actin_positions[i][2]; // set z coordinate to 0
         actin.theta[i+n] = M_PI;
-        actin.phi[i+n] = 0;
+        actin.phi[i+n] = M_PI/2;
     }
     actin.update_endpoints();
     update_system();
