@@ -249,17 +249,22 @@ TEST(SegmentDistanceTest, EdgeCaseParallel) {
 }
 
 
+
+
 TEST(SegmentDistanceTest, Sample1) {
 
-    vec A = {-4.382204, -0.462398, -0.077329};
-    vec B = {-5.218863, -0.174826, 0.388831};
-    vec C = {-4.731318, -0.337676, 0.330925};
-    vec D = {-4.450215, -0.907024, 1.689903};
+    vec A = {0.426222, 0.007992, -0.016006};
+    vec B = {1.926121, -0.008638, -0.010742};
+    vec C = {0.615216, 0.240370, -0.019267};
+    vec D = {2.115152, 0.241758, -0.005497};
     double d = 0.2;
     std::vector<double> box = {12, 5, 3};
     geometry::apply_pbc(A, B, C, D, box);
-    auto [interval_length, start, end] = geometry::subsegment_within_distance(A, B, C, D, d);
     auto [dist, info] = geometry::segment_segment_distance_w_normal(A, B, C, D, box);
+    printf("dist: %f\n", dist);
+    printf("info: %f %f %f\n", info["start"].x, info["start"].y, info["start"].z);
+    printf("info: %f %f %f\n", info["end"].x, info["end"].y, info["end"].z);
+    printf("info: %f %f %f\n", info["normal"].x, info["normal"].y, info["normal"].z);
 }
 
 TEST(SegmentDistanceTest, IntersectingSegments) {
