@@ -160,13 +160,12 @@ void create_file(std::string& filename, Filament& actin, Myosin& myosin)
     create_empty_dataset(file, "/actin", "center", initialDims, maxDims, chunkDims);
     create_empty_dataset(file, "/actin", "velocity", initialDims, maxDims, chunkDims);
     create_empty_dataset(file, "/actin", "force", initialDims, maxDims, chunkDims);
-
+    create_empty_dataset(file, "/actin", "torque", initialDims, maxDims, chunkDims);
+    create_empty_dataset(file, "/actin", "direction", initialDims, maxDims, chunkDims);
 
     initialDims = {0, n_actins, 1};
     maxDims     = {H5S_UNLIMITED, n_actins, 1};
     chunkDims   = {10, n_actins, 1};
-    create_empty_dataset(file, "/actin", "theta", initialDims, maxDims, chunkDims);
-    create_empty_dataset(file, "/actin", "phi", initialDims, maxDims, chunkDims);
     create_empty_dataset(file, "/actin", "cb_strength", initialDims, maxDims, chunkDims);
     create_empty_dataset(file, "/actin", "f_load", initialDims, maxDims, chunkDims);
 
@@ -176,10 +175,6 @@ void create_file(std::string& filename, Filament& actin, Myosin& myosin)
         create_empty_dataset(file, "/actin", feature.first, initialDims, maxDims, chunkDims);
     }
 
-    initialDims = {0, n_actins, 2};
-    maxDims     = {H5S_UNLIMITED, n_actins, 2};
-    chunkDims   = {10, n_actins, 2};
-    create_empty_dataset(file, "/actin", "angular_force", initialDims, maxDims, chunkDims);
 
     // Create datasets for myosin.
     initialDims = {0, n_myosins, 3};
@@ -188,22 +183,16 @@ void create_file(std::string& filename, Filament& actin, Myosin& myosin)
     create_empty_dataset(file, "/myosin", "center", initialDims, maxDims, chunkDims);
     create_empty_dataset(file, "/myosin", "velocity", initialDims, maxDims, chunkDims);
     create_empty_dataset(file, "/myosin", "force", initialDims, maxDims, chunkDims);
+    create_empty_dataset(file, "/myosin", "torque", initialDims, maxDims, chunkDims);
+    create_empty_dataset(file, "/myosin", "direction", initialDims, maxDims, chunkDims);
 
     initialDims = {0, n_myosins, 1};
     maxDims     = {H5S_UNLIMITED, n_myosins, 1};
     chunkDims   = {10, n_myosins, 1};
-    create_empty_dataset(file, "/myosin", "theta", initialDims, maxDims, chunkDims);
-    create_empty_dataset(file, "/myosin", "phi", initialDims, maxDims, chunkDims);
     for (const auto& feature : myosin.custom_features) {
         create_empty_dataset(file, "/myosin", feature.first, initialDims, maxDims, chunkDims);
     }
     
-    initialDims = {0, n_myosins, 2};
-    maxDims     = {H5S_UNLIMITED, n_myosins, 2};
-    chunkDims   = {10, n_myosins, 2};
-    create_empty_dataset(file, "/myosin", "angular_force", initialDims, maxDims, chunkDims);
-
-
 
     // Create dataset for actin indices (connections) with a fixed maximum number of bonds.
     initialDims = {0, n_actins, 10};
@@ -248,11 +237,13 @@ void append_to_file(std::string& filename, Filament& actin, Myosin& myosin,
     std::vector<double> flattened_actin_force = flatten_3d_array(actin.force);
     append_to_dataset(group_actin, "force", flattened_actin_force, {1, n_actins, 3});
 
-    std::vector<double> flattened_actin_angular_force = flatten_2d_array(actin.angular_force);
-    append_to_dataset(group_actin, "angular_force", flattened_actin_angular_force, {1, n_actins, 2});
+    std::vector<double> flattened_actin_torque = flatten_3d_array(actin.torque);
+    append_to_dataset(group_actin, "torque", flattened_actin_torque, {1, n_actins, 3});
 
-    append_to_dataset(group_actin, "theta", actin.theta, {1, n_actins, 1});
-    append_to_dataset(group_actin, "phi", actin.phi, {1, n_actins, 1});
+    
+    std::vector<double> flattened_actin_direction = flatten_3d_array(actin.direction);
+    append_to_dataset(group_actin, "direction", flattened_actin_direction, {1, n_actins, 3});
+
     append_to_dataset(group_actin, "cb_strength", actin.cb_strength, {1, n_actins, 1});
     append_to_dataset(group_actin, "f_load", actin.f_load, {1, n_actins, 1});
 
@@ -270,11 +261,11 @@ void append_to_file(std::string& filename, Filament& actin, Myosin& myosin,
     std::vector<double> flattened_myosin_force = flatten_3d_array(myosin.force);
     append_to_dataset(group_myosin, "force", flattened_myosin_force, {1, n_myosins, 3});
 
-    std::vector<double> flattened_myosin_angular_force = flatten_2d_array(myosin.angular_force);
-    append_to_dataset(group_myosin, "angular_force",flattened_myosin_angular_force, {1, n_myosins, 2});
+    std::vector<double> flattened_myosin_torque = flatten_3d_array(myosin.torque);
+    append_to_dataset(group_myosin, "torque",flattened_myosin_torque, {1, n_myosins, 3});
 
-    append_to_dataset(group_myosin, "theta", myosin.theta, {1, n_myosins, 1});
-    append_to_dataset(group_myosin, "phi", myosin.phi, {1, n_myosins, 1});
+    std::vector<double> flattened_myosin_direction = flatten_3d_array(myosin.direction);
+    append_to_dataset(group_myosin, "direction", flattened_myosin_direction, {1, n_myosins, 3});
 
     for (const auto& feature : myosin.custom_features) {
         append_to_dataset(group_myosin, feature.first, feature.second, {1, n_myosins, 1});
@@ -374,15 +365,12 @@ void load_from_file(std::string& filename, Filament& actin, Myosin& myosin,
         actin.center[i].y = actin_center[3 * i + 1];
         actin.center[i].z = actin_center[3 * i + 2];
     }
-    std::vector<double> actin_theta = load_from_dataset(group_actin, "theta", dims);
-    actin_theta = std::vector<double>(actin_theta.end() - n_actins, actin_theta.end());
+    std::vector<double> actin_direction = load_from_dataset(group_actin, "direction", dims);
+    actin_direction = std::vector<double>(actin_direction.end() - 3 * n_actins, actin_direction.end());
     for (int i = 0; i < actin.n; i++) {
-        actin.theta[i] = actin_theta[i];
-    }
-    std::vector<double> actin_phi = load_from_dataset(group_actin, "phi", dims);
-    actin_phi = std::vector<double>(actin_phi.end() - n_actins, actin_phi.end());
-    for (int i = 0; i < actin.n; i++) {
-        actin.phi[i] = actin_phi[i];
+        actin.direction[i].x = actin_direction[3 * i];
+        actin.direction[i].y = actin_direction[3 * i + 1];
+        actin.direction[i].z = actin_direction[3 * i + 2];
     }
     actin.update_endpoints();
 
@@ -409,15 +397,12 @@ void load_from_file(std::string& filename, Filament& actin, Myosin& myosin,
         myosin.center[i].y = myosin_center[3 * i + 1];
         myosin.center[i].z = myosin_center[3 * i + 2];
     }
-    std::vector<double> myosin_theta = load_from_dataset(group_myosin, "theta", dims);
-    myosin_theta = std::vector<double>(myosin_theta.end() - n_myosins, myosin_theta.end());
+    std::vector<double> myosin_direction = load_from_dataset(group_myosin, "direction", dims);
+    myosin_direction = std::vector<double>(myosin_direction.end() - 3 * n_myosins, myosin_direction.end());
     for (int i = 0; i < myosin.n; i++) {
-        myosin.theta[i] = myosin_theta[i];
-    }
-    std::vector<double> myosin_phi = load_from_dataset(group_myosin, "phi", dims);
-    myosin_phi = std::vector<double>(myosin_phi.end() - n_myosins, myosin_phi.end());
-    for (int i = 0; i < myosin.n; i++) {
-        myosin.phi[i] = myosin_phi[i];
+        myosin.direction[i].x = myosin_direction[3 * i];
+        myosin.direction[i].y = myosin_direction[3 * i + 1];
+        myosin.direction[i].z = myosin_direction[3 * i + 2];
     }
     myosin.update_endpoints();
 }

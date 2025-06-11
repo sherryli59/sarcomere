@@ -24,19 +24,11 @@ double pbc_wrap(double x, double& box) {
     return x - box * std::round(x / box);
 }
 
-void angle_wrap(double& theta) {
-    theta = theta - 2 * M_PI * std::round(theta / (2 * M_PI));
-}
 
-// Wrap an angle into the interval [0, π) if is_range_pi is true, or [–π, π) otherwise.
-void angle_wrap(double& theta, bool& is_range_pi){
-    if (is_range_pi) {
-        theta = std::fmod(theta, M_PI);
-        if (theta < 0){
-            theta += M_PI;}
-    } else {
-        theta = theta - 2 * M_PI * std::round(theta / (2 * M_PI));
-    }
+double angle_between(const vec& u1, const vec& u2) {
+    double dot = u1.dot(u2);
+    dot = std::clamp(dot, -1.0, 1.0);
+    return std::acos(dot);
 }
 
 

@@ -54,7 +54,7 @@ int main(int argc, char* argv[]){
             ("myosin_diff_coeff_trans", "Myosin translational diffusion coefficient", cxxopts::value<double>(myosin_diff_coeff_trans)->default_value("0.05"))
             ("myosin_diff_coeff_rot", "Myosin rotational diffusion coefficient", cxxopts::value<double>(myosin_diff_coeff_rot)->default_value("0.05"))
             ("save_every", "Save every", cxxopts::value<int>(save_every)->default_value("200"))
-            ("k_on", "k_on", cxxopts::value<double>(k_on)->default_value("500"))
+            ("k_on", "k_on", cxxopts::value<double>(k_on)->default_value("1000"))
             ("k_off", "k_off", cxxopts::value<double>(k_off)->default_value("1"))
             ("base_lifetime", "Base lifetime", cxxopts::value<double>(base_lifetime)->default_value("0.001"))
             ("lifetime_coeff", "Lifetime coefficient", cxxopts::value<double>(lifetime_coeff)->default_value("0.4"))
@@ -115,11 +115,8 @@ int main(int argc, char* argv[]){
             sim.model.partial_fix(n_fixed_myosins);
         }
         else if (init_struc == "cb"){
-            sim.model.cb();
+            sim.model.cb_off_angle();
         }
-    }
-    for (int i = 0; i < n_myosins; i++) {
-        printf("myosin phi: %f \n", model.myosin.phi[i]);
     }
     //sim.volume_exclusion(1, rng,n_fixed_myosins);
     sim.run_langevin(nsteps, rng, n_fixed_myosins);

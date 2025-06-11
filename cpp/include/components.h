@@ -22,12 +22,11 @@ public:
     std::vector<double> box;
     double length;
     std::vector<vec> center;
-    std::vector<double> theta;
-    std::vector<double> phi;
+    std::vector<vec> direction;
     std::vector<vec> left_end;
     std::vector<vec> right_end;
     std::vector<vec> force;
-    std::vector<std::vector<double>> angular_force;
+    std::vector<vec> torque;
     std::vector<vec> velocity;
     std::vector<double> f_load;
     std::vector<double> cb_strength;
@@ -43,11 +42,8 @@ public:
 
     // Member functions.
     void displace(int& i, double& dx, double& dy, double& dz);
-    void displace(int& i, double& dx, double& dy, double& dz, double& dtheta, double& dphi);
     void update_endpoints(int& i);
     void update_endpoints();
-    void update_theta(std::vector<double>  new_theta);
-    void update_phi(std::vector<double>  new_phi);
     void update_center(std::vector<vec> new_center);
 
     // Register a new 1D feature of length n.

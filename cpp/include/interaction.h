@@ -172,19 +172,21 @@ T segment_segment_distance(const T* A, const T* B,
 //---------------------------------------------------------------------
 
 // Compute the energy between two actin segments in 3D.
-real aa_energy(const ArrayXreal& center1, const double& length1, const real& theta1, const real& phi1,
-               const ArrayXreal& center2, const double& length2, const real& theta2, const real& phi2,
-               const std::vector<double>& box, const double k_aa, const double kappa_aa);
+real aa_energy(const ArrayXreal& center1, const double& length1, 
+    const ArrayXreal& dir1,
+    const ArrayXreal& center2, const double& length2, 
+    const ArrayXreal& dir2,
+    const std::vector<double>& box, 
+    const double k_aa, const double kappa_aa);
 
 // Compute the energy between an actin and a myosin segment in 3D.
-real am_energy1(const ArrayXreal& center1, const double& length1, const real& theta1, const real& phi1,
-                const ArrayXreal& center2, const double& length2, const real& theta2, const real& phi2,
-                const std::vector<double>& box, const double k_am, const double kappa_am,
-                const double myosin_radius);
+real am_energy1(const ArrayXreal& center1, const double& length1, const ArrayXreal& dir1,
+    const ArrayXreal& center2, const double& length2, const ArrayXreal& dir2,
+    const std::vector<double>& box, const double k_am, const double kappa_am,
+    const double myosin_radius);
 
 // Compute the energy between two segments based solely on their angles in 3D.
-real am_energy(const real& theta1, const real& phi1,
-               const real& theta2, const real& phi2, const double kappa_am);
+real am_energy(const ArrayXreal& dir1, const ArrayXreal& dir2, const double kappa_am);
 
 // Compute forces and energy for actin–actin interaction in 3D.
 std::vector<double> compute_aa_force_and_energy(Filament& actin,

@@ -108,6 +108,25 @@ struct vec {
         return x * x + y * y + z * z;
     }
 
+    void normalize() {
+        double n = norm();
+        if (n > 1e-12) {
+            x /= n;
+            y /= n;
+            z /= n;
+        } else {
+            x = 1.0; y = 0.0; z = 0.0;
+        }
+    }
+
+    vec cross(const vec& p) const {
+        return vec {
+            y * p.z - z * p.y,
+            z * p.x - x * p.z,
+            x * p.y - y * p.x
+        };
+    }  
+    
 };
 
 //------------------------------------------------------------------------------
@@ -123,12 +142,7 @@ bool compare_indices(const std::vector<int>& a, const std::vector<int>& b);
 // Wrap a coordinate value using periodic boundary conditions.
 double pbc_wrap(double x, double& box);
 
-// Wrap an angle into the interval (–π, π] (or any 2π interval).
-void angle_wrap(double& theta);
-
-// Wrap an angle into the interval [0, π) if is_range_pi is true, or [–π, π) otherwise.
-void angle_wrap(double& theta, bool& is_range_pi);
-
+double angle_between(const vec& u1, const vec& u2);
 
 //------------------------------------------------------------------------------
 // MoleculeConnection class declaration

@@ -48,9 +48,8 @@ public:
     gsl_rng* rng;
     std::string filename;
 
-    std::vector<std::vector<vec>> actin_forces_temp;
-    std::vector<std::vector<vec>> myosin_forces_temp, myosin_velocities_temp;
-    std::vector<std::vector<std::vector<double>>> actin_angular_forces_temp, myosin_angular_forces_temp;
+    std::vector<std::vector<vec>> actin_forces_temp, 
+                                    myosin_forces_temp, myosin_velocities_temp, actin_torques_temp, myosin_torques_temp;
     std::vector<std::vector<double>> actin_cb_strengths_temp, myosin_f_load_temp;
     std::vector<utils::MoleculeConnection> actinIndicesPerMyosin_temp;
     std::vector<gsl_rng*> rng_engines;
@@ -68,6 +67,7 @@ public:
     void partial_fix(int& n_fixed_myosins);
     void cb();
     void bad_cb();
+    void cb_off_angle();
     void single_am();
     void sarcomeric_structure();
     void update_system();

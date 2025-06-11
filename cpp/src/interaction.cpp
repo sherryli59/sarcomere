@@ -8,147 +8,80 @@
 
 
 
-real am_energy1(const ArrayXreal& center1, const double& length1, const real& theta1, const real& phi1,
-                const ArrayXreal& center2, const double& length2, const real& theta2, const real& phi2,
-                const std::vector<double>& box, const double k_am, const double kappa_am,
-                const double myosin_radius)
+real am_energy1(const ArrayXreal& center1, const double& length1, const ArrayXreal& dir1,
+    const ArrayXreal& center2, const double& length2, const ArrayXreal& dir2,
+    const std::vector<double>& box, const double k_am, const double kappa_am,
+    const double myosin_radius)
 {
-    // Compute endpoints for the first segment in 3D.
-    real x1_start = center1[0] - (length1 / 2) * sin(phi1) * cos(theta1);
-    real y1_start = center1[1] - (length1 / 2) * sin(phi1) * sin(theta1);
-    real z1_start = center1[2] - (length1 / 2) * cos(phi1);
-    real x1_end   = center1[0] + (length1 / 2) * sin(phi1) * cos(theta1);
-    real y1_end   = center1[1] + (length1 / 2) * sin(phi1) * sin(theta1);
-    real z1_end   = center1[2] + (length1 / 2) * cos(phi1);
+    // Compute endpoints for both filaments
+    ArrayXreal a = center1 - 0.5 * length1 * dir1;
+    ArrayXreal b = center1 + 0.5 * length1 * dir1;
+    ArrayXreal c = center2 - 0.5 * length2 * dir2;
+    ArrayXreal d = center2 + 0.5 * length2 * dir2;
 
-    // Compute endpoints for the second segment in 3D.
-    real x2_start = center2[0] - (length2 / 2) * sin(phi2) * cos(theta2);
-    real y2_start = center2[1] - (length2 / 2) * sin(phi2) * sin(theta2);
-    real z2_start = center2[2] - (length2 / 2) * cos(phi2);
-    real x2_end   = center2[0] + (length2 / 2) * sin(phi2) * cos(theta2);
-    real y2_end   = center2[1] + (length2 / 2) * sin(phi2) * sin(theta2);
-    real z2_end   = center2[2] + (length2 / 2) * cos(phi2);
+    // Convert to raw arrays for segment-segment distance
+    real a_arr[3] = {a[0], a[1], a[2]};
+    real b_arr[3] = {b[0], b[1], b[2]};
+    real c_arr[3] = {c[0], c[1], c[2]};
+    real d_arr[3] = {d[0], d[1], d[2]};
 
-    // Create endpoint arrays (3D).
-    real a[3] = {x1_start, y1_start, z1_start};
-    real b[3] = {x1_end,   y1_end,   z1_end};
-    real c[3] = {x2_start, y2_start, z2_start};
-    real d[3] = {x2_end,   y2_end,   z2_end};
+    real dist = segment_segment_distance(a_arr, b_arr, c_arr, d_arr, box);
 
-    // Compute the distance between segments.
-    real dist = segment_segment_distance(a, b, c, d, box);
-
-    // Compute strength as the absolute cosine of the angle between the two filaments.
-    real dir1[3] = { sin(phi1)*cos(theta1), sin(phi1)*sin(theta1), cos(phi1) };
-    real dir2[3] = { sin(phi2)*cos(theta2), sin(phi2)*sin(theta2), cos(phi2) };
+    // Angle and strength
     real dot_val = dir1[0]*dir2[0] + dir1[1]*dir2[1] + dir1[2]*dir2[2];
     real strength = abs(dot_val);
-    real angle;
-
-    if (dot_val == 1) {
-        angle = 0;
-    } else if (dot_val == -1) {
-        angle = M_PI;
-    } else {
-        angle = acos(dot_val);
-    }
-    // Compute the angular difference between the filaments.
-    //real angle = acos(dot_val);
-    // Adjust angle to minimal value.
-    angle = (angle < M_PI - angle) ? angle : (M_PI - angle);
+    dot_val = std::max(real(-1), std::min(real(1), dot_val));  // clamp
+    real angle_energy = 0.5 * kappa_am * (1.0 - dot_val * dot_val); 
 
     if (dist > 0.8 * myosin_radius) {
-        if (dist > myosin_radius) {
-            
-            // Optionally print debug messages.
-            printf("something's wrong. dist: %f\n"
-                "left1: %f, %f, %f\n"
-                "right1: %f, %f, %f\n"
-                "left2: %f, %f, %f\n"
-                "right2: %f, %f, %f\n",
-                "box: %f, %f, %f\n",
-                dist.val(),
-                x1_start.val(), y1_start.val(), z1_start.val(),
-                x1_end.val(), y1_end.val(), z1_end.val(),
-                x2_start.val(), y2_start.val(), z2_start.val(),
-                x2_end.val(), y2_end.val(), z2_end.val(),
-                box[0], box[1], box[2]);
-            printf("box: %f, %f, %f\n", box[0], box[1], box[2]);
-            exit(1);
-            // Additional debugging info...
-        }
-        return 0.5 * k_am * strength * dist * dist + 0.5 * kappa_am * angle * angle;
+    if (dist > myosin_radius) {
+    printf("something's wrong. dist: %f\n", dist.val());
+    exit(1);
+    }
+    return 0.5 * k_am * strength * dist * dist + angle_energy;
     } else {
-        real energy = 0.5 * (k_am / 10) * strength * dist * dist + 0.5 * kappa_am * angle * angle;
-        return energy;
+    return 0.5 * (k_am / 10) * strength * dist * dist + angle_energy;
     }
 }
 
-real am_energy(const real& theta1, const real& phi1,
-               const real& theta2, const real& phi2, const double kappa_am)
+real am_energy(const ArrayXreal& dir1, const ArrayXreal& dir2, const double kappa_am)
 {
-    // Compute unit direction vectors in spherical coordinates.
-    real dir1_x = sin(phi1) * cos(theta1);
-    real dir1_y = sin(phi1) * sin(theta1);
-    real dir1_z = cos(phi1);
-
-    real dir2_x = sin(phi2) * cos(theta2);
-    real dir2_y = sin(phi2) * sin(theta2);
-    real dir2_z = cos(phi2);
-
-    real dot_val = dir1_x * dir2_x + dir1_y * dir2_y + dir1_z * dir2_z;
-    real angle;
-    if (dot_val == 1) {
-        angle = 0;
-    } else if (dot_val == -1) {
-        angle = M_PI;
-    } else {
-        angle = acos(dot_val);
-    }
-    angle = (angle < M_PI - angle) ? angle : (M_PI - angle);
-    //real angle = acos(dot_val);  // angle in [0, π]
-    return 0.5 * kappa_am * angle * angle;
+    real dot_val = dir1[0]*dir2[0] + dir1[1]*dir2[1] + dir1[2]*dir2[2];
+    dot_val = std::max(real(-1), std::min(real(1), dot_val));  
+    real strength = abs(dot_val);
+    real angle_energy = 0.5 * kappa_am * (1.0 - dot_val * dot_val); 
+    return angle_energy;
 }
 
 
 real aa_energy(const ArrayXreal& center1, const double& length1, 
-               const real& theta1, const real& phi1,
-               const ArrayXreal& center2, const double& length2, 
-               const real& theta2, const real& phi2,
-               const std::vector<double>& box, 
-               const double k_aa, const double kappa_aa)
+    const ArrayXreal& dir1,
+    const ArrayXreal& center2, const double& length2, 
+    const ArrayXreal& dir2,
+    const std::vector<double>& box, 
+    const double k_aa, const double kappa_aa)
 {
     // Compute endpoints for filament 1 in 3D.
-    real x1_start = center1[0] - (length1/2)*sin(phi1)*cos(theta1);
-    real y1_start = center1[1] - (length1/2)*sin(phi1)*sin(theta1);
-    real z1_start = center1[2] - (length1/2)*cos(phi1);
-    real x1_end   = center1[0] + (length1/2)*sin(phi1)*cos(theta1);
-    real y1_end   = center1[1] + (length1/2)*sin(phi1)*sin(theta1);
-    real z1_end   = center1[2] + (length1/2)*cos(phi1);
+    ArrayXreal a = center1 - 0.5 * length1 * dir1;
+    ArrayXreal b = center1 + 0.5 * length1 * dir1;
 
     // Compute endpoints for filament 2 in 3D.
-    real x2_start = center2[0] - (length2/2)*sin(phi2)*cos(theta2);
-    real y2_start = center2[1] - (length2/2)*sin(phi2)*sin(theta2);
-    real z2_start = center2[2] - (length2/2)*cos(phi2);
-    real x2_end   = center2[0] + (length2/2)*sin(phi2)*cos(theta2);
-    real y2_end   = center2[1] + (length2/2)*sin(phi2)*sin(theta2);
-    real z2_end   = center2[2] + (length2/2)*cos(phi2);
+    ArrayXreal c = center2 - 0.5 * length2 * dir2;
+    ArrayXreal d = center2 + 0.5 * length2 * dir2;
 
-    // Set up endpoints as 3D arrays.
-    real a[3] = {x1_start, y1_start, z1_start};
-    real b[3] = {x1_end,   y1_end,   z1_end};
-    real c[3] = {x2_start, y2_start, z2_start};
-    real d[3] = {x2_end,   y2_end,   z2_end};
+    // Convert to raw arrays for segment_segment_distance
+    real a_arr[3] = {a[0], a[1], a[2]};
+    real b_arr[3] = {b[0], b[1], b[2]};
+    real c_arr[3] = {c[0], c[1], c[2]};
+    real d_arr[3] = {d[0], d[1], d[2]};
 
-    // Compute distance between segments using a 3D segment-segment function with PBC.
-    real dist = segment_segment_distance(a, b, c, d, box);
+    real dist = segment_segment_distance(a_arr, b_arr, c_arr, d_arr, box);
     dist = dist - 0.03;
 
-    // Compute direction vectors from the angles.
-    real dir1[3] = { sin(phi1)*cos(theta1), sin(phi1)*sin(theta1), cos(phi1) };
-    real dir2[3] = { sin(phi2)*cos(theta2), sin(phi2)*sin(theta2), cos(phi2) };
-
+    // Compute angle between dir1 and dir2
     real dot_val = dir1[0]*dir2[0] + dir1[1]*dir2[1] + dir1[2]*dir2[2];
+    dot_val = std::max(real(-1), std::min(real(1), dot_val));  // clamp for safety
+
     real angle;
     if (dot_val == 1) {
         angle = 0;
@@ -158,9 +91,10 @@ real aa_energy(const ArrayXreal& center1, const double& length1,
         angle = acos(dot_val);
     }
     real offset = abs(angle - M_PI);
-    //real angle = acos(dot_val);
+
     return 0.5 * (k_aa * dist * dist + kappa_aa * offset * offset);
 }
+
 
 std::vector<double> compute_aa_force_and_energy(Filament& actin,
                                                 int& actin1_index, int& actin2_index,
@@ -170,20 +104,20 @@ std::vector<double> compute_aa_force_and_energy(Filament& actin,
     // Construct 3D centers.
     ArrayXreal center1(3);
     center1 << actin.center[actin1_index].x, actin.center[actin1_index].y, actin.center[actin1_index].z;
-    real theta1 = actin.theta[actin1_index];
-    real phi1   = actin.phi[actin1_index];
+    ArrayXreal dir1(3);
+    dir1 << actin.direction[actin1_index].x, actin.direction[actin1_index].y, actin.direction[actin1_index].z;
 
     ArrayXreal center2(3);
     center2 << actin.center[actin2_index].x, actin.center[actin2_index].y, actin.center[actin2_index].z;
-    real theta2 = actin.theta[actin2_index];
-    real phi2   = actin.phi[actin2_index];
+    ArrayXreal dir2(3);
+    dir2 << actin.direction[actin2_index].x, actin.direction[actin2_index].y, actin.direction[actin2_index].z;
 
     real u;
     std::vector<double> forces;
     // Compute the gradient of aa_energy with respect to center1, theta1, phi1, theta2, and phi2.
-    VectorXd forces_2 = -gradient(aa_energy, wrt(center1, theta1, phi1, theta2, phi2),
-                                    at(center1, actin.length, theta1, phi1,
-                                       center2, actin.length, theta2, phi2, box, k_aa, kappa_aa), u);
+    VectorXd forces_2 = -gradient(aa_energy, wrt(center1, dir1, dir2),
+                                    at(center1, actin.length, dir1,
+                                       center2, actin.length, dir2, box, k_aa, kappa_aa), u);
     forces.resize(forces_2.size());
     VectorXd::Map(&forces[0], forces_2.size()) = forces_2;
     return forces;
@@ -198,28 +132,28 @@ std::vector<double> compute_am_force_and_energy(Filament& actin, Myosin& myosin,
     // Define 3D center positions
     ArrayXreal center1(3);
     center1 << actin.center[actin_index].x, actin.center[actin_index].y, actin.center[actin_index].z;
-    real theta1 = actin.theta[actin_index];
-    real phi1 = actin.phi[actin_index]; // New angle for 3D
+    ArrayXreal dir1(3);
+    dir1 << actin.direction[actin_index].x, actin.direction[actin_index].y, actin.direction[actin_index].z;
 
     ArrayXreal center2(3);
     center2 << myosin.center[myosin_index].x, myosin.center[myosin_index].y, myosin.center[myosin_index].z;
-    real theta2 = myosin.theta[myosin_index];
-    real phi2 = myosin.phi[myosin_index]; // New angle for 3D
+    ArrayXreal dir2(3);
+    dir2 << myosin.direction[myosin_index].x, myosin.direction[myosin_index].y, myosin.direction[myosin_index].z;
 
     real u;
     std::vector<double> forces;
     VectorXd forces_3; // 3D version of force vector
 
     if (k_am > 1e-6) {
-        forces_3 = -gradient(am_energy1, wrt(center1, theta1, phi1, theta2, phi2),
-                             at(center1, actin.length, theta1, phi1,
-                                center2, myosin.length, theta2, phi2, box, k_am, kappa_am, myosin_radius), u);
+        forces_3 = -gradient(am_energy1, wrt(center1, dir1, dir2),
+                                at(center1, actin.length, dir1,
+                                   center2, myosin.length, dir2, box, k_am, kappa_am, myosin_radius), u);
         forces.resize(forces_3.size());
         VectorXd::Map(&forces[0], forces_3.size()) = forces_3;
     }
     else {
-        forces_3 = -gradient(am_energy, wrt(theta1, phi1, theta2, phi2),
-                             at(theta1, phi1, theta2, phi2, kappa_am), u);
+        forces_3 = -gradient(am_energy, wrt(dir1, dir2),
+                                at(dir1, dir2, kappa_am), u);
         // Prepend three zeros for the force vector (x, y, z)
         forces.resize(forces_3.size() + 3);
         forces[0] = 0;

@@ -20,15 +20,11 @@ Filament::Filament(int n0, double length0, std::vector<double> box0, gsl_rng* rn
     : n(n0), length(length0), box(box0)
 {
     center.resize(n);
-    theta.resize(n); //The azimuthal angle in the x-y plane.
-    phi.resize(n); //The polar angle from the z-axis.
+    direction.resize(n);
     left_end.resize(n);
     right_end.resize(n);
     force.resize(n);
-    angular_force.resize(n);
-    for (int i = 0; i < n; i++) {
-        angular_force[i].resize(2); // 2D angular force vector.
-    }
+    torque.resize(n);
     velocity.resize(n);
     f_load.resize(n);
     cb_strength.resize(n);
@@ -38,8 +34,13 @@ Filament::Filament(int n0, double length0, std::vector<double> box0, gsl_rng* rn
         center[i].x = gsl_ran_flat(rng, -0.5 * box[0], 0.5 * box[0]);
         center[i].y = gsl_ran_flat(rng, -0.5 * box[1], 0.5 * box[1]);
         center[i].z = gsl_ran_flat(rng, -0.5 * box[2], 0.5 * box[2]);
-        theta[i] = gsl_ran_flat(rng, -M_PI, M_PI);
-        phi[i] = gsl_ran_flat(rng, 0, M_PI);
+        double x = gsl_ran_gaussian(rng, 1.0);
+        double y = gsl_ran_gaussian(rng, 1.0);
+        double z = gsl_ran_gaussian(rng, 1.0);
+        double norm = sqrt(x*x + y*y + z*z);
+        direction[i].x = x / norm;
+        direction[i].y = y / norm;
+        direction[i].z = z / norm;
     }
     update_endpoints();
 }
@@ -56,11 +57,11 @@ Filament::Filament(const Filament& other) {
     length = other.length;
     cb_strength = other.cb_strength;
     center = other.center;
-    theta = other.theta;
+    direction = other.direction;
     left_end = other.left_end;
     right_end = other.right_end;
     force = other.force;
-    angular_force = other.angular_force;
+    torque = other.torque;
     velocity = other.velocity;
     f_load = other.f_load;
     custom_features = other.custom_features;
@@ -75,28 +76,11 @@ void Filament::displace(int& i, double& dx, double& dy, double& dz) {
     update_endpoints(i);
 }
 
-// Displace function (translation and rotation).
-void Filament::displace(int& i, double& dx, double& dy, double& dz, double& dtheta, double& dphi) {
-    center[i].x += dx;
-    center[i].y += dy;
-    center[i].z += dz;
-    center[i].pbc_wrap(box);
-    theta[i] += dtheta;
-    phi[i] += dphi;
-    utils::angle_wrap(theta[i]);
-    bool is_range_pi = true;
-    utils::angle_wrap(phi[i], is_range_pi);
-    update_endpoints(i);
-}
 
 // Update endpoints for the i-th filament in 3D.
 void Filament::update_endpoints(int& i) {
-    vec segment;
-    segment.x = length * sin(phi[i]) * cos(theta[i]);  // X component
-    segment.y = length * sin(phi[i]) * sin(theta[i]);  // Y component
-    segment.z = length * cos(phi[i]);                 // Z component
-    left_end[i] = center[i] - 0.5 * segment;
-    right_end[i] = center[i] + 0.5 * segment;
+    left_end[i] = center[i] - 0.5 * length * direction[i];
+    right_end[i] = center[i] + 0.5 * length * direction[i];
 }
 
 
@@ -105,22 +89,6 @@ void Filament::update_endpoints() {
     for (int i = 0; i < n; i++) {
         update_endpoints(i);
     }
-}
-
-// Update theta for all filaments.
-void Filament::update_theta(std::vector<double> new_theta) {
-    for (int i = 0; i < n; i++) {
-        theta[i] = new_theta[i];
-    }
-    update_endpoints();
-}
-
-// Update phi for all filaments.
-void Filament::update_phi(std::vector<double> new_phi) {
-    for (int i = 0; i < n; i++) {
-        phi[i] = new_phi[i];
-    }
-    update_endpoints();
 }
 
 
