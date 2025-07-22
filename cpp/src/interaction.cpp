@@ -26,17 +26,15 @@ real am_energy1(const ArrayXreal& center1, const double& length1, const ArrayXre
     real d_arr[3] = {d[0], d[1], d[2]};
 
     real dist = segment_segment_distance(a_arr, b_arr, c_arr, d_arr, box);
-
     // Angle and strength
     real dot_val = dir1[0]*dir2[0] + dir1[1]*dir2[1] + dir1[2]*dir2[2];
     real strength = abs(dot_val);
     dot_val = std::max(real(-1), std::min(real(1), dot_val));  // clamp
     real angle_energy = 0.5 * kappa_am * (1.0 - dot_val * dot_val); 
-
     if (dist > 0.8 * myosin_radius) {
-    if (dist > myosin_radius) {
-    printf("something's wrong. dist: %f\n", dist.val());
-    exit(1);
+        if (dist > myosin_radius) {
+        printf("something's wrong. dist: %f\n", dist.val());
+        exit(1);
     }
     return 0.5 * k_am * strength * dist * dist + angle_energy;
     } else {
@@ -131,19 +129,24 @@ std::vector<double> compute_am_force_and_energy(Filament& actin, Myosin& myosin,
 {
     // Define 3D center positions
     ArrayXreal center1(3);
-    center1 << actin.center[actin_index].x, actin.center[actin_index].y, actin.center[actin_index].z;
+    center1[0] = actin.center[actin_index].x;
+    center1[1] = actin.center[actin_index].y;
+    center1[2] = actin.center[actin_index].z;
     ArrayXreal dir1(3);
-    dir1 << actin.direction[actin_index].x, actin.direction[actin_index].y, actin.direction[actin_index].z;
-
+    dir1[0] = actin.direction[actin_index].x;
+    dir1[1] = actin.direction[actin_index].y;
+    dir1[2] = actin.direction[actin_index].z;
     ArrayXreal center2(3);
-    center2 << myosin.center[myosin_index].x, myosin.center[myosin_index].y, myosin.center[myosin_index].z;
+    center2[0] = myosin.center[myosin_index].x;
+    center2[1] = myosin.center[myosin_index].y;
+    center2[2] = myosin.center[myosin_index].z;
     ArrayXreal dir2(3);
-    dir2 << myosin.direction[myosin_index].x, myosin.direction[myosin_index].y, myosin.direction[myosin_index].z;
-
+    dir2[0] = myosin.direction[myosin_index].x;
+    dir2[1] = myosin.direction[myosin_index].y;
+    dir2[2] = myosin.direction[myosin_index].z;
     real u;
     std::vector<double> forces;
     VectorXd forces_3; // 3D version of force vector
-
     if (k_am > 1e-6) {
         forces_3 = -gradient(am_energy1, wrt(center1, dir1, dir2),
                                 at(center1, actin.length, dir1,

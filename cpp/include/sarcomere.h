@@ -68,6 +68,7 @@ public:
     void cb();
     void bad_cb();
     void cb_off_angle();
+    void am_off_angle();
     void single_am();
     void sarcomeric_structure();
     void update_system();
@@ -91,7 +92,8 @@ private:
     void _get_f_load(int& i);
     void _set_cb(int& i, int& j, double& normalized_strength, bool& add_connection);
     void _set_cb(int& i, std::vector<int> indices, vector cb_strength);
-    //void _apply_cb_alignment_bias(double& k_theta_bias);
+    vec _alignment_torque(const vec& u, double k_bias);
+    void _apply_cb_alignment_bias(double& k_theta_bias);
     std::pair<std::vector<double>, std::vector<double>>  _extract_bonded_pairs(
         const std::vector<std::vector<int>>& actin_actin_bonds,
         const utils::MoleculeConnection& myosinIndicesPerActin);

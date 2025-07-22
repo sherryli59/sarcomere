@@ -61,7 +61,7 @@ int main(int argc, char* argv[]){
             ("k_aa", "k_aa", cxxopts::value<double>(k_aa)->default_value("300"))
             ("kappa_aa", "kappa_aa", cxxopts::value<double>(kappa_aa)->default_value("50"))
             ("k_am", "k_am", cxxopts::value<double>(k_am)->default_value("50"))
-            ("kappa_am", "kappa_am", cxxopts::value<double>(kappa_am)->default_value("50"))
+            ("kappa_am", "kappa_am", cxxopts::value<double>(kappa_am)->default_value("200"))
             ("v_am", "v_am", cxxopts::value<double>(v_am)->default_value("5"))
             ("n_actins", "Number of actins", cxxopts::value<int>(n_actins)->default_value("50"))
             ("n_myosins", "Number of myosins", cxxopts::value<int>(n_myosins)->default_value("4"))
@@ -117,9 +117,13 @@ int main(int argc, char* argv[]){
         else if (init_struc == "cb"){
             sim.model.cb_off_angle();
         }
+        else if (init_struc == "am"){
+            sim.model.am_off_angle();
+        }
     }
     //sim.volume_exclusion(1, rng,n_fixed_myosins);
     sim.run_langevin(nsteps, rng, n_fixed_myosins);
     gsl_rng_free(rng);
     return 0;
 }
+

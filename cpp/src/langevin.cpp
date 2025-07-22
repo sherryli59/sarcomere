@@ -23,19 +23,19 @@ Langevin::Langevin(Sarcomere& model0, double& beta0, double& dt0, double& D0_act
         start_step = (n_frames-1) * save_every + 1;
         printf("Resuming from file %s at step %d\n", model.filename.c_str(), start_step);
         // Print myosin details.
-        for (int i = 0; i < model.myosin.n; i++) {
-            printf("Myosin %d: %f %f %f\n", i, model.myosin.center[i].x, model.myosin.center[i].y, model.myosin.center[i].z);
-            printf("Myosin endpoints: (%f %f %f), (%f %f %f)\n",
-                   model.myosin.left_end[i].x, model.myosin.left_end[i].y, model.myosin.left_end[i].z,
-                   model.myosin.right_end[i].x, model.myosin.right_end[i].y, model.myosin.right_end[i].z);
-        }
-        // Print actin details.
-        for (int i = 0; i < model.actin.n; i++) {
-            printf("Actin %d: %f %f %f\n", i, model.actin.center[i].x, model.actin.center[i].y, model.actin.center[i].z);
-            printf("Actin endpoints: (%f %f %f), (%f %f %f)\n",
-                   model.actin.left_end[i].x, model.actin.left_end[i].y, model.actin.left_end[i].z,
-                   model.actin.right_end[i].x, model.actin.right_end[i].y, model.actin.right_end[i].z);
-        }
+        // for (int i = 0; i < model.myosin.n; i++) {
+        //     printf("Myosin %d: %f %f %f\n", i, model.myosin.center[i].x, model.myosin.center[i].y, model.myosin.center[i].z);
+        //     printf("Myosin endpoints: (%f %f %f), (%f %f %f)\n",
+        //            model.myosin.left_end[i].x, model.myosin.left_end[i].y, model.myosin.left_end[i].z,
+        //            model.myosin.right_end[i].x, model.myosin.right_end[i].y, model.myosin.right_end[i].z);
+        // }
+        // // Print actin details.
+        // for (int i = 0; i < model.actin.n; i++) {
+        //     printf("Actin %d: %f %f %f\n", i, model.actin.center[i].x, model.actin.center[i].y, model.actin.center[i].z);
+        //     printf("Actin endpoints: (%f %f %f), (%f %f %f)\n",
+        //            model.actin.left_end[i].x, model.actin.left_end[i].y, model.actin.left_end[i].z,
+        //            model.actin.right_end[i].x, model.actin.right_end[i].y, model.actin.right_end[i].z);
+        // }
     } else {
         start_step = 0;
         model.new_file();
@@ -130,8 +130,7 @@ void Langevin::sample_step(double& dt, gsl_rng* rng, int& fix_myosin) {
         //                 sqrt(2 * D_rot * dt) * noise[i * 5 + 4] * M_PI;
         model.myosin.displace(i, dx, dy, dz);
         vec rot_noise={noise[i * 6 + 3], noise[i * 6 + 4], noise[i * 6 + 5]};
-        vec delta_u = sqrt(2 * D_rot * dt) * rot_noise.cross(model.myosin.direction[i])
-                        + dt * model.myosin.torque[i].cross(model.myosin.direction[i]);
+        vec delta_u = sqrt(2 * D_rot * dt) * rot_noise + dt * model.myosin.torque[i];
         model.myosin.direction[i] += delta_u;
         model.myosin.direction[i].normalize();
     }
@@ -165,8 +164,7 @@ void Langevin::sample_step(double& dt, gsl_rng* rng, int& fix_myosin) {
         }
         model.actin.displace(i, dx, dy, dz);
         vec rot_noise={noise[offset + i * 6 + 3], noise[offset + i * 6 + 4], noise[offset + i * 6 + 5]};
-        vec delta_u = sqrt(2 * D_rot * dt) * rot_noise.cross(model.actin.direction[i])
-                        + dt * model.actin.torque[i].cross(model.actin.direction[i]);
+        vec delta_u = sqrt(2 * D_rot * dt) * rot_noise + dt * model.actin.torque[i];
         model.actin.direction[i] += delta_u;
         model.actin.direction[i].normalize();
     }
