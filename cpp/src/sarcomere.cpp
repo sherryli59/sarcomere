@@ -88,6 +88,10 @@ void Sarcomere::partial_fix(int& n_fixed){
         myosin.center[i].y = myosin_positions[i][1];
         myosin.center[i].z = myosin_positions[i][2]; // set z coordinate to 0        
     }
+    // set all myosin directions to x-axis
+    for (int i = 0; i < myosin.n; i++){
+        myosin.direction[i] = {1, 0, 0};
+    }
     myosin.update_endpoints();
     update_system();
 }
@@ -692,35 +696,6 @@ double Sarcomere::_get_cb_strength(int& i, int& j){
         if (catch_bond){
             auto& myosin_indices_i = myosinIndicesPerActin.getConnections(i);
             auto& myosin_indices_j = myosinIndicesPerActin.getConnections(j);
-            // if (myosin_indices_i.size() > 1) {
-            //     printf("myosin_indices_i size: %zu, myosin_indices_j size: %zu\n",
-            //         myosin_indices_i.size(), myosin_indices_j.size());
-            //     printf("myosin_indices_i centers:\n");
-            //     for (size_t idx = 0; idx < myosin_indices_i.size(); ++idx) {
-            //         int mi = myosin_indices_i[idx];
-            //         if (am_interaction[i][mi].partial_binding_ratio>EPS){
-            //             printf("partial_binding_ratio: %f\n", am_interaction[i][mi].partial_binding_ratio);
-            //             printf("  myosin %d: center = (%f, %f, %f)\n", mi,
-            //                 myosin.center[mi].x, myosin.center[mi].y, myosin.center[mi].z);
-            //             printf("  myosin %d: direction = (%f, %f, %f)\n", mi,
-            //                 myosin.direction[mi].x, myosin.direction[mi].y, myosin.direction[mi].z);
-            //         }
-            //     }
-            // }
-            // if (myosin_indices_j.size() > 1) {
-            //     printf("myosin_indices_j size: %zu\n", myosin_indices_j.size());
-            //     printf("myosin_indices_j centers:\n");
-            //     for (size_t idx = 0; idx < myosin_indices_j.size(); ++idx) {
-            //         int mj = myosin_indices_j[idx];
-            //         if (am_interaction[j][mj].partial_binding_ratio>EPS){
-            //             printf("partial_binding_ratio: %f\n", am_interaction[j][mj].partial_binding_ratio);
-            //             printf("  myosin %d: center = (%f, %f, %f)\n", mj,
-            //                 myosin.center[mj].x, myosin.center[mj].y, myosin.center[mj].z);
-            //             printf("  myosin %d: direction = (%f, %f, %f)\n", mj,
-            //                 myosin.direction[mj].x, myosin.direction[mj].y, myosin.direction[mj].z); 
-            //         }  
-            //     }
-            // }
             if (!utils::compare_indices(myosin_indices_i,myosin_indices_j)){
                 strength = abs_cos_angle;
                 if (actin.f_load[i] == 0){
@@ -729,20 +704,10 @@ double Sarcomere::_get_cb_strength(int& i, int& j){
                 if (actin.f_load[j] == 0){
                     _get_f_load(j);
                 }
-                // printf("actin%d center:(%f, %f, %f) dir:(%f, %f, %f), actin%d center:(%f, %f, %f) dir:(%f, %f, %f); "
-                // "myosin%d center:(%f, %f, %f) dir:(%f, %f, %f), myosin%d center:(%f, %f, %f) dir:(%f, %f, %f)\n",
-                // i, actin.center[i].x, actin.center[i].y, actin.center[i].z,
-                //     actin.direction[i].x, actin.direction[i].y, actin.direction[i].z,
-                // j, actin.center[j].x, actin.center[j].y, actin.center[j].z,
-                //     actin.direction[j].x, actin.direction[j].y, actin.direction[j].z,
-                // i, myosin.center[myosin_indices_i[0]].x, myosin.center[myosin_indices_i[0]].y, myosin.center[myosin_indices_i[0]].z,
-                //     myosin.direction[myosin_indices_i[0]].x, myosin.direction[myosin_indices_i[0]].y, myosin.direction[myosin_indices_i[0]].z,
-                // j, myosin.center[myosin_indices_j[0]].x, myosin.center[myosin_indices_j[0]].y, myosin.center[myosin_indices_j[0]].z,
-                //     myosin.direction[myosin_indices_j[0]].x, myosin.direction[myosin_indices_j[0]].y, myosin.direction[myosin_indices_j[0]].z);
             }
         }
         else{
-            strength = 1/cb_mult_factor*abs_cos_angle;
+            strength = 1/cb_mult_factor*abs_cos_angle*abs_cos_angle;
         }
         return strength;
     }
@@ -764,7 +729,7 @@ void Sarcomere::_get_f_load(int& i){
             binding_ratio_adjusted = std::min(am_interaction[i][j].myosin_binding_ratio*3,1.0);
         }
         double abs_cos_angle = std::abs(actin.direction[i].dot(myosin.direction[j]));
-        binding_ratio_adjusted_sum += binding_ratio_adjusted * abs_cos_angle;
+        binding_ratio_adjusted_sum += binding_ratio_adjusted * abs_cos_angle * abs_cos_angle;
         if (binding_ratio_adjusted_sum>1){
             binding_ratio_adjusted_sum = 1;
             break;
@@ -791,9 +756,9 @@ void Sarcomere::_set_cb(int& i, int& j, double& normalized_strength, bool& add_c
     }
     double rand = gsl_rng_uniform(rng_engines[thread_id]);
     double abs_cos_angle = std::abs(actin.direction[i].dot(actin.direction[j]));
-    double f_load = std::min(actin.f_load[i],actin.f_load[j]);
+    double f_load = abs_cos_angle * std::min(actin.f_load[i],actin.f_load[j]);
     if (actin_actin_bonds_prev[i][j] == 1) {
-        double k_off_adjusted = dt * abs_cos_angle/(base_lifetime+lifetime_coeff*f_load);
+        double k_off_adjusted = dt /(base_lifetime+lifetime_coeff*f_load);
         if (rand < k_off_adjusted){ //k_off is actually k_off * dt
             //printf("breaking bond between %d and %d\n",i,j);
             return;
@@ -899,11 +864,9 @@ std::pair<std::vector<double>, std::vector<double>> Sarcomere::_extract_bonded_p
 vec Sarcomere::_alignment_torque(const vec& u, double k_bias)
 {
     // u must be unit length
-    double ux = u.x;
-    // τ = k_bias * ( e_x - ux * u )
-    return { k_bias * (1.0 - ux*ux),
-             -k_bias * ux * u.y,
-             -k_bias * ux * u.z };
+    return { k_bias * (1.0 - u.x),
+             -k_bias * u.y,
+             -k_bias * u.z};
 }
 
 void Sarcomere::_apply_cb_alignment_bias(double& k_theta_bias)
@@ -913,28 +876,28 @@ void Sarcomere::_apply_cb_alignment_bias(double& k_theta_bias)
             vec u      = myosin.torque[i];                   // unit orientation
             auto idxs   = actinIndicesPerMyosin.getConnections(i);
 
-            double acc_cb = 1.0;
-            // for (int a : idxs) {
-            //     double cb = actin.cb_strength[a];
-            //     if (cb > 0.1) {           // active cross-bridge
-            //         acc_cb += cb;
-            //         if (acc_cb > 1.0) { acc_cb = 1.0; break; }
-            //     }
-            // }
+            double acc_cb;
+            for (int a : idxs) {
+                double cb = actin.cb_strength[a];
+                if (cb > 0.1) {           // active cross-bridge
+                    acc_cb += cb;
+                    if (acc_cb > 1.0) { acc_cb = 1.0; break; }
+                }
+            }
             vec tau = _alignment_torque(u, k_theta_bias * acc_cb);
-            myosin_torques_temp[omp_get_thread_num()][i] -= tau;
+            myosin_torques_temp[omp_get_thread_num()][i] += tau;
         }
 
-    #pragma omp for
-    for (int i = 0; i < actin.n; ++i) {
-        double cb = actin.cb_strength[i];
-        if (cb > 0.0) {
-            double cb_norm = std::min(cb, 1.0);
-            vec u  = actin.torque[i];
-            vec tau  = _alignment_torque(u, k_theta_bias * cb_norm);
-            actin_torques_temp[omp_get_thread_num()][i] -= tau;
-        }
-    }
+    // #pragma omp for
+    // for (int i = 0; i < actin.n; ++i) {
+    //     double cb = actin.cb_strength[i];
+    //     if (cb > 0.0) {
+    //         double cb_norm = std::min(cb, 1.0);
+    //         vec u  = actin.torque[i];
+    //         vec tau  = _alignment_torque(u, k_theta_bias * cb_norm);
+    //         actin_torques_temp[omp_get_thread_num()][i] += tau;
+    //     }
+    // }
 
 }
 

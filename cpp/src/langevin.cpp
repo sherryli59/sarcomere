@@ -124,10 +124,6 @@ void Langevin::sample_step(double& dt, gsl_rng* rng, int& fix_myosin) {
         double dz = model.myosin.force[i].z * beta * D * dt +
                     model.myosin.velocity[i].z * dt +
                     sqrt(2 * D * dt) * noise[i * 6 + 2];
-        // double dtheta = model.myosin.angular_force[i][0] * beta * D_rot * dt +
-        //                 sqrt(2 * D_rot * dt) * noise[i * 5 + 3] * M_PI;
-        // double dphi = model.myosin.angular_force[i][1] * beta * D_rot * dt +
-        //                 sqrt(2 * D_rot * dt) * noise[i * 5 + 4] * M_PI;
         model.myosin.displace(i, dx, dy, dz);
         vec rot_noise={noise[i * 6 + 3], noise[i * 6 + 4], noise[i * 6 + 5]};
         vec delta_u = sqrt(2 * D_rot * dt) * rot_noise + dt * model.myosin.torque[i];
@@ -153,12 +149,6 @@ void Langevin::sample_step(double& dt, gsl_rng* rng, int& fix_myosin) {
         double dz = model.actin.force[i].z * beta * D * dt +
                     model.actin.velocity[i].z * dt +
                     sqrt(2 * D * dt) * noise[offset + i * 6 + 2];
-        // double dtheta = model.actin.angular_force[i][0] * beta * D_rot * dt +
-        //                 sqrt(2 * D_rot * dt) * noise[offset + i * 5 + 3] * M_PI;
-        // double dphi = model.actin.angular_force[i][1] * beta * D_rot * dt +
-        //                 sqrt(2 * D_rot * dt) * noise[offset + i * 5 + 4] * M_PI;
-
-        // (Optional debug printing if the displacement is large.)
         if (dx > 0.04 || dy > 0.04) {
             printf("actin %d displacement too large \n", i);
         }
