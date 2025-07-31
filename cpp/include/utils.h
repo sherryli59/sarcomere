@@ -77,7 +77,9 @@ struct vec {
 
     // Euclidean distance (no periodic boundaries).
     double distance(const vec& p) const {
-        return std::sqrt((x - p.x) * (x - p.x) + (y - p.y) * (y - p.y))+ (z - p.z) * (z - p.z);
+        return std::sqrt((x - p.x) * (x - p.x) +
+                         (y - p.y) * (y - p.y) +
+                         (z - p.z) * (z - p.z));
     }
 
     // Distance squared with periodic boundary conditions.
