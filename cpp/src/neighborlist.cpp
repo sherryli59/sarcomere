@@ -51,10 +51,6 @@ std::tuple<int, int, int> NeighborList::get_cell_index(double x, double y, doubl
     int cell_x = static_cast<int>(std::floor((x + box_[0]) / cell_size_x_)) % num_cells_x_;
     int cell_y = static_cast<int>(std::floor((y + box_[1]) / cell_size_y_)) % num_cells_y_;
     int cell_z = static_cast<int>(std::floor((z + box_[2]) / cell_size_z_)) % num_cells_z_;
-std::tuple<int, int, int> NeighborList::get_cell_index(double x, double y, double z) const {
-    int cell_x = static_cast<int>(std::floor((x + box_[0]) / cell_size_x_)) % num_cells_x_;
-    int cell_y = static_cast<int>(std::floor((y + box_[1]) / cell_size_y_)) % num_cells_y_;
-    int cell_z = static_cast<int>(std::floor((z + box_[2]) / cell_size_z_)) % num_cells_z_;
 
     // Correct negative indices.
     cell_x = (cell_x % num_cells_x_ + num_cells_x_) % num_cells_x_;
