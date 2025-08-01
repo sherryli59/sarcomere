@@ -21,8 +21,8 @@ using vec = utils::vec;
 std::vector<std::vector<int>> serializeActinIndicesPerActin(
     utils::MoleculeConnection& actinIndicesPerActin, int n_actins, int& max_bonds);
 
-// Flatten a vector of 2D points (vec) into a 1D array of doubles.
-std::vector<double> flatten_3d_array(std::vector<vec> array);
+// Flatten a vector-like structure into a 1D array of doubles.
+std::vector<double> flatten_3d_array(const Filament::VecArray& array);
 std::vector<double> flatten_2d_array(std::vector<std::vector<double>> array);
 
 // Create an empty (extendable) dataset within the specified group of the file.

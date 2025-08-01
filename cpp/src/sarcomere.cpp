@@ -52,7 +52,8 @@ Sarcomere::Sarcomere(int& n_actins, int& n_myosins, vector box0, double& actin_l
                             std::max(2 * myosin_radius, crosslinker_length);
             double skin_distance = 0.15 * cutoff_radius;
             neighbor_list = NeighborList(cutoff_radius + skin_distance, box, skin_distance / 2);
-            neighbor_list.initialize(actin.center, myosin.center);
+            neighbor_list.initialize(actin.center_x, actin.center_y, actin.center_z,
+                                    myosin.center_x, myosin.center_y, myosin.center_z);
             actin_actin_bonds_prev = actin_actin_bonds;
             actin_basic_tension.resize(n_actins);
             actin_crosslink_ratio.resize(n_actins);
@@ -285,13 +286,13 @@ void Sarcomere::update_system() {
         #pragma omp barrier  
 
         // Step 7: Reduce actin forces and angular forces
-        utils::reduce_array(actin_forces_temp, actin.force);
-        utils::reduce_array(actin_torques_temp, actin.torque);
+        reduce_array(actin_forces_temp, actin.force);
+        reduce_array(actin_torques_temp, actin.torque);
 
         // Step 8: Reduce myosin forces, velocities, and angular forces
-        utils::reduce_array(myosin_forces_temp, myosin.force);
-        utils::reduce_array(myosin_velocities_temp, myosin.velocity);
-        utils::reduce_array(myosin_torques_temp, myosin.torque);
+        reduce_array(myosin_forces_temp, myosin.force);
+        reduce_array(myosin_velocities_temp, myosin.velocity);
+        reduce_array(myosin_torques_temp, myosin.torque);
         
     
         //set max velocity for myosin
@@ -330,17 +331,18 @@ void Sarcomere::update_system_sterics_only() {
         _myosin_exclusion();
         #pragma omp barrier  
         // Step 7: Reduce actin forces and angular forces
-        utils::reduce_array(actin_forces_temp, actin.force);
-        utils::reduce_array(actin_torques_temp, actin.torque);
+        reduce_array(actin_forces_temp, actin.force);
+        reduce_array(actin_torques_temp, actin.torque);
         // Step 8: Reduce myosin forces, velocities, and angular forces
-        utils::reduce_array(myosin_forces_temp, myosin.force);
-        utils::reduce_array(myosin_torques_temp, myosin.torque);
+        reduce_array(myosin_forces_temp, myosin.force);
+        reduce_array(myosin_torques_temp, myosin.torque);
     }
 }
 
 
 void Sarcomere::_update_neighbors() {
-    neighbor_list.set_species_positions(actin.center, myosin.center);
+    neighbor_list.set_species_positions(actin.center_x, actin.center_y, actin.center_z,
+                                       myosin.center_x, myosin.center_y, myosin.center_z);
     // Clear previous neighbors data and prepare to store new neighbors
     actin_neighbors_by_species.clear();
     actin_neighbors_by_species.resize(actin.center.size());

@@ -29,13 +29,15 @@ public:
     NeighborList();
 
     // Initialize the neighbor list with positions for actin and myosin.
-    void initialize(const std::vector<vec>& actin_positions, const std::vector<vec>& myosin_positions);
+    void initialize(const std::vector<double>& actin_x, const std::vector<double>& actin_y, const std::vector<double>& actin_z,
+                    const std::vector<double>& myosin_x, const std::vector<double>& myosin_y, const std::vector<double>& myosin_z);
 
     // Rebuild the neighbor list using a cell list approach.
     void rebuild_neighbor_list();
 
     // Set current positions for each species.
-    void set_species_positions(const std::vector<vec>& actin_positions, const std::vector<vec>& myosin_positions);
+    void set_species_positions(const std::vector<double>& actin_x, const std::vector<double>& actin_y, const std::vector<double>& actin_z,
+                               const std::vector<double>& myosin_x, const std::vector<double>& myosin_y, const std::vector<double>& myosin_z);
 
     // Check if the neighbor list needs to be rebuilt (based on displacement).
     bool needs_rebuild() const;
@@ -66,8 +68,9 @@ public:
 
 private:
     // Helper functions.
-    std::tuple<int, int, int> get_cell_index(const vec& position) const;
-    double displacement(const vec& current, const vec& last) const;
+    std::tuple<int, int, int> get_cell_index(double x, double y, double z) const;
+    double displacement(double cx, double cy, double cz,
+                        double lx, double ly, double lz) const;
     void concatenate_positions();
     void track_species_types();
     // Data members.
@@ -78,13 +81,14 @@ private:
     double cell_size_x_, cell_size_y_, cell_size_z_;
     std::vector<std::tuple<int, int, int>> neighboring_cells;
 
-    std::vector<vec> actin_positions_;
-    std::vector<vec> myosin_positions_;
+    // Structure-of-arrays storage for positions.
+    std::vector<double> actin_x_, actin_y_, actin_z_;
+    std::vector<double> myosin_x_, myosin_y_, myosin_z_;
     size_t n_actins_;
-    std::vector<vec> last_actin_positions_;
-    std::vector<vec> last_myosin_positions_;
+    std::vector<double> last_actin_x_, last_actin_y_, last_actin_z_;
+    std::vector<double> last_myosin_x_, last_myosin_y_, last_myosin_z_;
 
-    std::vector<vec> all_positions_;
+    std::vector<double> all_x_, all_y_, all_z_;
     std::vector<ParticleType> species_types_;
     std::vector<std::vector<std::pair<int, ParticleType>>> neighbor_list_;
 
