@@ -25,7 +25,7 @@ std::vector<std::vector<int>> serializeActinIndicesPerActin(
 }
 
 
-std::vector<double> flatten_3d_array(std::vector<vec> array)
+std::vector<double> flatten_3d_array(const Filament::VecArray& array)
 {
     size_t rows = array.size();
     std::vector<double> flattened(rows * 3);

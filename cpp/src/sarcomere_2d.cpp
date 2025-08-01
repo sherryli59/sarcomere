@@ -51,7 +51,8 @@ Sarcomere::Sarcomere(int& n_actins, int& n_myosins, std::vector<double> box0, do
                             std::max(2 * myosin_radius, crosslinker_length);
             double skin_distance = 0.15 * cutoff_radius;
             neighbor_list = NeighborList(cutoff_radius + skin_distance, box, skin_distance / 2);
-            neighbor_list.initialize(actin.center, myosin.center);
+            neighbor_list.initialize(actin.center_x, actin.center_y, actin.center_z,
+                                    myosin.center_x, myosin.center_y, myosin.center_z);
             actin_actin_bonds_prev = actin_actin_bonds;
             actin_basic_tension.resize(n_actins);
             actin_crosslink_ratio.resize(n_actins);
@@ -374,7 +375,8 @@ void Sarcomere::update_system_sterics_only() {
 
 
 void Sarcomere::_update_neighbors() {
-    neighbor_list.set_species_positions(actin.center, myosin.center);
+    neighbor_list.set_species_positions(actin.center_x, actin.center_y, actin.center_z,
+                                       myosin.center_x, myosin.center_y, myosin.center_z);
     // Clear previous neighbors data and prepare to store new neighbors
     actin_neighbors_by_species.clear();
     actin_neighbors_by_species.resize(actin.center.size());
