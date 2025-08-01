@@ -55,37 +55,55 @@ Langevin::~Langevin() {
 //---------------------------------------------------------------------
 void Langevin::run_langevin(int nsteps, gsl_rng* rng, int& fix_myosin) {
     double start, end;
-    for (int i = 0; i < nsteps; i++) {
-        if (i % save_every == 0) {
-            std::cout << "Step " << i << std::endl;
-            // Optionally protect saving with the mutex:
-            // std::lock_guard<std::mutex> lock(save_mutex);
-            model.save_state();
-            start = omp_get_wtime();
-        }
-        model.update_system();
-        sample_step(dt, rng, fix_myosin);
-        if (i % save_every == 0) {
-            end = omp_get_wtime();
-            printf("Step %d took %f seconds\n", i, end - start);
+    #pragma omp parallel
+    {
+        for (int i = 0; i < nsteps; i++) {
+            #pragma omp single
+            if (i % save_every == 0) {
+                std::cout << "Step " << i << std::endl;
+                // Optionally protect saving with the mutex:
+                // std::lock_guard<std::mutex> lock(save_mutex);
+                model.save_state();
+                start = omp_get_wtime();
+            }
+
+            model.update_system();
+
+            #pragma omp single
+            sample_step(dt, rng, fix_myosin);
+
+            #pragma omp single
+            if (i % save_every == 0) {
+                end = omp_get_wtime();
+                printf("Step %d took %f seconds\n", i, end - start);
+            }
         }
     }
 }
 
 void Langevin::volume_exclusion(int nsteps, gsl_rng* rng, int& fix_myosin) {
     double start, end;
-    for (int i = 0; i < nsteps; i++) {
-        if (i % save_every == 0) {
-            std::cout << "Step " << i << std::endl;
-            // Optionally protect saving with the mutex:
-            // std::lock_guard<std::mutex> lock(save_mutex);
-            start = omp_get_wtime();
-        }
-        model.update_system_sterics_only();
-        sample_step(dt, rng, fix_myosin);
-        if (i % save_every == 0) {
-            end = omp_get_wtime();
-            printf("Step %d took %f seconds\n", i, end - start);
+    #pragma omp parallel
+    {
+        for (int i = 0; i < nsteps; i++) {
+            #pragma omp single
+            if (i % save_every == 0) {
+                std::cout << "Step " << i << std::endl;
+                // Optionally protect saving with the mutex:
+                // std::lock_guard<std::mutex> lock(save_mutex);
+                start = omp_get_wtime();
+            }
+
+            model.update_system_sterics_only();
+
+            #pragma omp single
+            sample_step(dt, rng, fix_myosin);
+
+            #pragma omp single
+            if (i % save_every == 0) {
+                end = omp_get_wtime();
+                printf("Step %d took %f seconds\n", i, end - start);
+            }
         }
     }
 }
@@ -95,8 +113,6 @@ void Langevin::volume_exclusion(int nsteps, gsl_rng* rng, int& fix_myosin) {
 // system, generating noise, and displacing myosin and actin particles.
 //---------------------------------------------------------------------
 void Langevin::sample_step(double& dt, gsl_rng* rng, int& fix_myosin) {
-    model.update_system();
-
     // Generate noise for both myosin and actin particles.
     int n_randns = (model.myosin.n + model.actin.n) * 6;
     std::vector<double> noise(n_randns);

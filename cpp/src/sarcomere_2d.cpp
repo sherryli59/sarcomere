@@ -272,105 +272,108 @@ void Sarcomere::sarcomeric_structure(){
 
 void Sarcomere::update_system() {
     std::vector<double> myosin_max_load(myosin.n, 0);
-    _update_neighbors();
-    #pragma omp parallel
-    {   
-        _set_to_zero();  
-        #pragma omp barrier  
-        // Step 2: Compute actin-myosin binding
-        #pragma omp for schedule(dynamic)
-        for (int i = 0; i < actin.n; i++) {
-            _process_actin_myosin_binding(i);
-        }
+    #pragma omp single
+    {
+        _update_neighbors();
+    }
+    #pragma omp barrier
 
-        #pragma omp barrier  
+    _set_to_zero();
+    #pragma omp barrier
+    // Step 2: Compute actin-myosin binding
+    #pragma omp for schedule(dynamic)
+    for (int i = 0; i < actin.n; i++) {
+        _process_actin_myosin_binding(i);
+    }
 
-        // Step 3: Compute catch bonds
-        #pragma omp for schedule(dynamic)
-        for (int i = 0; i < actin.n; i++) {
-            _process_catch_bonds(i);
-        }
+    #pragma omp barrier
 
-        #pragma omp barrier  
+    // Step 3: Compute catch bonds
+    #pragma omp for schedule(dynamic)
+    for (int i = 0; i < actin.n; i++) {
+        _process_catch_bonds(i);
+    }
 
-        // Step 4: Reduce actin catch-bond strengths
-        utils::reduce_array(actin_cb_strengths_temp, actin.cb_strength);
-        #pragma omp barrier  
+    #pragma omp barrier
 
-        // Step 5: Concatenate actinIndicesPerMyosin connections
-        #pragma omp for
-        for (int i = 0; i < myosin.n; ++i) {
-            for (int t = 0; t < omp_get_num_threads(); ++t) {
-                auto indices = actinIndicesPerMyosin_temp[t].getConnections(i);
-                for (int j = 0; j < indices.size(); j++) {
-                    actinIndicesPerMyosin.addConnection(i, indices[j]);
-                }
+    // Step 4: Reduce actin catch-bond strengths
+    utils::reduce_array(actin_cb_strengths_temp, actin.cb_strength);
+    #pragma omp barrier
+
+    // Step 5: Concatenate actinIndicesPerMyosin connections
+    #pragma omp for
+    for (int i = 0; i < myosin.n; ++i) {
+        for (int t = 0; t < omp_get_num_threads(); ++t) {
+            auto indices = actinIndicesPerMyosin_temp[t].getConnections(i);
+            for (int j = 0; j < indices.size(); j++) {
+                actinIndicesPerMyosin.addConnection(i, indices[j]);
             }
         }
+    }
 
-        #pragma omp barrier  
+    #pragma omp barrier
 
-        // Step 6: Compute actin-myosin forces
-        #pragma omp for schedule(dynamic)
-        for (int i = 0; i < actin.n; i++) {
-            _calc_am_force_velocity(i);
+    // Step 6: Compute actin-myosin forces
+    #pragma omp for schedule(dynamic)
+    for (int i = 0; i < actin.n; i++) {
+        _calc_am_force_velocity(i);
+    }
+
+    _volume_exclusion();
+    double k_theta = 0.1;
+    _apply_cb_alignment_bias(k_theta);
+
+    #pragma omp barrier
+
+    // Step 7: Reduce actin forces and angular forces
+    utils::reduce_array(actin_forces_temp, actin.force);
+    utils::reduce_array(actin_angular_forces_temp, actin.angular_force);
+
+    // Step 8: Reduce myosin forces, velocities, and angular forces
+    utils::reduce_array(myosin_forces_temp, myosin.force);
+    utils::reduce_array(myosin_velocities_temp, myosin.velocity);
+    utils::reduce_array(myosin_angular_forces_temp, myosin.angular_force);
+    #pragma omp barrier
+    //set max velocity for myosin
+
+    // Parallelize over myosins
+    #pragma omp for
+    for (int myosin_idx = 0; myosin_idx < myosin.n; ++myosin_idx) {
+        double max_load = myosin_f_load_temp[0][myosin_idx];
+        // Find max across threads
+        for (int thread_idx = 1; thread_idx < omp_get_max_threads(); ++thread_idx) {
+            max_load = std::max(max_load, myosin_f_load_temp[thread_idx][myosin_idx]);
         }
+        myosin_max_load[myosin_idx] = max_load;
+    }
 
-        _volume_exclusion();
-        double k_theta = 0.1;
-        _apply_cb_alignment_bias(k_theta);
-
-        #pragma omp barrier  
-
-        // Step 7: Reduce actin forces and angular forces
-        utils::reduce_array(actin_forces_temp, actin.force);
-        utils::reduce_array(actin_angular_forces_temp, actin.angular_force);
-
-        // Step 8: Reduce myosin forces, velocities, and angular forces
-        utils::reduce_array(myosin_forces_temp, myosin.force);
-        utils::reduce_array(myosin_velocities_temp, myosin.velocity);
-        utils::reduce_array(myosin_angular_forces_temp, myosin.angular_force);
-        #pragma omp barrier
-        //set max velocity for myosin
-
-        // Parallelize over myosins
-        #pragma omp for
-        for (int myosin_idx = 0; myosin_idx < myosin.n; ++myosin_idx) {
-            double max_load = myosin_f_load_temp[0][myosin_idx];
-            // Find max across threads
-            for (int thread_idx = 1; thread_idx < omp_get_max_threads(); ++thread_idx) {
-                max_load = std::max(max_load, myosin_f_load_temp[thread_idx][myosin_idx]);
-            }
-            myosin_max_load[myosin_idx] = max_load;
-        }
-
-        #pragma omp for
-        for (int i = 0; i < myosin.n; i++){
-            double v_max = v_am/ (diff_coeff_ratio + 1) * (1 - myosin_max_load[i]);
-            double v = myosin.velocity[i].norm();
-            if (v>v_max){
-                myosin.velocity[i] = myosin.velocity[i]/v*v_max;
-            }
+    #pragma omp for
+    for (int i = 0; i < myosin.n; i++){
+        double v_max = v_am/ (diff_coeff_ratio + 1) * (1 - myosin_max_load[i]);
+        double v = myosin.velocity[i].norm();
+        if (v>v_max){
+            myosin.velocity[i] = myosin.velocity[i]/v*v_max;
         }
     }
 }
 
 
 void Sarcomere::update_system_sterics_only() {
-    _update_neighbors();
-    #pragma omp parallel
-    {   
-        _set_to_zero();  
-        #pragma omp barrier  
-        _myosin_exclusion();
-        #pragma omp barrier  
-        // Step 7: Reduce actin forces and angular forces
-        utils::reduce_array(actin_forces_temp, actin.force);
-        utils::reduce_array(actin_angular_forces_temp, actin.angular_force);
-        // Step 8: Reduce myosin forces, velocities, and angular forces
-        utils::reduce_array(myosin_forces_temp, myosin.force);
-        utils::reduce_array(myosin_angular_forces_temp, myosin.angular_force);
+    #pragma omp single
+    {
+        _update_neighbors();
     }
+    #pragma omp barrier
+    _set_to_zero();
+    #pragma omp barrier
+    _myosin_exclusion();
+    #pragma omp barrier
+    // Step 7: Reduce actin forces and angular forces
+    utils::reduce_array(actin_forces_temp, actin.force);
+    utils::reduce_array(actin_angular_forces_temp, actin.angular_force);
+    // Step 8: Reduce myosin forces, velocities, and angular forces
+    utils::reduce_array(myosin_forces_temp, myosin.force);
+    utils::reduce_array(myosin_angular_forces_temp, myosin.angular_force);
 }
 
 
