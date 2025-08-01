@@ -236,88 +236,88 @@ void Sarcomere::update_system() {
     _update_neighbors();
     #pragma omp parallel
     {   
-        // _set_to_zero();  
-        // #pragma omp barrier  
-        // Step 2: Compute actin-myosin binding
+        _set_to_zero();  
+        #pragma omp barrier  
+        //Step 2: Compute actin-myosin binding
         #pragma omp for schedule(dynamic)
         for (int i = 0; i < actin.n; i++) {
             _process_actin_myosin_binding(i);
         }
 
-        // #pragma omp barrier  
+        #pragma omp barrier  
 
-        // // Step 3: Compute catch bonds
-        // #pragma omp for schedule(dynamic)
-        // for (int i = 0; i < actin.n; i++) {
-        //     _process_catch_bonds(i);
-        // }
+        // Step 3: Compute catch bonds
+        #pragma omp for schedule(dynamic)
+        for (int i = 0; i < actin.n; i++) {
+            _process_catch_bonds(i);
+        }
 
-        // #pragma omp barrier  
+        #pragma omp barrier  
 
-        // // Step 4: Reduce actin catch-bond strengths
-        // utils::reduce_array(actin_cb_strengths_temp, actin.cb_strength);
+        // Step 4: Reduce actin catch-bond strengths
+        utils::reduce_array(actin_cb_strengths_temp, actin.cb_strength);
 
 
-        // #pragma omp barrier  
+        #pragma omp barrier  
 
-        // // Step 5: Concatenate actinIndicesPerMyosin connections
-        // #pragma omp for
-        // for (int i = 0; i < myosin.n; ++i) {
-        //     for (int t = 0; t < omp_get_num_threads(); ++t) {
-        //         auto indices = actinIndicesPerMyosin_temp[t].getConnections(i);
-        //         for (int j = 0; j < indices.size(); j++) {
-        //             actinIndicesPerMyosin.addConnection(i, indices[j]);
-        //         }
-        //     }
-        // }
+        // Step 5: Concatenate actinIndicesPerMyosin connections
+        #pragma omp for
+        for (int i = 0; i < myosin.n; ++i) {
+            for (int t = 0; t < omp_get_num_threads(); ++t) {
+                auto indices = actinIndicesPerMyosin_temp[t].getConnections(i);
+                for (int j = 0; j < indices.size(); j++) {
+                    actinIndicesPerMyosin.addConnection(i, indices[j]);
+                }
+            }
+        }
 
-        // #pragma omp barrier  
+        #pragma omp barrier  
 
-        // // Step 6: Compute actin-myosin forces
-        // #pragma omp for schedule(dynamic)
-        // for (int i = 0; i < actin.n; i++) {
-        //     _calc_am_force_velocity(i);
-        // }
+        // Step 6: Compute actin-myosin forces
+        #pragma omp for schedule(dynamic)
+        for (int i = 0; i < actin.n; i++) {
+            _calc_am_force_velocity(i);
+        }
 
-        // _volume_exclusion();
-        // double k_theta = 1;
-        // _apply_cb_alignment_bias(k_theta);
+        _volume_exclusion();
+        double k_theta = 1;
+        _apply_cb_alignment_bias(k_theta);
 
-        // #pragma omp barrier  
+        #pragma omp barrier  
 
-        // // Step 7: Reduce actin forces and angular forces
-        // reduce_array(actin_forces_temp, actin.force);
-        // reduce_array(actin_torques_temp, actin.torque);
+        // Step 7: Reduce actin forces and angular forces
+        reduce_array(actin_forces_temp, actin.force);
+        reduce_array(actin_torques_temp, actin.torque);
 
-        // // Step 8: Reduce myosin forces, velocities, and angular forces
-        // reduce_array(myosin_forces_temp, myosin.force);
-        // reduce_array(myosin_velocities_temp, myosin.velocity);
-        // reduce_array(myosin_torques_temp, myosin.torque);
+        // Step 8: Reduce myosin forces, velocities, and angular forces
+        reduce_array(myosin_forces_temp, myosin.force);
+        reduce_array(myosin_velocities_temp, myosin.velocity);
+        reduce_array(myosin_torques_temp, myosin.torque);
         
     
-        // //set max velocity for myosin
+        //set max velocity for myosin
 
-        // // // Parallelize over myosins
-        // // #pragma omp for
-        // // for (int myosin_idx = 0; myosin_idx < myosin.n; ++myosin_idx) {
-        // //     double min_load = myosin_f_load_temp[0][myosin_idx];
-        // //     // Find max across threads
-        // //     for (int thread_idx = 1; thread_idx < omp_get_max_threads(); ++thread_idx) {
-        // //         min_load = std::min(min_load, myosin_f_load_temp[thread_idx][myosin_idx]);
-        // //     }
-        // //     myosin_min_load[myosin_idx] = min_load;
-        // //     printf("myosin %d, min_load: %f\n", myosin_idx, min_load);
-        // // }
-
+        // // Parallelize over myosins
         // #pragma omp for
-        // for (int i = 0; i < myosin.n; i++){
-        //     double v_max = v_am / (diff_coeff_ratio + 1);// * (1 - myosin_min_load[i]);
-        //     //printf("myosin %d, v_max: %f\n", i, v_max);
-        //     double v = myosin.velocity[i].norm();
-        //     if (v>v_max){
-        //         myosin.velocity[i] = myosin.velocity[i]/v*v_max;
+        // for (int myosin_idx = 0; myosin_idx < myosin.n; ++myosin_idx) {
+        //     double min_load = myosin_f_load_temp[0][myosin_idx];
+        //     // Find max across threads
+        //     for (int thread_idx = 1; thread_idx < omp_get_max_threads(); ++thread_idx) {
+        //         min_load = std::min(min_load, myosin_f_load_temp[thread_idx][myosin_idx]);
         //     }
+        //     myosin_min_load[myosin_idx] = min_load;
+        //     printf("myosin %d, min_load: %f\n", myosin_idx, min_load);
         // }
+
+        #pragma omp for
+        for (int i = 0; i < myosin.n; i++){
+            double v_max = v_am / (diff_coeff_ratio + 1);// * (1 - myosin_min_load[i]);
+            //printf("myosin %d, v_max: %f\n", i, v_max);
+            double v = myosin.velocity[i].norm();
+            if (v>v_max){
+                myosin.velocity[i] = myosin.velocity[i]/v*v_max;
+            }
+        }
     }
 }
 
