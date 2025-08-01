@@ -47,10 +47,10 @@ NeighborList::NeighborList() {}
 
 // Compute the 3D cell index for a position using PBC.
 // Returns a tuple of (cell_x, cell_y, cell_z).
-std::tuple<int, int, int> NeighborList::get_cell_index(const vec& position) const {
-    int cell_x = static_cast<int>(std::floor((position.x + box_[0]) / cell_size_x_)) % num_cells_x_;
-    int cell_y = static_cast<int>(std::floor((position.y + box_[1]) / cell_size_y_)) % num_cells_y_;
-    int cell_z = static_cast<int>(std::floor((position.z + box_[2]) / cell_size_z_)) % num_cells_z_;
+std::tuple<int, int, int> NeighborList::get_cell_index(double x, double y, double z) const {
+    int cell_x = static_cast<int>(std::floor((x + box_[0]) / cell_size_x_)) % num_cells_x_;
+    int cell_y = static_cast<int>(std::floor((y + box_[1]) / cell_size_y_)) % num_cells_y_;
+    int cell_z = static_cast<int>(std::floor((z + box_[2]) / cell_size_z_)) % num_cells_z_;
 
     // Correct negative indices.
     cell_x = (cell_x % num_cells_x_ + num_cells_x_) % num_cells_x_;
@@ -61,23 +61,21 @@ std::tuple<int, int, int> NeighborList::get_cell_index(const vec& position) cons
 }
 
 // Initialize the neighbor list using separate actin and myosin positions.
-void NeighborList::initialize(const std::vector<vec>& actin_positions, const std::vector<vec>& myosin_positions) {
-    actin_positions_ = actin_positions;
-    n_actins_ = actin_positions.size();
-    myosin_positions_ = myosin_positions;
+void NeighborList::initialize(const std::vector<double>& actin_x, const std::vector<double>& actin_y, const std::vector<double>& actin_z,
+                              const std::vector<double>& myosin_x, const std::vector<double>& myosin_y, const std::vector<double>& myosin_z) {
+    // Store positions in structure-of-arrays form.
+    set_species_positions(actin_x, actin_y, actin_z, myosin_x, myosin_y, myosin_z);
 
     // Save current positions for later displacement checking.
-    last_actin_positions_ = actin_positions;
-    last_myosin_positions_ = myosin_positions;
-
-    // Concatenate positions into a single vector.
-    concatenate_positions();
-
-    // Record species type for each particle.
-    track_species_types();
+    last_actin_x_ = actin_x_;
+    last_actin_y_ = actin_y_;
+    last_actin_z_ = actin_z_;
+    last_myosin_x_ = myosin_x_;
+    last_myosin_y_ = myosin_y_;
+    last_myosin_z_ = myosin_z_;
 
     // Resize the neighbor list container.
-    neighbor_list_.resize(all_positions_.size());
+    neighbor_list_.resize(all_x_.size());
 
     // Build the neighbor list.
     rebuild_neighbor_list();
@@ -88,44 +86,32 @@ void NeighborList::initialize(const std::vector<vec>& actin_positions, const std
 // Helper function to clear and resize internal containers.
 void NeighborList::clearAndResizeContainers() {
     neighbor_list_.clear();
-    neighbor_list_.resize(all_positions_.size());
+    neighbor_list_.resize(all_x_.size());
     cell_list_.clear();
+    cell_list_.resize(num_cells_x_ * num_cells_y_ * num_cells_z_);
 }
 
 // Step 1: Populate the cell list with particle indices.
 void NeighborList::populateCellList() {
-    for (size_t i = 0; i < all_positions_.size(); ++i) {
-        auto cell = get_cell_index(all_positions_[i]);
-        cell_list_[cell].push_back(i);
+    for (size_t i = 0; i < all_x_.size(); ++i) {
+        auto cell = get_cell_index(all_x_[i], all_y_[i], all_z_[i]);
+        int idx = std::get<0>(cell) + num_cells_x_ * (std::get<1>(cell) + num_cells_y_ * std::get<2>(cell));
+        cell_list_[idx].push_back(i);
     }
 }
 
-// Step 2: Create thread-local storage for neighbor lists.
-void NeighborList::createThreadLocalStorage(
-    std::vector<std::vector<std::vector<std::pair<size_t, ParticleType>>>> &tls) const
+// Step 2: Compute neighbor pairs in parallel.
+void NeighborList::computeNeighbors(std::vector<std::vector<std::pair<size_t, size_t>>> &tls)
 {
     tls.resize(omp_get_max_threads());
-    #pragma omp parallel for
-    for (auto& local_list : tls) {
-        local_list.resize(all_positions_.size());
-    }
-}
-
-
-// Step 3: Compute neighbors in parallel and count neighbor pairs.
-void NeighborList::computeNeighbors(
-    std::vector<std::vector<std::vector<std::pair<size_t, ParticleType>>>> &tls)
-{
-
-
     #pragma omp parallel
     {
         int thread_id = omp_get_thread_num();
+        auto &local_pairs = tls[thread_id];
         #pragma omp for schedule(dynamic)
-        for (size_t i = 0; i < all_positions_.size(); ++i) {
-            vec position = all_positions_[i];
-            auto cell = get_cell_index(position);
-            
+        for (size_t i = 0; i < all_x_.size(); ++i) {
+            auto cell = get_cell_index(all_x_[i], all_y_[i], all_z_[i]);
+
             // Check particles in the current cell and its neighbors in 3D.
             for (const auto& offset_tuple : neighboring_cells) {
                 int dx = std::get<0>(offset_tuple);
@@ -134,44 +120,63 @@ void NeighborList::computeNeighbors(
                 int neighbor_x = (std::get<0>(cell) + dx + num_cells_x_) % num_cells_x_;
                 int neighbor_y = (std::get<1>(cell) + dy + num_cells_y_) % num_cells_y_;
                 int neighbor_z = (std::get<2>(cell) + dz + num_cells_z_) % num_cells_z_;
-                auto neighbor_cell = std::make_tuple(neighbor_x, neighbor_y, neighbor_z);
-                if (cell_list_.count(neighbor_cell) == 0)
+                int neighbor_index = neighbor_x + num_cells_x_ * (neighbor_y + num_cells_y_ * neighbor_z);
+                if (cell_list_[neighbor_index].empty())
                     continue;
-                for (int j : cell_list_[neighbor_cell]) {
+                for (int j : cell_list_[neighbor_index]) {
                     if (i >= static_cast<size_t>(j))
                         continue;
-                    double distance = all_positions_[i].distance(all_positions_[j], box_);
+                    double dx = all_x_[i] - all_x_[j];
+                    dx -= box_[0] * std::round(dx / box_[0]);
+                    double dy = all_y_[i] - all_y_[j];
+                    dy -= box_[1] * std::round(dy / box_[1]);
+                    double dz = all_z_[i] - all_z_[j];
+                    dz -= box_[2] * std::round(dz / box_[2]);
+                    double distance = std::sqrt(dx * dx + dy * dy + dz * dz);
                     if (distance < cutoff_radius_) {
-                        tls[thread_id][i].emplace_back(j, species_types_[j]);
-                        tls[thread_id][j].emplace_back(i, species_types_[i]);
+                        local_pairs.emplace_back(i, j);
                     }
                 }
             }
         }
     }
-
 }
 
-// Step 4: Merge thread-local neighbor lists into the main neighbor list.
-void NeighborList::mergeThreadLocalLists(
-    const std::vector<std::vector<std::vector<std::pair<size_t, ParticleType>>>> &tls)
+// Step 3: Merge thread-local pairs into the main neighbor list.
+void NeighborList::mergeThreadLocalPairs(const std::vector<std::vector<std::pair<size_t, size_t>>> &tls)
 {
-    #pragma omp parallel for schedule(dynamic)
-    for (size_t i = 0; i < all_positions_.size(); ++i) {
-        for (const auto& local_list : tls) {
-            neighbor_list_[i].insert(
-                neighbor_list_[i].end(),
-                local_list[i].begin(),
-                local_list[i].end()
-            );
+    std::vector<size_t> counts(all_x_.size(), 0);
+    for (const auto &local_pairs : tls) {
+        for (const auto &p : local_pairs) {
+            counts[p.first]++;
+            counts[p.second]++;
+        }
+    }
+
+    #pragma omp parallel for
+    for (size_t i = 0; i < all_x_.size(); ++i) {
+        neighbor_list_[i].clear();
+        neighbor_list_[i].reserve(counts[i]);
+    }
+
+    for (const auto &local_pairs : tls) {
+        for (const auto &p : local_pairs) {
+            size_t i = p.first;
+            size_t j = p.second;
+            neighbor_list_[i].emplace_back(j, species_types_[j]);
+            neighbor_list_[j].emplace_back(i, species_types_[i]);
         }
     }
 }
 
 // Step 5: Update last known positions.
 void NeighborList::updateLastKnownPositions() {
-    last_actin_positions_ = actin_positions_;
-    last_myosin_positions_ = myosin_positions_;
+    last_actin_x_ = actin_x_;
+    last_actin_y_ = actin_y_;
+    last_actin_z_ = actin_z_;
+    last_myosin_x_ = myosin_x_;
+    last_myosin_y_ = myosin_y_;
+    last_myosin_z_ = myosin_z_;
 }
 
 // Main rebuild function that calls each step.
@@ -182,17 +187,14 @@ void NeighborList::rebuild_neighbor_list() {
     // Step 1: Populate cell list.
     populateCellList();
 
-    // Step 2: Create thread-local storage.
-    std::vector<std::vector<std::vector<std::pair<size_t, ParticleType>>>> tls;
-    createThreadLocalStorage(tls);
-
-    // Step 3: Compute neighbors in parallel.
+    // Step 2: Compute neighbor pairs in parallel.
+    std::vector<std::vector<std::pair<size_t, size_t>>> tls;
     computeNeighbors(tls);
 
-    // Step 4: Merge thread-local neighbor lists.
-    mergeThreadLocalLists(tls);
+    // Step 3: Merge thread-local pairs.
+    mergeThreadLocalPairs(tls);
 
-    // Step 5: Update last known positions.
+    // Step 4: Update last known positions.
     updateLastKnownPositions();
 }
 
@@ -268,10 +270,17 @@ void NeighborList::rebuild_neighbor_list() {
 // }
 
 // Set new positions for the two species.
-void NeighborList::set_species_positions(const std::vector<vec>& actin_positions, const std::vector<vec>& myosin_positions) {
-    actin_positions_ = actin_positions;
-    n_actins_ = actin_positions.size();
-    myosin_positions_ = myosin_positions;
+void NeighborList::set_species_positions(const std::vector<double>& actin_x, const std::vector<double>& actin_y, const std::vector<double>& actin_z,
+                                         const std::vector<double>& myosin_x, const std::vector<double>& myosin_y, const std::vector<double>& myosin_z) {
+    n_actins_ = actin_x.size();
+    actin_x_ = actin_x;
+    actin_y_ = actin_y;
+    actin_z_ = actin_z;
+
+    myosin_x_ = myosin_x;
+    myosin_y_ = myosin_y;
+    myosin_z_ = myosin_z;
+
     concatenate_positions();
     track_species_types();
 }
@@ -281,24 +290,26 @@ bool NeighborList::needs_rebuild() const {
     bool needs_rebuild = false;
     // Check actin displacements.
     #pragma omp parallel for
-    for (size_t i = 0; i < actin_positions_.size(); ++i) {
-        if (displacement(actin_positions_[i], last_actin_positions_[i]) > threshold_) {
+    for (size_t i = 0; i < actin_x_.size(); ++i) {
+        if (displacement(actin_x_[i], actin_y_[i], actin_z_[i],
+                         last_actin_x_[i], last_actin_y_[i], last_actin_z_[i]) > threshold_) {
             needs_rebuild = true;
             #pragma omp cancel for
         }
     }
-    #pragma omp barrier 
+    #pragma omp barrier
     if (needs_rebuild)
         return true;
     // Check myosin displacements.
     #pragma omp parallel for
-    for (size_t i = 0; i < myosin_positions_.size(); ++i) {
-        if (displacement(myosin_positions_[i], last_myosin_positions_[i]) > threshold_) {
+    for (size_t i = 0; i < myosin_x_.size(); ++i) {
+        if (displacement(myosin_x_[i], myosin_y_[i], myosin_z_[i],
+                         last_myosin_x_[i], last_myosin_y_[i], last_myosin_z_[i]) > threshold_) {
             needs_rebuild = true;
             #pragma omp cancel for
         }
     }
-    #pragma omp barrier 
+    #pragma omp barrier
     return needs_rebuild;
 }
 
@@ -326,22 +337,35 @@ std::pair<std::vector<int>, std::vector<int>> NeighborList::get_neighbors_by_typ
 
 
 // Compute the displacement between two positions (with periodic boundaries).
-double NeighborList::displacement(const vec& current, const vec& last) const {
-    return current.distance(last, box_);
+double NeighborList::displacement(double cx, double cy, double cz,
+                                  double lx, double ly, double lz) const {
+    double dx = cx - lx;
+    dx -= box_[0] * std::round(dx / box_[0]);
+    double dy = cy - ly;
+    dy -= box_[1] * std::round(dy / box_[1]);
+    double dz = cz - lz;
+    dz -= box_[2] * std::round(dz / box_[2]);
+    return std::sqrt(dx * dx + dy * dy + dz * dz);
 }
 
 // Concatenate the positions from actin and myosin into one vector.
 void NeighborList::concatenate_positions() {
-    all_positions_.clear();
-    all_positions_.insert(all_positions_.end(), actin_positions_.begin(), actin_positions_.end());
-    all_positions_.insert(all_positions_.end(), myosin_positions_.begin(), myosin_positions_.end());
+    all_x_.clear();
+    all_y_.clear();
+    all_z_.clear();
+    all_x_.insert(all_x_.end(), actin_x_.begin(), actin_x_.end());
+    all_x_.insert(all_x_.end(), myosin_x_.begin(), myosin_x_.end());
+    all_y_.insert(all_y_.end(), actin_y_.begin(), actin_y_.end());
+    all_y_.insert(all_y_.end(), myosin_y_.begin(), myosin_y_.end());
+    all_z_.insert(all_z_.end(), actin_z_.begin(), actin_z_.end());
+    all_z_.insert(all_z_.end(), myosin_z_.begin(), myosin_z_.end());
 }
 
 // Track the species type for each particle in the concatenated list.
 void NeighborList::track_species_types() {
     species_types_.clear();
-    species_types_.insert(species_types_.end(), actin_positions_.size(), ParticleType::Actin);
-    species_types_.insert(species_types_.end(), myosin_positions_.size(), ParticleType::Myosin);
+    species_types_.insert(species_types_.end(), actin_x_.size(), ParticleType::Actin);
+    species_types_.insert(species_types_.end(), myosin_x_.size(), ParticleType::Myosin);
 }
 
 
