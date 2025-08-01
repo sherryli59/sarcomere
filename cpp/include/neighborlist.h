@@ -2,9 +2,9 @@
 #define NEIGHBORLIST_H
 
 #include <vector>
-#include <unordered_map>
 #include <cmath>
 #include <utility>
+#include <tuple>
 #include <set>
 #include <algorithm>
 #include <omp.h>
@@ -48,17 +48,13 @@ public:
     // Step 1: Populate the cell list with particle indices.
     void populateCellList();
 
-    // Step 2: Create thread-local storage for neighbor lists.
-    // The TLS container is passed by reference and resized appropriately.
-    void createThreadLocalStorage(std::vector<std::vector<std::vector<std::pair<size_t, ParticleType>>>> &tls) const;
+    // Step 2: Compute neighbor pairs in parallel.
+    void computeNeighbors(std::vector<std::vector<std::pair<size_t, size_t>>> &tls);
 
-    // Step 3: Compute neighbors in parallel.
-    void computeNeighbors(std::vector<std::vector<std::vector<std::pair<size_t, ParticleType>>>> &tls);
+    // Step 3: Merge thread-local pairs into the main neighbor list.
+    void mergeThreadLocalPairs(const std::vector<std::vector<std::pair<size_t, size_t>>> &tls);
 
-    // Step 4: Merge thread-local neighbor lists into the main neighbor list.
-    void mergeThreadLocalLists(const std::vector<std::vector<std::vector<std::pair<size_t, ParticleType>>>> &tls);
-
-    // Step 5: Update the last known positions.
+    // Step 4: Update the last known positions.
     void updateLastKnownPositions();
     // Return a pair of vectors (first: actin neighbors, second: myosin neighbors) for a given particle.
     std::pair<std::vector<int>, std::vector<int>> get_neighbors_by_type(int index) const;
@@ -92,23 +88,7 @@ private:
     std::vector<ParticleType> species_types_;
     std::vector<std::vector<std::pair<int, ParticleType>>> neighbor_list_;
 
-    struct pair_hash {
-    // Hash function for std::pair
-    template <typename T1, typename T2>
-    std::size_t operator()(const std::pair<T1, T2>& pair) const {
-        return std::hash<T1>{}(pair.first) ^ (std::hash<T2>{}(pair.second) << 1);
-    }
-
-    // Hash function for std::tuple<int, int, int>
-    std::size_t operator()(const std::tuple<int, int, int>& t) const {
-        std::size_t h1 = std::hash<int>{}(std::get<0>(t));
-        std::size_t h2 = std::hash<int>{}(std::get<1>(t));
-        std::size_t h3 = std::hash<int>{}(std::get<2>(t));
-        return h1 ^ (h2 << 1) ^ (h3 << 2);
-    }
-    };
-
-    std::unordered_map<std::tuple<int, int, int>, std::vector<int>, pair_hash> cell_list_;
+    std::vector<std::vector<int>> cell_list_;
 };
 
 #endif // NEIGHBORLIST_H

@@ -51,6 +51,10 @@ std::tuple<int, int, int> NeighborList::get_cell_index(double x, double y, doubl
     int cell_x = static_cast<int>(std::floor((x + box_[0]) / cell_size_x_)) % num_cells_x_;
     int cell_y = static_cast<int>(std::floor((y + box_[1]) / cell_size_y_)) % num_cells_y_;
     int cell_z = static_cast<int>(std::floor((z + box_[2]) / cell_size_z_)) % num_cells_z_;
+std::tuple<int, int, int> NeighborList::get_cell_index(double x, double y, double z) const {
+    int cell_x = static_cast<int>(std::floor((x + box_[0]) / cell_size_x_)) % num_cells_x_;
+    int cell_y = static_cast<int>(std::floor((y + box_[1]) / cell_size_y_)) % num_cells_y_;
+    int cell_z = static_cast<int>(std::floor((z + box_[2]) / cell_size_z_)) % num_cells_z_;
 
     // Correct negative indices.
     cell_x = (cell_x % num_cells_x_ + num_cells_x_) % num_cells_x_;
@@ -88,41 +92,30 @@ void NeighborList::clearAndResizeContainers() {
     neighbor_list_.clear();
     neighbor_list_.resize(all_x_.size());
     cell_list_.clear();
+    cell_list_.resize(num_cells_x_ * num_cells_y_ * num_cells_z_);
 }
 
 // Step 1: Populate the cell list with particle indices.
 void NeighborList::populateCellList() {
     for (size_t i = 0; i < all_x_.size(); ++i) {
         auto cell = get_cell_index(all_x_[i], all_y_[i], all_z_[i]);
-        cell_list_[cell].push_back(i);
+        int idx = std::get<0>(cell) + num_cells_x_ * (std::get<1>(cell) + num_cells_y_ * std::get<2>(cell));
+        cell_list_[idx].push_back(i);
     }
 }
 
-// Step 2: Create thread-local storage for neighbor lists.
-void NeighborList::createThreadLocalStorage(
-    std::vector<std::vector<std::vector<std::pair<size_t, ParticleType>>>> &tls) const
+// Step 2: Compute neighbor pairs in parallel.
+void NeighborList::computeNeighbors(std::vector<std::vector<std::pair<size_t, size_t>>> &tls)
 {
     tls.resize(omp_get_max_threads());
-    #pragma omp parallel for
-    for (auto& local_list : tls) {
-        local_list.resize(all_x_.size());
-    }
-}
-
-
-// Step 3: Compute neighbors in parallel and count neighbor pairs.
-void NeighborList::computeNeighbors(
-    std::vector<std::vector<std::vector<std::pair<size_t, ParticleType>>>> &tls)
-{
-
-
     #pragma omp parallel
     {
         int thread_id = omp_get_thread_num();
+        auto &local_pairs = tls[thread_id];
         #pragma omp for schedule(dynamic)
         for (size_t i = 0; i < all_x_.size(); ++i) {
             auto cell = get_cell_index(all_x_[i], all_y_[i], all_z_[i]);
-            
+
             // Check particles in the current cell and its neighbors in 3D.
             for (const auto& offset_tuple : neighboring_cells) {
                 int dx = std::get<0>(offset_tuple);
@@ -131,10 +124,10 @@ void NeighborList::computeNeighbors(
                 int neighbor_x = (std::get<0>(cell) + dx + num_cells_x_) % num_cells_x_;
                 int neighbor_y = (std::get<1>(cell) + dy + num_cells_y_) % num_cells_y_;
                 int neighbor_z = (std::get<2>(cell) + dz + num_cells_z_) % num_cells_z_;
-                auto neighbor_cell = std::make_tuple(neighbor_x, neighbor_y, neighbor_z);
-                if (cell_list_.count(neighbor_cell) == 0)
+                int neighbor_index = neighbor_x + num_cells_x_ * (neighbor_y + num_cells_y_ * neighbor_z);
+                if (cell_list_[neighbor_index].empty())
                     continue;
-                for (int j : cell_list_[neighbor_cell]) {
+                for (int j : cell_list_[neighbor_index]) {
                     if (i >= static_cast<size_t>(j))
                         continue;
                     double dx = all_x_[i] - all_x_[j];
@@ -145,28 +138,37 @@ void NeighborList::computeNeighbors(
                     dz -= box_[2] * std::round(dz / box_[2]);
                     double distance = std::sqrt(dx * dx + dy * dy + dz * dz);
                     if (distance < cutoff_radius_) {
-                        tls[thread_id][i].emplace_back(j, species_types_[j]);
-                        tls[thread_id][j].emplace_back(i, species_types_[i]);
+                        local_pairs.emplace_back(i, j);
                     }
                 }
             }
         }
     }
-
 }
 
-// Step 4: Merge thread-local neighbor lists into the main neighbor list.
-void NeighborList::mergeThreadLocalLists(
-    const std::vector<std::vector<std::vector<std::pair<size_t, ParticleType>>>> &tls)
+// Step 3: Merge thread-local pairs into the main neighbor list.
+void NeighborList::mergeThreadLocalPairs(const std::vector<std::vector<std::pair<size_t, size_t>>> &tls)
 {
-    #pragma omp parallel for schedule(dynamic)
+    std::vector<size_t> counts(all_x_.size(), 0);
+    for (const auto &local_pairs : tls) {
+        for (const auto &p : local_pairs) {
+            counts[p.first]++;
+            counts[p.second]++;
+        }
+    }
+
+    #pragma omp parallel for
     for (size_t i = 0; i < all_x_.size(); ++i) {
-        for (const auto& local_list : tls) {
-            neighbor_list_[i].insert(
-                neighbor_list_[i].end(),
-                local_list[i].begin(),
-                local_list[i].end()
-            );
+        neighbor_list_[i].clear();
+        neighbor_list_[i].reserve(counts[i]);
+    }
+
+    for (const auto &local_pairs : tls) {
+        for (const auto &p : local_pairs) {
+            size_t i = p.first;
+            size_t j = p.second;
+            neighbor_list_[i].emplace_back(j, species_types_[j]);
+            neighbor_list_[j].emplace_back(i, species_types_[i]);
         }
     }
 }
@@ -189,17 +191,14 @@ void NeighborList::rebuild_neighbor_list() {
     // Step 1: Populate cell list.
     populateCellList();
 
-    // Step 2: Create thread-local storage.
-    std::vector<std::vector<std::vector<std::pair<size_t, ParticleType>>>> tls;
-    createThreadLocalStorage(tls);
-
-    // Step 3: Compute neighbors in parallel.
+    // Step 2: Compute neighbor pairs in parallel.
+    std::vector<std::vector<std::pair<size_t, size_t>>> tls;
     computeNeighbors(tls);
 
-    // Step 4: Merge thread-local neighbor lists.
-    mergeThreadLocalLists(tls);
+    // Step 3: Merge thread-local pairs.
+    mergeThreadLocalPairs(tls);
 
-    // Step 5: Update last known positions.
+    // Step 4: Update last known positions.
     updateLastKnownPositions();
 }
 
