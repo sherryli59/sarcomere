@@ -55,37 +55,55 @@ Langevin::~Langevin() {
 //---------------------------------------------------------------------
 void Langevin::run_langevin(int nsteps, gsl_rng* rng, int& fix_myosin) {
     double start, end;
-    for (int i = 0; i < nsteps; i++) {
-        if (i % save_every == 0) {
-            std::cout << "Step " << i << std::endl;
-            // Optionally protect saving with the mutex:
-            // std::lock_guard<std::mutex> lock(save_mutex);
-            model.save_state();
-            start = omp_get_wtime();
-        }
-        model.update_system();
-        sample_step(dt, rng, fix_myosin);
-        if (i % save_every == 0) {
-            end = omp_get_wtime();
-            printf("Step %d took %f seconds\n", i, end - start);
+    #pragma omp parallel
+    {
+        for (int i = 0; i < nsteps; i++) {
+            #pragma omp single
+            {
+                if (i % save_every == 0) {
+                    std::cout << "Step " << i << std::endl;
+                    // Optionally protect saving with the mutex:
+                    // std::lock_guard<std::mutex> lock(save_mutex);
+                    model.save_state();
+                    start = omp_get_wtime();
+                }
+            }
+            model.update_system();
+            sample_step(dt, rng, fix_myosin);
+            #pragma omp single
+            {
+                if (i % save_every == 0) {
+                    end = omp_get_wtime();
+                    printf("Step %d took %f seconds\n", i, end - start);
+                }
+            }
         }
     }
 }
 
 void Langevin::volume_exclusion(int nsteps, gsl_rng* rng, int& fix_myosin) {
     double start, end;
-    for (int i = 0; i < nsteps; i++) {
-        if (i % save_every == 0) {
-            std::cout << "Step " << i << std::endl;
-            // Optionally protect saving with the mutex:
-            // std::lock_guard<std::mutex> lock(save_mutex);
-            start = omp_get_wtime();
-        }
-        model.update_system_sterics_only();
-        sample_step(dt, rng, fix_myosin);
-        if (i % save_every == 0) {
-            end = omp_get_wtime();
-            printf("Step %d took %f seconds\n", i, end - start);
+    #pragma omp parallel
+    {
+        for (int i = 0; i < nsteps; i++) {
+            #pragma omp single
+            {
+                if (i % save_every == 0) {
+                    std::cout << "Step " << i << std::endl;
+                    // Optionally protect saving with the mutex:
+                    // std::lock_guard<std::mutex> lock(save_mutex);
+                    start = omp_get_wtime();
+                }
+            }
+            model.update_system_sterics_only();
+            sample_step(dt, rng, fix_myosin);
+            #pragma omp single
+            {
+                if (i % save_every == 0) {
+                    end = omp_get_wtime();
+                    printf("Step %d took %f seconds\n", i, end - start);
+                }
+            }
         }
     }
 }
@@ -95,48 +113,50 @@ void Langevin::volume_exclusion(int nsteps, gsl_rng* rng, int& fix_myosin) {
 // system, generating noise, and displacing myosin and actin particles.
 //---------------------------------------------------------------------
 void Langevin::sample_step(double& dt, gsl_rng* rng, int& fix_myosin) {
-    model.update_system();
-
-    // Generate noise for both myosin and actin particles.
+    // Generate noise and acceptance probabilities sequentially.
     int n_randns = (model.myosin.n + model.actin.n) * 6;
     std::vector<double> noise(n_randns);
-    for (int i = 0; i < n_randns; i++) {
-        noise[i] = gsl_ran_gaussian(rng, 1.0);
-    }
-
     int n_acc_randns = model.myosin.n + model.actin.n;
     std::vector<double> acc_rand(n_acc_randns);
-    for (int i = 0; i < n_acc_randns; i++) {
-        acc_rand[i] = gsl_rng_uniform(rng);
+    #pragma omp single
+    {
+        for (int i = 0; i < n_randns; i++) {
+            noise[i] = gsl_ran_gaussian(rng, 1.0);
+        }
+        for (int i = 0; i < n_acc_randns; i++) {
+            acc_rand[i] = gsl_rng_uniform(rng);
+        }
     }
 
     int offset = model.myosin.n * 6;
-    double D = D_myosin_trans;
-    double D_rot = D_myosin_rot;
+    const double myo_D = D_myosin_trans;
+    const double myo_D_rot = D_myosin_rot;
     // Update myosin particles.
+    #pragma omp for
     for (int i = fix_myosin; i < model.myosin.n; i++) {
-        double dx = model.myosin.force[i].x * beta * D * dt +
+        double dx = model.myosin.force[i].x * beta * myo_D * dt +
                     model.myosin.velocity[i].x * dt +
-                    sqrt(2 * D * dt) * noise[i * 6];
-        double dy = model.myosin.force[i].y * beta * D * dt +
+                    sqrt(2 * myo_D * dt) * noise[i * 6];
+        double dy = model.myosin.force[i].y * beta * myo_D * dt +
                     model.myosin.velocity[i].y * dt +
-                    sqrt(2 * D * dt) * noise[i * 6 + 1];
-        double dz = model.myosin.force[i].z * beta * D * dt +
+                    sqrt(2 * myo_D * dt) * noise[i * 6 + 1];
+        double dz = model.myosin.force[i].z * beta * myo_D * dt +
                     model.myosin.velocity[i].z * dt +
-                    sqrt(2 * D * dt) * noise[i * 6 + 2];
+                    sqrt(2 * myo_D * dt) * noise[i * 6 + 2];
         model.myosin.displace(i, dx, dy, dz);
-        vec rot_noise={noise[i * 6 + 3], noise[i * 6 + 4], noise[i * 6 + 5]};
-        vec delta_u = sqrt(2 * D_rot * dt) * rot_noise + dt * model.myosin.torque[i];
+        vec rot_noise = {noise[i * 6 + 3], noise[i * 6 + 4], noise[i * 6 + 5]};
+        vec delta_u = sqrt(2 * myo_D_rot * dt) * rot_noise + dt * model.myosin.torque[i];
         model.myosin.direction[i] += delta_u;
         model.myosin.direction[i].normalize();
     }
     // Update actin particles.
+    #pragma omp for
     for (int i = 0; i < model.actin.n; i++) {
-        if (model.actin.cb_strength[i] > 1e-3){
+        double D, D_rot;
+        if (model.actin.cb_strength[i] > 1e-3) {
             D = D_myosin_trans;
             D_rot = D_myosin_rot;
-        }
-        else{
+        } else {
             D = D_actin_trans;
             D_rot = D_actin_rot;
         }
@@ -153,7 +173,7 @@ void Langevin::sample_step(double& dt, gsl_rng* rng, int& fix_myosin) {
             printf("actin %d displacement too large \n", i);
         }
         model.actin.displace(i, dx, dy, dz);
-        vec rot_noise={noise[offset + i * 6 + 3], noise[offset + i * 6 + 4], noise[offset + i * 6 + 5]};
+        vec rot_noise = {noise[offset + i * 6 + 3], noise[offset + i * 6 + 4], noise[offset + i * 6 + 5]};
         vec delta_u = sqrt(2 * D_rot * dt) * rot_noise + dt * model.actin.torque[i];
         model.actin.direction[i] += delta_u;
         model.actin.direction[i].normalize();
