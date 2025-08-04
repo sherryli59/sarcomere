@@ -874,7 +874,8 @@ void Sarcomere::_apply_cb_alignment_bias(double& k_theta_bias)
 {
     #pragma omp for
         for (int i = 0; i < myosin.n; ++i) {
-            vec u      = myosin.torque[i];                   // unit orientation
+            vec u = myosin.direction[i];
+            u.normalize();
             auto idxs   = actinIndicesPerMyosin.getConnections(i);
 
             double acc_cb = 1.0; // accumulated cross-bridge strength
