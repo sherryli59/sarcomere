@@ -279,7 +279,7 @@ void Sarcomere::update_system() {
         }
 
         _volume_exclusion();
-        double k_theta = 100;
+        double k_theta = 1.0;
         _apply_cb_alignment_bias(k_theta);
 
         #pragma omp barrier  
@@ -877,14 +877,14 @@ void Sarcomere::_apply_cb_alignment_bias(double& k_theta_bias)
             vec u      = myosin.torque[i];                   // unit orientation
             auto idxs   = actinIndicesPerMyosin.getConnections(i);
 
-            double acc_cb = 1.0; // accumulated cross-bridge strength
-            // for (int a : idxs) {
-            //     double cb = actin.cb_strength[a];
-            //     if (cb > 0.1) {           // active cross-bridge
-            //         acc_cb += cb;
-            //         if (acc_cb > 1.0) { acc_cb = 1.0; break; }
-            //     }
-            // }
+            double acc_cb = 0.1; // accumulated cross-bridge strength
+            for (int a : idxs) {
+                double cb = actin.cb_strength[a];
+                if (cb > 0.1) {           // active cross-bridge
+                    acc_cb += cb;
+                    if (acc_cb > 1.0) { acc_cb = 1.0; break; }
+                }
+            }
             vec tau = _alignment_torque(u, k_theta_bias * acc_cb);
             myosin_torques_temp[omp_get_thread_num()][i] += tau;
         }
