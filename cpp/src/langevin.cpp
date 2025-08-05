@@ -64,6 +64,7 @@ void Langevin::run_langevin(int nsteps, gsl_rng* rng, int& fix_myosin) {
             start = omp_get_wtime();
         }
         model.update_system();
+        model.debug_cb_stats();
         sample_step(dt, rng, fix_myosin);
         if (i % save_every == 0) {
             end = omp_get_wtime();

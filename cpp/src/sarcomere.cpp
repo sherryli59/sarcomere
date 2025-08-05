@@ -1,4 +1,5 @@
 #include "sarcomere.h"
+#include <algorithm>
 
 // Constructor
 Sarcomere::Sarcomere() {}
@@ -14,6 +15,7 @@ Sarcomere::Sarcomere(int& n_actins, int& n_myosins, vector box0, double& actin_l
               actinIndicesPerMyosin(n_myosins),
               neighbor_list(0.0, box0, 0.0),
                 actin_actin_bonds(n_actins, std::vector<int>(n_actins, 0)),
+                actin_actin_lifetime(n_actins, std::vector<int>(n_actins, 0)),
                 actin_forces_temp(omp_get_max_threads(), std::vector<vec>(n_actins, {0, 0, 0})),
                 myosin_forces_temp(omp_get_max_threads(), std::vector<vec>(n_myosins, {0, 0, 0})),
                 myosin_velocities_temp(omp_get_max_threads(), std::vector<vec>(n_myosins, {0, 0, 0})),
@@ -55,6 +57,7 @@ Sarcomere::Sarcomere(int& n_actins, int& n_myosins, vector box0, double& actin_l
             neighbor_list.initialize(actin.center_x, actin.center_y, actin.center_z,
                                     myosin.center_x, myosin.center_y, myosin.center_z);
             actin_actin_bonds_prev = actin_actin_bonds;
+            actin_actin_lifetime_prev = actin_actin_lifetime;
             actin_basic_tension.resize(n_actins);
             actin_crosslink_ratio.resize(n_actins);
             actin_n_bonds.resize(n_actins);
@@ -393,6 +396,8 @@ void Sarcomere::_set_to_zero() {
         for (int j = 0; j < actin.n; j++){
             actin_actin_bonds_prev[i][j] = actin_actin_bonds[i][j];
             actin_actin_bonds[i][j] = 0;
+            actin_actin_lifetime_prev[i][j] = actin_actin_lifetime[i][j];
+            actin_actin_lifetime[i][j] = 0;
         }
     }
 
@@ -778,6 +783,9 @@ void Sarcomere::_set_cb(int& i, int& j, double& normalized_strength, bool& add_c
     actin_n_bonds[j] += 1;
     actin_actin_bonds[i][j] = 1;
     actin_actin_bonds[j][i] = 1;
+    // Update lifetime: increment if bond persisted, reset if new
+    actin_actin_lifetime[i][j] = actin_actin_lifetime_prev[i][j] + 1;
+    actin_actin_lifetime[j][i] = actin_actin_lifetime[i][j];
 }
 
 void Sarcomere::_set_cb(int& i, std::vector<int> indices, vector cb_strength){
@@ -790,6 +798,53 @@ void Sarcomere::_set_cb(int& i, std::vector<int> indices, vector cb_strength){
         add_connection = true;
         _set_cb(i,j,cb_strength[sorted_indices[index]],add_connection);
     }
+}
+
+void Sarcomere::debug_cb_stats(){
+    int close_opposite = 0;
+    int diff_myosin = 0;
+    for(int i=0;i<actin.n;i++){
+        for(int j=i+1;j<actin.n;j++){
+            double distance = geometry::segment_segment_distance(actin.left_end[i],
+                actin.right_end[i], actin.left_end[j], actin.right_end[j], box);
+            if(distance < crosslinker_length){
+                double cos_angle = actin.direction[i].dot(actin.direction[j]);
+                if(cos_angle < 0){
+                    close_opposite++;
+                    auto mi = myosinIndicesPerActin.getConnections(i);
+                    auto mj = myosinIndicesPerActin.getConnections(j);
+                    if(!mi.empty() && !mj.empty()){
+                        bool shared = false;
+                        for(int m: mi){
+                            if(std::find(mj.begin(), mj.end(), m) != mj.end()){
+                                shared = true;
+                                break;
+                            }
+                        }
+                        if(!shared) diff_myosin++;
+                    }
+                }
+            }
+        }
+    }
+    int active = 0;
+    double total_life = 0.0;
+    double max_life = 0.0;
+    for(int i=0;i<actin.n;i++){
+        for(int j=i+1;j<actin.n;j++){
+            if(actin_actin_bonds[i][j]==1){
+                active++;
+                double lt = actin_actin_lifetime[i][j]*dt;
+                total_life += lt;
+                if(lt>max_life) max_life = lt;
+            }
+        }
+    }
+    double avg_life = active>0 ? total_life/active : 0.0;
+    std::cout << "CB Debug: close_opposite_pairs=" << close_opposite
+              << ", pairs_diff_myosin=" << diff_myosin
+              << ", avg_lifetime=" << avg_life
+              << ", max_lifetime=" << max_life << std::endl;
 }
 
 
