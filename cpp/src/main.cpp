@@ -54,7 +54,7 @@ int main(int argc, char* argv[]){
             ("myosin_diff_coeff_trans", "Myosin translational diffusion coefficient", cxxopts::value<double>(myosin_diff_coeff_trans)->default_value("0.05"))
             ("myosin_diff_coeff_rot", "Myosin rotational diffusion coefficient", cxxopts::value<double>(myosin_diff_coeff_rot)->default_value("0.05"))
             ("save_every", "Save every", cxxopts::value<int>(save_every)->default_value("200"))
-            ("k_on", "k_on", cxxopts::value<double>(k_on)->default_value("100"))
+            ("k_on", "k_on", cxxopts::value<double>(k_on)->default_value("1000"))
             ("k_off", "k_off", cxxopts::value<double>(k_off)->default_value("1"))
             ("base_lifetime", "Base lifetime", cxxopts::value<double>(base_lifetime)->default_value("0.0"))
             ("lifetime_coeff", "Lifetime coefficient", cxxopts::value<double>(lifetime_coeff)->default_value("0.4"))

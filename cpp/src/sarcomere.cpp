@@ -89,10 +89,10 @@ void Sarcomere::partial_fix(int& n_fixed){
         myosin.center[i].y = myosin_positions[i][1];
         myosin.center[i].z = myosin_positions[i][2]; // set z coordinate to 0        
     }
-    // // set all myosin directions to x-axis
-    // for (int i = 0; i < myosin.n; i++){
-    //     myosin.direction[i] = {1, 0, 0};
-    // }
+    // set all myosin directions to x-axis
+    for (int i = 0; i < myosin.n; i++){
+        myosin.direction[i] = {1, 0, 0};
+    }
     myosin.update_endpoints();
     update_system();
 }
@@ -422,37 +422,24 @@ void Sarcomere::_process_actin_myosin_binding(int& i) {
             myosin.radius, box);
 
         if (am_interaction[i][j].myosin_binding_ratio>0){
-            //print center and direction of actin and myosin
-            // printf(
-            // "Actin %d: center = (%f, %f, %f), direction = (%f, %f, %f)\n"
-            // "Myosin %d: center = (%f, %f, %f), direction = (%f, %f, %f)\n"
-            // "Actin-Myosin Interaction: myosin_binding_ratio = %f, crosslinkable_ratio = %f, partial_binding_ratio = %f\n",
-            // i,
-            //     actin.center[i].x, actin.center[i].y, actin.center[i].z,
-            //     actin.direction[i].x, actin.direction[i].y, actin.direction[i].z,
-            // j,
-            //     myosin.center[j].x, myosin.center[j].y, myosin.center[j].z,
-            //     myosin.direction[j].x, myosin.direction[j].y, myosin.direction[j].z,
-            // am_interaction[i][j].myosin_binding_ratio,
-            // am_interaction[i][j].crosslinkable_ratio,
-            // am_interaction[i][j].partial_binding_ratio
-            // );
-            local_actinIndicesPerMyosin.addConnection(j, i);
-            myosinIndicesPerActin.addConnection(i, j);
-            if (actin_crosslink_ratio[i] > am_interaction[i][j].crosslinkable_ratio){
-                actin_crosslink_ratio[i] = am_interaction[i][j].crosslinkable_ratio;
-            }
-            if (am_interaction[i][j].partial_binding_ratio>EPS || !directional){
-                n_myosins_per_actin[i]++;
-                double abs_cos = std::abs(actin.direction[i].dot(myosin.direction[j]));
-                if (abs_cos > actin_basic_tension[i]) {
-                    actin_basic_tension[i] = abs_cos;
+            if (!directional || am_interaction[i][j].partial_binding_ratio > EPS){
+                local_actinIndicesPerMyosin.addConnection(j, i);
+                myosinIndicesPerActin.addConnection(i, j);
+                if (actin_crosslink_ratio[i] > am_interaction[i][j].crosslinkable_ratio){
+                    actin_crosslink_ratio[i] = am_interaction[i][j].crosslinkable_ratio;
                 }
-                if (actin["partial_binding_ratio"][i] < am_interaction[i][j].partial_binding_ratio) {
-                    actin["partial_binding_ratio"][i] = am_interaction[i][j].partial_binding_ratio;
-                }
-                if (actin["myosin_binding_ratio"][i] < am_interaction[i][j].myosin_binding_ratio) {
-                    actin["myosin_binding_ratio"][i] = am_interaction[i][j].myosin_binding_ratio;
+                if (am_interaction[i][j].partial_binding_ratio>EPS || !directional){
+                    n_myosins_per_actin[i]++;
+                    double abs_cos = std::abs(actin.direction[i].dot(myosin.direction[j]));
+                    if (abs_cos > actin_basic_tension[i]) {
+                        actin_basic_tension[i] = abs_cos;
+                    }
+                    if (actin["partial_binding_ratio"][i] < am_interaction[i][j].partial_binding_ratio) {
+                        actin["partial_binding_ratio"][i] = am_interaction[i][j].partial_binding_ratio;
+                    }
+                    if (actin["myosin_binding_ratio"][i] < am_interaction[i][j].myosin_binding_ratio) {
+                        actin["myosin_binding_ratio"][i] = am_interaction[i][j].myosin_binding_ratio;
+                    }
                 }
             }
         }
