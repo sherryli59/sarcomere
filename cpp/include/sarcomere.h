@@ -34,6 +34,15 @@ public:
     std::vector<std::vector<int>> actin_actin_bonds, actin_actin_bonds_prev;
     // Track lifetime (in steps) for each actin–actin catch bond
     std::vector<std::vector<int>> actin_actin_lifetime, actin_actin_lifetime_prev;
+    // Per-frame catch-bond statistics
+    struct CbStats {
+        int close_opposite_pairs;
+        int pairs_diff_myosin;
+        double avg_lifetime;
+        double max_lifetime;
+    };
+    // History of statistics for each debug call
+    std::vector<CbStats> cb_stats_history;
     vector box;
     double k_aa, kappa_aa, cb_mult_factor, k_on, k_off,
            kappa_am, k_am, v_am, crosslinker_length, myosin_radius_ratio, skin_distance, cutoff_radius,
@@ -78,8 +87,10 @@ public:
     void new_file();
     void save_state();
     void load_state(int& n_frames);
-    // Debug helper to report catch-bond statistics for a single frame
-    void debug_cb_stats();
+    // Debug helper to compute catch-bond statistics for a single frame
+    CbStats debug_cb_stats();
+    // Retrieve all recorded catch-bond statistics
+    const std::vector<CbStats>& get_cb_stats_history() const { return cb_stats_history; }
 
 private:
     // Private helper methods

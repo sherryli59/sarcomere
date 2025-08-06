@@ -800,7 +800,7 @@ void Sarcomere::_set_cb(int& i, std::vector<int> indices, vector cb_strength){
     }
 }
 
-void Sarcomere::debug_cb_stats(){
+Sarcomere::CbStats Sarcomere::debug_cb_stats(){
     int close_opposite = 0;
     int diff_myosin = 0;
     for(int i=0;i<actin.n;i++){
@@ -841,10 +841,13 @@ void Sarcomere::debug_cb_stats(){
         }
     }
     double avg_life = active>0 ? total_life/active : 0.0;
-    std::cout << "CB Debug: close_opposite_pairs=" << close_opposite
-              << ", pairs_diff_myosin=" << diff_myosin
-              << ", avg_lifetime=" << avg_life
-              << ", max_lifetime=" << max_life << std::endl;
+    CbStats stats{close_opposite, diff_myosin, avg_life, max_life};
+    cb_stats_history.push_back(stats);
+    std::cout << "CB Debug: close_opposite_pairs=" << stats.close_opposite_pairs
+              << ", pairs_diff_myosin=" << stats.pairs_diff_myosin
+              << ", avg_lifetime=" << stats.avg_lifetime
+              << ", max_lifetime=" << stats.max_lifetime << std::endl;
+    return stats;
 }
 
 
