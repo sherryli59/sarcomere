@@ -89,10 +89,10 @@ void Sarcomere::partial_fix(int& n_fixed){
         myosin.center[i].y = myosin_positions[i][1];
         myosin.center[i].z = myosin_positions[i][2]; // set z coordinate to 0        
     }
-    // set all myosin directions to x-axis
-    for (int i = 0; i < myosin.n; i++){
-        myosin.direction[i] = {1, 0, 0};
-    }
+    // // set all myosin directions to x-axis
+    // for (int i = 0; i < myosin.n; i++){
+    //     myosin.direction[i] = {1, 0, 0};
+    // }
     myosin.update_endpoints();
     update_system();
 }
