@@ -64,6 +64,7 @@ void Langevin::run_langevin(int nsteps, gsl_rng* rng, int& fix_myosin) {
             start = omp_get_wtime();
         }
         model.update_system();
+        model.debug_cb_stats();
         sample_step(dt, rng, fix_myosin);
         if (i % save_every == 0) {
             end = omp_get_wtime();
@@ -95,8 +96,6 @@ void Langevin::volume_exclusion(int nsteps, gsl_rng* rng, int& fix_myosin) {
 // system, generating noise, and displacing myosin and actin particles.
 //---------------------------------------------------------------------
 void Langevin::sample_step(double& dt, gsl_rng* rng, int& fix_myosin) {
-    model.update_system();
-
     // Generate noise for both myosin and actin particles.
     int n_randns = (model.myosin.n + model.actin.n) * 6;
     std::vector<double> noise(n_randns);
