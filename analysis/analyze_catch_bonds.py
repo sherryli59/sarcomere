@@ -7,24 +7,30 @@ import numpy as np
 import matplotlib.pyplot as plt
 
 
-def compute_pair_fload(dir_i: np.ndarray, dir_j: np.ndarray, f_i: float, f_j: float) -> tuple[float, float]:
-    """Return (f_load, cos_angle) for a bonded actin pair.
-
+def compute_pair_fload(
+    dir_i: np.ndarray,
+    dir_j: np.ndarray,
+    f_i: float,
+    f_j: float,
+) -> tuple[float, float]:
+    """Return ``(f_load, angle)`` for a bonded actin pair.
     Parameters
     ----------
     dir_i, dir_j : ndarray
         Unit direction vectors of actins *i* and *j*.
     f_i, f_j : float
         Scalar load values for actins *i* and *j*.
+    partial_binding_ratio : float
+        Fractional binding ratio for the interacting pair.
     """
-    cos_angle = np.abs(np.dot(dir_i, dir_j))
-    f_load = cos_angle * min(f_i, f_j)
-    return f_load, cos_angle
+    cos_val = np.clip(np.dot(dir_i, dir_j), -1.0, 1.0)
+    f_load = abs(cos_val) * min(f_i, f_j)
+    angle = np.degrees(np.arccos(cos_val))
+    return f_load, angle
 
 
 def analyze_catch_bonds(h5file: str, dt: float = 1.0, prefix: str = "analysis") -> None:
     """Analyze actin catch bonds in a trajectory file.
-
     Parameters
     ----------
     h5file : str
@@ -52,7 +58,7 @@ def analyze_catch_bonds(h5file: str, dt: float = 1.0, prefix: str = "analysis") 
             f_load = fload_ds[frame, :, 0]
 
             current_pairs: set[tuple[int, int]] = set()
-            for pair in bonds:
+            for idx, pair in enumerate(bonds):
                 a, b = int(pair[0]), int(pair[1])
                 if a < 0 or b < 0:
                     continue
@@ -60,8 +66,9 @@ def analyze_catch_bonds(h5file: str, dt: float = 1.0, prefix: str = "analysis") 
                     a, b = b, a
                 current_pairs.add((a, b))
 
-                pair_fload, cos_angle = compute_pair_fload(dirs[a], dirs[b], f_load[a], f_load[b])
-                angle = np.degrees(np.arccos(np.clip(cos_angle, -1.0, 1.0)))
+                pair_fload, angle = compute_pair_fload(
+                    dirs[a], dirs[b], f_load[a], f_load[b]
+                )
                 angles.append(angle)
 
                 if (a, b) in active:
@@ -109,18 +116,12 @@ def analyze_catch_bonds(h5file: str, dt: float = 1.0, prefix: str = "analysis") 
         plt.savefig(f"{prefix}_angle_distribution.png", dpi=300)
         plt.close()
 
-    if lifetimes:
-        arr = np.column_stack([mean_floads, lifetimes])
-        np.savetxt(f"{prefix}_lifetime_vs_fload.dat", arr, header="f_load lifetime")
-
-    if angles:
-        np.savetxt(f"{prefix}_angles.dat", angles, header="angle_degrees")
 
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Analyze actin catch bonds from trajectory file")
     parser.add_argument("h5file", help="Path to HDF5 trajectory")
-    parser.add_argument("--dt", type=float, default=1.0, help="Time between frames")
+    parser.add_argument("--dt", type=float, default=0.02, help="Time between frames")
     parser.add_argument("--prefix", default="analysis", help="Prefix for output files")
     args = parser.parse_args()
     analyze_catch_bonds(args.h5file, dt=args.dt, prefix=args.prefix)
