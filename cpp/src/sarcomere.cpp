@@ -247,13 +247,13 @@ void Sarcomere::update_system() {
         }
 
         #pragma omp barrier  
-
+        if (base_lifetime > 0 || lifetime_coeff > 0) {
         // Step 3: Compute catch bonds
         #pragma omp for schedule(dynamic)
         for (int i = 0; i < actin.n; i++) {
             _process_catch_bonds(i);
         }
-
+        }
         #pragma omp barrier  
 
         // Step 4: Reduce actin catch-bond strengths
@@ -282,8 +282,8 @@ void Sarcomere::update_system() {
         }
 
         _volume_exclusion();
-        double k_theta = 100.0;
-        _apply_cb_alignment_bias(k_theta);
+        // double k_theta = 100.0;
+        // _apply_cb_alignment_bias(k_theta);
 
         #pragma omp barrier  
 
@@ -490,7 +490,8 @@ void Sarcomere::_calc_am_force_velocity(int& i) {
         int j = myosin_indices[index];
         double partial_binding_ratio = am_interaction[i][j].partial_binding_ratio;
         double k_am_adjusted = k_am * actin.cb_strength[i] * actin.f_load[i] * (partial_binding_ratio>EPS);
-        double kappa_am_adjusted = kappa_am*std::min(partial_binding_ratio*3,1.);
+        //double kappa_am_adjusted = kappa_am*std::min(partial_binding_ratio*3,1.)
+        double kappa_am_adjusted = kappa_am * actin.cb_strength[i] * actin.f_load[i] * (partial_binding_ratio>EPS);
         vector force_vec = compute_am_force_and_energy(
             actin, myosin, i, j, box, k_am_adjusted, kappa_am_adjusted, cutoff);
         local_actin_forces[i].x += force_vec[0];
