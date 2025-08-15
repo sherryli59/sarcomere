@@ -489,46 +489,42 @@ void Sarcomere::_calc_am_force_velocity(int& i) {
     auto& local_myosin_torques = myosin_torques_temp[thread_id];
     std::vector<int> myosin_indices = myosinIndicesPerActin.getConnections(i);
     vec velocity = v_am * actin.direction[i];
+    actin.velocity[i] = velocity;
     double f_load;
     for (int index = 0; index < myosin_indices.size(); index++) {
         int j = myosin_indices[index];
         double partial_binding_ratio = am_interaction[i][j].partial_binding_ratio;
-        double k_am_adjusted = k_am * actin.cb_strength[i] * actin.f_load[i] * (partial_binding_ratio>EPS);
-        double kappa_am_adjusted = kappa_am*std::min(partial_binding_ratio*3,1.);
-        vector force_vec = compute_am_force_and_energy(
-            actin, myosin, i, j, box, k_am_adjusted, kappa_am_adjusted, myosin.radius);
-        local_actin_forces[i].x += force_vec[0];
-        local_actin_forces[i].y += force_vec[1];
-        local_actin_forces[i].z += force_vec[2];
-        local_myosin_forces[j].x -= force_vec[0];
-        local_myosin_forces[j].y -= force_vec[1];
-        local_myosin_forces[j].z -= force_vec[2];
-        local_actin_torques[i].x += force_vec[3];
-        local_actin_torques[i].y += force_vec[4];
-        local_actin_torques[i].z += force_vec[5];
-        local_myosin_torques[j].x += force_vec[6];
-        local_myosin_torques[j].y += force_vec[7];
-        local_myosin_torques[j].z += force_vec[8];
+        // Only attempt binding if the geometric criteria are met
+        if (actin.cb_strength[i] > 1 / cb_mult_factor && partial_binding_ratio > EPS) {
+            double rand = gsl_rng_uniform(rng_engines[thread_id]);
+            double k_off_adjusted = dt /(base_lifetime + lifetime_coeff * actin.f_load[i]);
+            if (rand >= k_off_adjusted) {
+                vector force_vec = compute_am_force_and_energy(
+                    actin, myosin, i, j, box, k_am, kappa_am, myosin.radius);
+                local_actin_forces[i].x += force_vec[0];
+                local_actin_forces[i].y += force_vec[1];
+                local_actin_forces[i].z += force_vec[2];
+                local_myosin_forces[j].x -= force_vec[0];
+                local_myosin_forces[j].y -= force_vec[1];
+                local_myosin_forces[j].z -= force_vec[2];
+                local_actin_torques[i].x += force_vec[3];
+                local_actin_torques[i].y += force_vec[4];
+                local_actin_torques[i].z += force_vec[5];
+                local_myosin_torques[j].x += force_vec[6];
+                local_myosin_torques[j].y += force_vec[7];
+                local_myosin_torques[j].z += force_vec[8];
 
-        if (actin.cb_strength[i]>1/cb_mult_factor && partial_binding_ratio>EPS){
-            double binding_ratio_adjusted = std::min(partial_binding_ratio,1.0);
-            double abs_cos_angle = std::abs(actin.direction[i].dot(myosin.direction[j]));
-            binding_ratio_adjusted = binding_ratio_adjusted * abs_cos_angle;
-            f_load = (1-std::exp(-2*binding_ratio_adjusted))/(1-std::exp(-2));
-        }
-        else{
-            f_load = 0;
-        }
-        if (f_load<local_myosin_f_load[j]){
-            local_myosin_f_load[j] = f_load;
-        }
-        velocity = velocity * (1-f_load);
-        if (actin.cb_strength[i]>1/cb_mult_factor){
-            actin.velocity[i] = velocity*diff_coeff_ratio/(diff_coeff_ratio+1);
-            local_myosin_velocities[j] -= velocity/(diff_coeff_ratio+1);
-        }
-        else{
-            actin.velocity[i] = velocity;
+                double binding_ratio_adjusted = std::min(partial_binding_ratio, 1.0);
+                double abs_cos_angle = std::abs(actin.direction[i].dot(myosin.direction[j]));
+                binding_ratio_adjusted *= abs_cos_angle;
+                f_load = (1 - std::exp(-2 * binding_ratio_adjusted)) / (1 - std::exp(-2));
+                if (f_load < local_myosin_f_load[j]) {
+                    local_myosin_f_load[j] = f_load;
+                }
+                velocity = velocity * (1 - f_load);
+                actin.velocity[i] = velocity * diff_coeff_ratio / (diff_coeff_ratio + 1);
+                local_myosin_velocities[j] -= velocity / (diff_coeff_ratio + 1);
+            }
         }
 
     }
