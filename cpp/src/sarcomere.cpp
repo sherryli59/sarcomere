@@ -16,6 +16,7 @@ Sarcomere::Sarcomere(int& n_actins, int& n_myosins, vector box0, double& actin_l
               neighbor_list(0.0, box0, 0.0),
                 actin_actin_bonds(n_actins, std::vector<int>(n_actins, 0)),
                 actin_actin_lifetime(n_actins, std::vector<int>(n_actins, 0)),
+                am_bonds(n_actins, std::vector<int>(n_myosins, 0)),
                 actin_forces_temp(omp_get_max_threads(), std::vector<vec>(n_actins, {0, 0, 0})),
                 myosin_forces_temp(omp_get_max_threads(), std::vector<vec>(n_myosins, {0, 0, 0})),
                 myosin_velocities_temp(omp_get_max_threads(), std::vector<vec>(n_myosins, {0, 0, 0})),
@@ -24,7 +25,7 @@ Sarcomere::Sarcomere(int& n_actins, int& n_myosins, vector box0, double& actin_l
                 myosin_f_load_temp(omp_get_max_threads(), std::vector<double>(n_myosins, 0)),
                 actin_cb_strengths_temp(omp_get_max_threads(), std::vector<double>(n_actins, 0)),
                 actinIndicesPerMyosin_temp(omp_get_max_threads(), utils::MoleculeConnection(n_myosins)),
-                rng_engines(omp_get_max_threads(), nullptr) 
+                rng_engines(omp_get_max_threads(), nullptr)
 
             {
             box.resize(3);
@@ -58,6 +59,7 @@ Sarcomere::Sarcomere(int& n_actins, int& n_myosins, vector box0, double& actin_l
                                     myosin.center_x, myosin.center_y, myosin.center_z);
             actin_actin_bonds_prev = actin_actin_bonds;
             actin_actin_lifetime_prev = actin_actin_lifetime;
+            am_bonds_prev = am_bonds;
             actin_basic_tension.resize(n_actins);
             actin_crosslink_ratio.resize(n_actins);
             actin_n_bonds.resize(n_actins);
@@ -66,6 +68,7 @@ Sarcomere::Sarcomere(int& n_actins, int& n_myosins, vector box0, double& actin_l
             for (int i = 0; i < n_actins; i++) {
                 am_interaction[i].resize(n_myosins);
             }
+            actin_f_load_prev.resize(n_actins, 0.0);
             actin.register_feature("myosin_binding_ratio");
             actin.register_feature("crosslink_ratio");
             actin.register_feature("partial_binding_ratio");
@@ -247,13 +250,13 @@ void Sarcomere::update_system() {
         }
 
         #pragma omp barrier  
-
+        if (base_lifetime > 0 || lifetime_coeff > 0) {
         // Step 3: Compute catch bonds
         #pragma omp for schedule(dynamic)
         for (int i = 0; i < actin.n; i++) {
             _process_catch_bonds(i);
         }
-
+        }
         #pragma omp barrier  
 
         // Step 4: Reduce actin catch-bond strengths
@@ -282,8 +285,8 @@ void Sarcomere::update_system() {
         }
 
         _volume_exclusion();
-        double k_theta = 100.0;
-        _apply_cb_alignment_bias(k_theta);
+        // double k_theta = 100.0;
+        // _apply_cb_alignment_bias(k_theta);
 
         #pragma omp barrier  
 
@@ -383,6 +386,7 @@ void Sarcomere::_set_to_zero() {
         actin.force[i] = {0, 0, 0};
         actin.torque[i] = {0, 0, 0};
         actin.velocity[i] = {0, 0, 0};
+        actin_f_load_prev[i] = actin.f_load[i];
         actin.f_load[i] = 0;
         actin.cb_strength[i] = 0;
         actin_basic_tension[i] = 0;
@@ -398,6 +402,10 @@ void Sarcomere::_set_to_zero() {
             actin_actin_bonds[i][j] = 0;
             actin_actin_lifetime_prev[i][j] = actin_actin_lifetime[i][j];
             actin_actin_lifetime[i][j] = 0;
+        }
+        for (int j = 0; j < myosin.n; j++){
+            am_bonds_prev[i][j] = am_bonds[i][j];
+            am_bonds[i][j] = 0;
         }
     }
 
@@ -423,35 +431,48 @@ void Sarcomere::_process_actin_myosin_binding(int& i) {
     double cutoff = myosin.radius/ myosin_radius_ratio;
     for (int index = 0; index < myosin_neighbors.size(); index++) {
         int j = myosin_neighbors[index];
-        
+
         am_interaction[i][j] = geometry::analyze_am(
             actin.left_end[i], actin.right_end[i], myosin.left_end[j], myosin.right_end[j],
             cutoff, box);
 
-        if (am_interaction[i][j].myosin_binding_ratio>0){
-            if (!directional || am_interaction[i][j].partial_binding_ratio > EPS){
+        if (am_interaction[i][j].myosin_binding_ratio > 0) {
+            if (!directional || am_interaction[i][j].partial_binding_ratio > EPS) {
+                // Record all actin–myosin attachments regardless of bond state
                 local_actinIndicesPerMyosin.addConnection(j, i);
                 myosinIndicesPerActin.addConnection(i, j);
-                if (actin_crosslink_ratio[i] > am_interaction[i][j].crosslinkable_ratio){
+                if (actin_crosslink_ratio[i] > am_interaction[i][j].crosslinkable_ratio) {
                     actin_crosslink_ratio[i] = am_interaction[i][j].crosslinkable_ratio;
                 }
-                if (am_interaction[i][j].partial_binding_ratio>EPS || !directional){
-                    n_myosins_per_actin[i]++;
-                    double abs_cos = std::abs(actin.direction[i].dot(myosin.direction[j]));
-                    if (abs_cos > actin_basic_tension[i]) {
-                        actin_basic_tension[i] = abs_cos;
+                n_myosins_per_actin[i]++;
+                double abs_cos = std::abs(actin.direction[i].dot(myosin.direction[j]));
+                if (abs_cos > actin_basic_tension[i]) {
+                    actin_basic_tension[i] = abs_cos;
+                }
+                if (actin["partial_binding_ratio"][i] < am_interaction[i][j].partial_binding_ratio) {
+                    actin["partial_binding_ratio"][i] = am_interaction[i][j].partial_binding_ratio;
+                }
+                if (actin["myosin_binding_ratio"][i] < am_interaction[i][j].myosin_binding_ratio) {
+                    actin["myosin_binding_ratio"][i] = am_interaction[i][j].myosin_binding_ratio;
+                }
+
+                // Kinetic Monte Carlo update of bond state
+                double rand = gsl_rng_uniform(rng_engines[thread_id]);
+                bool was_bound = am_bonds_prev[i][j] == 1;
+                if (was_bound) {
+                    double k_off_adjusted = dt /(base_lifetime + lifetime_coeff * actin_f_load_prev[i]);
+                    if (rand >= k_off_adjusted) {
+                        am_bonds[i][j] = 1;
                     }
-                    if (actin["partial_binding_ratio"][i] < am_interaction[i][j].partial_binding_ratio) {
-                        actin["partial_binding_ratio"][i] = am_interaction[i][j].partial_binding_ratio;
-                    }
-                    if (actin["myosin_binding_ratio"][i] < am_interaction[i][j].myosin_binding_ratio) {
-                        actin["myosin_binding_ratio"][i] = am_interaction[i][j].myosin_binding_ratio;
+                } else {
+                    if (rand < k_on * dt) {
+                        am_bonds[i][j] = 1;
                     }
                 }
             }
         }
     }
-    actin["crosslink_ratio"][i] = actin_crosslink_ratio[i];  
+    actin["crosslink_ratio"][i] = actin_crosslink_ratio[i];
 }
 
 void Sarcomere::_process_catch_bonds(int& i) {
@@ -488,9 +509,12 @@ void Sarcomere::_calc_am_force_velocity(int& i) {
     double cutoff = myosin.radius / myosin_radius_ratio;
     for (int index = 0; index < myosin_indices.size(); index++) {
         int j = myosin_indices[index];
+        if (am_bonds[i][j] != 1) {
+            continue;
+        }
         double partial_binding_ratio = am_interaction[i][j].partial_binding_ratio;
-        double k_am_adjusted = k_am * actin.cb_strength[i] * actin.f_load[i] * (partial_binding_ratio>EPS);
-        double kappa_am_adjusted = kappa_am*std::min(partial_binding_ratio*3,1.);
+        double k_am_adjusted = k_am;
+        double kappa_am_adjusted = kappa_am*std::min(partial_binding_ratio*3,1.0);
         vector force_vec = compute_am_force_and_energy(
             actin, myosin, i, j, box, k_am_adjusted, kappa_am_adjusted, cutoff);
         local_actin_forces[i].x += force_vec[0];

@@ -125,7 +125,7 @@ void Langevin::sample_step(double& dt, gsl_rng* rng, int& fix_myosin) {
                     sqrt(2 * D * dt) * noise[i * 6 + 2];
         model.myosin.displace(i, dx, dy, dz);
         vec rot_noise={noise[i * 6 + 3], noise[i * 6 + 4], noise[i * 6 + 5]};
-        vec delta_u = sqrt(2 * D_rot * dt) * rot_noise + dt * model.myosin.torque[i];
+        vec delta_u = sqrt(2 * D_rot * dt) * rot_noise + dt * model.myosin.torque[i] * D_rot * beta;
         model.myosin.direction[i] += delta_u;
         model.myosin.direction[i].normalize();
     }
@@ -153,7 +153,7 @@ void Langevin::sample_step(double& dt, gsl_rng* rng, int& fix_myosin) {
         }
         model.actin.displace(i, dx, dy, dz);
         vec rot_noise={noise[offset + i * 6 + 3], noise[offset + i * 6 + 4], noise[offset + i * 6 + 5]};
-        vec delta_u = sqrt(2 * D_rot * dt) * rot_noise + dt * model.actin.torque[i];
+        vec delta_u = sqrt(2 * D_rot * dt) * rot_noise + dt * model.actin.torque[i] * D_rot * beta;
         model.actin.direction[i] += delta_u;
         model.actin.direction[i].normalize();
     }

@@ -13,33 +13,37 @@ def compute_pair_fload(
     f_i: float,
     f_j: float,
 ) -> tuple[float, float]:
-    """Return ``(f_load, angle)`` for a bonded actin pair.
+    """Return (f_load, angle_deg) for a bonded actin pair.
+
     Parameters
     ----------
     dir_i, dir_j : ndarray
-        Unit direction vectors of actins *i* and *j*.
+        Unit direction vectors of actins i and j.
     f_i, f_j : float
-        Scalar load values for actins *i* and *j*.
-    partial_binding_ratio : float
-        Fractional binding ratio for the interacting pair.
+        Scalar load values for actins i and j.
     """
-    cos_val = np.clip(np.dot(dir_i, dir_j), -1.0, 1.0)
-    f_load = abs(cos_val) * min(f_i, f_j)
+    # Ensure unit length (robust to small numeric drift)
+    di = dir_i / max(np.linalg.norm(dir_i), 1e-12)
+    dj = dir_j / max(np.linalg.norm(dir_j), 1e-12)
+
+    cos_val = float(np.clip(np.dot(di, dj), -1.0, 1.0))
+    # Only anti-parallel contributes (cos<0); use the smaller f as the pair load
+    f_load = abs(cos_val) * min(f_i, f_j) * (cos_val < 0)
     angle = np.degrees(np.arccos(cos_val))
     return f_load, angle
 
 
 def analyze_catch_bonds(h5file: str, dt: float = 1.0, prefix: str = "analysis") -> None:
     """Analyze actin catch bonds in a trajectory file.
+
     Parameters
     ----------
     h5file : str
         Path to the HDF5 trajectory produced by the simulation.
     dt : float, optional
-        Time between stored frames.  Used to convert bond lifetimes from
-        frames to physical time units.  Defaults to 1.0.
+        Time between stored frames (converts lifetimes from frames to time).
     prefix : str, optional
-        Prefix for output files.  Default is ``"analysis"``.
+        Prefix for output files.
     """
     with h5py.File(h5file, "r") as fh:
         bonds_ds = fh["/actin/bonds"]
@@ -50,15 +54,21 @@ def analyze_catch_bonds(h5file: str, dt: float = 1.0, prefix: str = "analysis") 
         active: dict[tuple[int, int], dict] = {}
         lifetimes: list[float] = []
         mean_floads: list[float] = []
-        angles: list[float] = []
+        angles_pairwise: list[float] = []
+
+        # Collect all actin directions across frames for a global distribution
+        all_dirs = []
 
         for frame in range(n_frames):
             bonds = bonds_ds[frame]
-            dirs = dirs_ds[frame]
-            f_load = fload_ds[frame, :, 0]
+            dirs = np.asarray(dirs_ds[frame])  # (N,3)
+            f_load = fload_ds[frame, :, 0]     # (N,)
+
+            # Accumulate raw directions for global distribution
+            all_dirs.append(dirs)
 
             current_pairs: set[tuple[int, int]] = set()
-            for idx, pair in enumerate(bonds):
+            for pair in bonds:
                 a, b = int(pair[0]), int(pair[1])
                 if a < 0 or b < 0:
                     continue
@@ -67,9 +77,9 @@ def analyze_catch_bonds(h5file: str, dt: float = 1.0, prefix: str = "analysis") 
                 current_pairs.add((a, b))
 
                 pair_fload, angle = compute_pair_fload(
-                    dirs[a], dirs[b], f_load[a], f_load[b]
+                    dirs[a], dirs[b], float(f_load[a]), float(f_load[b])
                 )
-                angles.append(angle)
+                angles_pairwise.append(angle)
 
                 if (a, b) in active:
                     entry = active[(a, b)]
@@ -84,20 +94,23 @@ def analyze_catch_bonds(h5file: str, dt: float = 1.0, prefix: str = "analysis") 
                         "count": 1,
                     }
 
+            # Close out bonds that ended this frame
             ended = [p for p in active if p not in current_pairs]
             for p in ended:
                 entry = active.pop(p)
-                lifetime = (entry["last"] - entry["start"] + 1) * dt
-                mean_fload = entry["sum_fload"] / entry["count"]
+                lifetime = (entry["last"] - entry["start"]) * dt
+                mean_fload = entry["sum_fload"] / max(entry["count"], 1)
                 lifetimes.append(lifetime)
                 mean_floads.append(mean_fload)
 
+        # Close out bonds that persist to the final frame
         for entry in active.values():
             lifetime = (entry["last"] - entry["start"] + 1) * dt
-            mean_fload = entry["sum_fload"] / entry["count"]
+            mean_fload = entry["sum_fload"] / max(entry["count"], 1)
             lifetimes.append(lifetime)
             mean_floads.append(mean_fload)
 
+    # Plot lifetime vs load for bonded pairs
     if lifetimes:
         plt.figure()
         plt.scatter(mean_floads, lifetimes, s=10, alpha=0.7)
@@ -107,15 +120,34 @@ def analyze_catch_bonds(h5file: str, dt: float = 1.0, prefix: str = "analysis") 
         plt.savefig(f"{prefix}_lifetime_vs_fload.png", dpi=300)
         plt.close()
 
-    if angles:
+    # Pairwise angle distribution (between bonded actin directions)
+    if angles_pairwise:
         plt.figure()
-        plt.hist(angles, bins=50, density=True)
-        plt.xlabel("Angle between actins (degrees)")
+        plt.hist(angles_pairwise, bins=50, density=True)
+        plt.xlabel("Angle between bonded actins (degrees)")
         plt.ylabel("Probability density")
         plt.tight_layout()
-        plt.savefig(f"{prefix}_angle_distribution.png", dpi=300)
+        plt.savefig(f"{prefix}_bonded_pair_angle_distribution.png", dpi=300)
         plt.close()
 
+    # Global actin direction distribution (angle to +x axis across all frames)
+    if all_dirs:
+        all_dirs = np.vstack(all_dirs)  # (total_actins, 3)
+        # Normalize to be safe
+        norms = np.linalg.norm(all_dirs, axis=1, keepdims=True)
+        norms[norms == 0] = 1.0
+        U = all_dirs / norms
+        # Angle to +x axis
+        cos_x = np.clip(U[:, 0], -1.0, 1.0)
+        angles_to_x = np.degrees(np.arccos(cos_x))  # 0°=+x, 180°=-x
+
+        plt.figure()
+        plt.hist(angles_to_x, bins=72, density=True)  # 2.5° bins over [0,180]
+        plt.xlabel("Actin direction: angle to +x (degrees)")
+        plt.ylabel("Probability density")
+        plt.tight_layout()
+        plt.savefig(f"{prefix}_actin_direction_angle_to_x.png", dpi=300)
+        plt.close()
 
 
 def main() -> None:
