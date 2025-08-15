@@ -34,6 +34,10 @@ public:
     std::vector<std::vector<int>> actin_actin_bonds, actin_actin_bonds_prev;
     // Track lifetime (in steps) for each actin–actin catch bond
     std::vector<std::vector<int>> actin_actin_lifetime, actin_actin_lifetime_prev;
+    // Track actin–myosin bonds for kinetic Monte Carlo updates
+    std::vector<std::vector<int>> am_bonds, am_bonds_prev;
+    // Store previous actin load used for k_off calculations
+    std::vector<double> actin_f_load_prev;
     vector box;
     double k_aa, kappa_aa, cb_mult_factor, k_on, k_off,
            kappa_am, k_am, v_am, crosslinker_length, myosin_radius_ratio, skin_distance, cutoff_radius,
