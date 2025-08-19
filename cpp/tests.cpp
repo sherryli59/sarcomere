@@ -1,6 +1,8 @@
 #include "gtest/gtest.h"
 #include "include/utils.h"
+#define private public
 #include "include/sarcomere.h"
+#undef private
 #include <chrono>
 #include <iostream>
 #include <cmath>
@@ -54,6 +56,68 @@ TEST(Vec, Distance)
     utils::vec b{1.0, 2.0, 2.0};
     double expected = std::sqrt(1.0*1.0 + 2.0*2.0 + 2.0*2.0);
     EXPECT_NEAR(a.distance(b), expected, 1e-12);
+}
+
+TEST(Sarcomere, ActinStrongBondLimit)
+{
+    int n_actins = 3;
+    int n_myosins = 0;
+    std::vector<double> box{1.0, 1.0, 1.0};
+    double actin_length = 1.0;
+    double myosin_length = 1.0;
+    double myosin_radius = 0.1;
+    double myosin_radius_ratio = 1.0;
+    double crosslinker_length = 1.0;
+    double k_on = 0.0;
+    double k_off = 0.0;
+    double base_lifetime = 0.0;
+    double lifetime_coeff = 0.0;
+    double diff_coeff_ratio = 1.0;
+    double k_aa = 0.0;
+    double kappa_aa = 0.0;
+    double k_am = 0.0;
+    double kappa_am = 0.0;
+    double v_am = 0.0;
+    std::string filename = "";
+    gsl_rng* rng = gsl_rng_alloc(gsl_rng_mt19937);
+    int seed = 0;
+    int fix_myosin = 0;
+    double dt = 0.01;
+    bool directional = false;
+
+    Sarcomere model(n_actins, n_myosins, box, actin_length, myosin_length,
+                    myosin_radius, myosin_radius_ratio, crosslinker_length,
+                    k_on, k_off, base_lifetime, lifetime_coeff, diff_coeff_ratio,
+                    k_aa, kappa_aa, k_am, kappa_am, v_am,
+                    filename, rng, seed, fix_myosin, dt, directional);
+
+    gsl_rng_free(rng);
+
+    model.actin_actin_bonds[0][1] = model.actin_actin_bonds[1][0] = 1;
+    model.actin_actin_bonds[0][2] = model.actin_actin_bonds[2][0] = 1;
+    model.actin_actin_strength[0][1] = model.actin_actin_strength[1][0] = 2.0;
+    model.actin_actin_strength[0][2] = model.actin_actin_strength[2][0] = 1.5;
+    model.actin.cb_strength[0] = 3.5;
+    model.actin.cb_strength[1] = 2.0;
+    model.actin.cb_strength[2] = 1.5;
+    model.actin_n_bonds[0] = 2;
+    model.actin_n_bonds[1] = 1;
+    model.actin_n_bonds[2] = 1;
+    model.actin_strong_cb_count[0] = 2;
+    model.actin_strong_cb_count[1] = 1;
+    model.actin_strong_cb_count[2] = 1;
+    model.actin_actin_lifetime[0][1] = model.actin_actin_lifetime[1][0] = 1;
+    model.actin_actin_lifetime[0][2] = model.actin_actin_lifetime[2][0] = 1;
+
+    model._enforce_actin_cb_limit();
+
+    EXPECT_EQ(model.actin_actin_bonds[0][1], 1);
+    EXPECT_EQ(model.actin_actin_bonds[0][2], 0);
+    EXPECT_DOUBLE_EQ(model.actin.cb_strength[0], 2.0);
+    EXPECT_DOUBLE_EQ(model.actin.cb_strength[2], 0.0);
+    EXPECT_EQ(model.actin_n_bonds[0], 1);
+    EXPECT_EQ(model.actin_n_bonds[2], 0);
+    EXPECT_EQ(model.actin_actin_lifetime[0][2], 0);
 }
 
 int main(int argc, char **argv)
