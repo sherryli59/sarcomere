@@ -60,7 +60,7 @@ int main(int argc, char* argv[]){
             ("lifetime_coeff", "Lifetime coefficient", cxxopts::value<double>(lifetime_coeff)->default_value("0.4"))
             ("k_aa", "k_aa", cxxopts::value<double>(k_aa)->default_value("300"))
             ("kappa_aa", "kappa_aa", cxxopts::value<double>(kappa_aa)->default_value("20"))
-            ("k_am", "k_am", cxxopts::value<double>(k_am)->default_value("50"))
+            ("k_am", "k_am", cxxopts::value<double>(k_am)->default_value("100"))
             ("kappa_am", "kappa_am", cxxopts::value<double>(kappa_am)->default_value("20"))
             ("v_am", "v_am", cxxopts::value<double>(v_am)->default_value("5"))
             ("n_actins", "Number of actins", cxxopts::value<int>(n_actins)->default_value("50"))
@@ -71,7 +71,7 @@ int main(int argc, char* argv[]){
             ("actin_length", "Actin length", cxxopts::value<double>(actin_length)->default_value("1"))
             ("myosin_length", "Myosin length", cxxopts::value<double>(myosin_length)->default_value("1.5"))
             ("myosin_radius", "Myosin radius", cxxopts::value<double>(myosin_radius)->default_value("0.2"))
-            ("myosin_radius_ratio", "Myosin radius ratio", cxxopts::value<double>(myosin_radius_ratio)->default_value("0.48"))
+            ("myosin_radius_ratio", "Myosin radius ratio", cxxopts::value<double>(myosin_radius_ratio)->default_value("0.4"))
             ("crosslinker_length", "Crosslinker length", cxxopts::value<double>(crosslinker_length)->default_value("0.06"))
             ("resume", "Resume", cxxopts::value<bool>(resume)->default_value("false"))
             ("directional", "Directional", cxxopts::value<bool>(directional)->default_value("true"))
@@ -121,7 +121,6 @@ int main(int argc, char* argv[]){
             sim.model.am_off_angle();
         }
     }
-    //sim.volume_exclusion(1, rng,n_fixed_myosins);
     sim.run_langevin(nsteps, rng, n_fixed_myosins);
     gsl_rng_free(rng);
     return 0;

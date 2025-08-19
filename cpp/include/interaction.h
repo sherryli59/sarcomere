@@ -183,7 +183,7 @@ real aa_energy(const ArrayXreal& center1, const double& length1,
 real am_energy1(const ArrayXreal& center1, const double& length1, const ArrayXreal& dir1,
     const ArrayXreal& center2, const double& length2, const ArrayXreal& dir2,
     const std::vector<double>& box, const double k_am, const double kappa_am,
-    const double myosin_radius);
+    const double cutoff, const double optimal);
 
 // Compute the energy between two segments based solely on their angles in 3D.
 real am_energy(const ArrayXreal& dir1, const ArrayXreal& dir2, const double kappa_am);
@@ -199,6 +199,6 @@ std::vector<double> compute_am_force_and_energy(Filament& actin, Myosin& myosin,
                                                 int& actin_index, int& myosin_index,
                                                 const std::vector<double>& box,
                                                 const double k_am, const double kappa_am,
-                                                const double myosin_radius);
+                                                const double cutoff, const double optimal);
 
 #endif  // INTERACTION_H

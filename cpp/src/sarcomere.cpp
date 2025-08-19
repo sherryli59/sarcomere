@@ -52,7 +52,7 @@ Sarcomere::Sarcomere(int& n_actins, int& n_myosins, vector box0, double& actin_l
             this->directional = directional;
             cb_mult_factor = 1000;
             cutoff_radius = std::max(actin_length, myosin_length) +
-                            std::max(2 * myosin_radius, crosslinker_length);
+                            std::max(2 * myosin_radius/myosin_radius_ratio, crosslinker_length);
             double skin_distance = 0.15 * cutoff_radius;
             neighbor_list = NeighborList(cutoff_radius + skin_distance, box, skin_distance / 2);
             neighbor_list.initialize(actin.center_x, actin.center_y, actin.center_z,
@@ -513,10 +513,10 @@ void Sarcomere::_calc_am_force_velocity(int& i) {
             continue;
         }
         double partial_binding_ratio = am_interaction[i][j].partial_binding_ratio;
-        double k_am_adjusted = k_am;
-        double kappa_am_adjusted = kappa_am*std::min(partial_binding_ratio*3,1.0);
+        double k_am_adjusted = k_am * actin.f_load[i];
+        //double kappa_am_adjusted = kappa_am*std::min(partial_binding_ratio*3,1.0);
         vector force_vec = compute_am_force_and_energy(
-            actin, myosin, i, j, box, k_am_adjusted, kappa_am_adjusted, cutoff);
+            actin, myosin, i, j, box, k_am_adjusted, kappa_am, cutoff, 2*myosin.radius);
         local_actin_forces[i].x += force_vec[0];
         local_actin_forces[i].y += force_vec[1];
         local_actin_forces[i].z += force_vec[2];

@@ -11,7 +11,7 @@
 real am_energy1(const ArrayXreal& center1, const double& length1, const ArrayXreal& dir1,
     const ArrayXreal& center2, const double& length2, const ArrayXreal& dir2,
     const std::vector<double>& box, const double k_am, const double kappa_am,
-    const double myosin_radius)
+    const double cutoff, const double optimal)
 {
     // Compute endpoints for both filaments
     ArrayXreal a = center1 - 0.5 * length1 * dir1;
@@ -31,14 +31,23 @@ real am_energy1(const ArrayXreal& center1, const double& length1, const ArrayXre
     real strength = abs(dot_val);
     dot_val = std::max(real(-1), std::min(real(1), dot_val));  // clamp
     real angle_energy = 0.5 * kappa_am * (1.0 - dot_val * dot_val); 
-    if (dist > 0.8 * myosin_radius) {
-        if (dist > myosin_radius) {
+    // if (dist > 0.8 * myosin_radius) {
+    //     if (dist > myosin_radius) {
+    //     printf("something's wrong. dist: %f\n", dist.val());
+    //     exit(1);
+    // }
+    // return 0.5 * k_am * strength * dist * dist + angle_energy;
+    // } else {
+    // return 0.5 * (k_am / 10) * strength * dist * dist + angle_energy;
+    //}
+    if (dist > cutoff) {
         printf("something's wrong. dist: %f\n", dist.val());
-        exit(1);
+        return angle_energy;
     }
-    return 0.5 * k_am * strength * dist * dist + angle_energy;
-    } else {
-    return 0.5 * (k_am / 10) * strength * dist * dist + angle_energy;
+    else {
+        real offset = dist - optimal;
+        printf("offset: %f, dist: %f, optimal: %f\n", offset.val(), dist.val(), optimal);
+        return 0.5 * k_am * strength * offset * offset + angle_energy;
     }
 }
 
@@ -79,18 +88,8 @@ real aa_energy(const ArrayXreal& center1, const double& length1,
     // Compute angle between dir1 and dir2
     real dot_val = dir1[0]*dir2[0] + dir1[1]*dir2[1] + dir1[2]*dir2[2];
     dot_val = std::max(real(-1), std::min(real(1), dot_val));  // clamp for safety
-
-    real angle;
-    if (dot_val == 1) {
-        angle = 0;
-    } else if (dot_val == -1) {
-        angle = M_PI;
-    } else {
-        angle = acos(dot_val);
-    }
-    real offset = abs(angle - M_PI);
-
-    return 0.5 * (k_aa * dist * dist + kappa_aa * offset * offset);
+    real angle_energy = 0.5 * kappa_aa * (1.0 - dot_val * dot_val); 
+    return 0.5 * (k_aa * dist * dist) + angle_energy;
 }
 
 
@@ -125,7 +124,7 @@ std::vector<double> compute_am_force_and_energy(Filament& actin, Myosin& myosin,
                                                 int& actin_index, int& myosin_index,
                                                 const std::vector<double>& box,
                                                 const double k_am, const double kappa_am,
-                                                const double myosin_radius)
+                                                const double cutoff, const double optimal)
 {
     // Define 3D center positions
     ArrayXreal center1(3);
@@ -150,7 +149,7 @@ std::vector<double> compute_am_force_and_energy(Filament& actin, Myosin& myosin,
     if (k_am > 1e-6) {
         forces_3 = -gradient(am_energy1, wrt(center1, dir1, dir2),
                                 at(center1, actin.length, dir1,
-                                   center2, myosin.length, dir2, box, k_am, kappa_am, myosin_radius), u);
+                                   center2, myosin.length, dir2, box, k_am, kappa_am, cutoff, optimal), u);
         forces.resize(forces_3.size());
         VectorXd::Map(&forces[0], forces_3.size()) = forces_3;
     }
