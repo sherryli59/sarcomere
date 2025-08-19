@@ -46,7 +46,7 @@ real am_energy1(const ArrayXreal& center1, const double& length1, const ArrayXre
     }
     else {
         real offset = dist - optimal;
-        printf("offset: %f, dist: %f, optimal: %f\n", offset.val(), dist.val(), optimal);
+        //printf("offset: %f, dist: %f, optimal: %f\n", offset.val(), dist.val(), optimal);
         return 0.5 * k_am * strength * offset * offset + angle_energy;
     }
 }
