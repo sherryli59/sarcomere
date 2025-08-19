@@ -41,9 +41,10 @@ void append_to_dataset(H5::Group& group, const std::string& datasetName,
 void create_file(std::string& filename, Filament& actin, Myosin& myosin);
 
 // Append simulation data (actin, myosin, energy, connection indices) to the file.
-void append_to_file(std::string& filename, Filament& actin, Myosin& myosin, 
-    std::vector<double>& flatActinBonds, 
-    std::vector<double>& flatMyosinBonds);
+void append_to_file(std::string& filename, Filament& actin, Myosin& myosin,
+    std::vector<double>& flatActinBonds,
+    std::vector<double>& flatMyosinBonds,
+    std::vector<double>& flatActinMyosinBonds);
 
 // Load data from a dataset into a 1D vector of doubles.
 // The dataset dimensions are returned in the dims vector.
