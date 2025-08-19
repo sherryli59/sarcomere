@@ -105,9 +105,9 @@ def analyze_catch_bonds(h5file: str, dt: float = 1.0, prefix: str = "analysis") 
                         "count": 1,
                     }
 
-            # Ratio of actins engaged in catch bonds (cb_strength > 0.001)
+            # Ratio of actins engaged in catch bonds (cb_strength > 0.01)
             n_actins = cb_strength_frame.shape[0]
-            catch_actins = [i for i in bonded_actins if cb_strength_frame[i] > 0.001]
+            catch_actins = [i for i in bonded_actins if cb_strength_frame[i] > 0.01]
             ratio_actin_cb.append(len(catch_actins) / max(n_actins, 1))
 
             # Ratio of myosins engaged in catch bond
