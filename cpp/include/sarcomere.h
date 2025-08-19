@@ -44,6 +44,7 @@ public:
            dt, base_lifetime, lifetime_coeff, diff_coeff_ratio;
     bool directional;
     int fix_myosin;
+    int max_myosin_bonds;
     std::vector<std::vector<interaction>> am_interaction;
     vector actin_crosslink_ratio;
     std::vector<int> actin_n_bonds;
@@ -65,7 +66,11 @@ public:
     Sarcomere(int& n_actins, int& n_myosins, vector box0, double& actin_length, double& myosin_length,
         double& myosin_radius, double& myosin_radius_ratio, double& crosslinker_length, double& k_on, double& k_off,
         double& base_lifetime, double& lifetime_coeff, double& diff_coeff_ratio, double& k_aa, double& kappa_aa, double& k_am, double& kappa_am, double& v_am,
-        std::string& filename, gsl_rng* rng, int& seed, int& fix_myosin, double& dt, bool& directional);
+        std::string& filename, gsl_rng* rng, int& seed, int& fix_myosin, double& dt, bool& directional, int max_myosin_bonds = 2);
+    Sarcomere(int& n_actins, int& n_myosins, vector box0, double& actin_length, double& myosin_length,
+        double& myosin_radius, double& myosin_radius_ratio, double& crosslinker_length, double& k_on,
+        double& base_lifetime, double& lifetime_coeff, double& diff_coeff_ratio, double& k_aa, double& kappa_aa, double& k_am, double& kappa_am, double& v_am,
+        std::string& filename, gsl_rng* rng, int& seed, int& fix_myosin, double& dt, bool& directional, std::string& boundary_condition, int max_myosin_bonds = 2);
     ~Sarcomere();
 
     // Public Methods
@@ -105,6 +110,7 @@ private:
     std::pair<std::vector<double>, std::vector<double>>  _extract_bonded_pairs(
         const std::vector<std::vector<int>>& actin_actin_bonds,
         const utils::MoleculeConnection& myosinIndicesPerActin);
+    void _enforce_myosin_bond_limit();
 };
 
 #endif // SARCOMERE_H
