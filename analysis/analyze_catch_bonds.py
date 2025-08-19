@@ -53,10 +53,6 @@ def analyze_catch_bonds(h5file: str, dt: float = 1.0, prefix: str = "analysis") 
 
         # Optional myosin datasets
         myosin_bonds_ds = fh["/myosin/bonds"] if "/myosin/bonds" in fh else None
-        myosin_cb_strength = (
-            fh["/myosin/cb_strength"] if "/myosin/cb_strength" in fh else None
-        )
-
         n_frames = bonds_ds.shape[0]
 
         active: dict[tuple[int, int], dict] = {}
@@ -114,18 +110,17 @@ def analyze_catch_bonds(h5file: str, dt: float = 1.0, prefix: str = "analysis") 
             catch_actins = [i for i in bonded_actins if cb_strength_frame[i] > 0.001]
             pct_actin_cb.append(100.0 * len(catch_actins) / max(n_actins, 1))
 
-            # Percentage of myosins engaged in catch bonds (cb_strength < 0.001)
-            if myosin_bonds_ds is not None and myosin_cb_strength is not None:
+            # Percentage of myosins engaged in catch bond
+            if myosin_bonds_ds is not None:
                 myo_bonds = myosin_bonds_ds[frame]
-                myo_strength = myosin_cb_strength[frame, :, 0]
+                n_myosins = 250
                 bonded_myosins: set[int] = set()
                 for pair in myo_bonds:
                     m, n = int(pair[0]), int(pair[1])
                     if m < 0 or n < 0:
                         continue
                     bonded_myosins.update([m, n])
-                n_myosins = myo_strength.shape[0]
-                catch_myosins = [i for i in bonded_myosins if myo_strength[i] < 0.001]
+                catch_myosins = [i for i in bonded_myosins]
                 pct_myosin_cb.append(100.0 * len(catch_myosins) / max(n_myosins, 1))
 
             # Close out bonds that ended this frame
