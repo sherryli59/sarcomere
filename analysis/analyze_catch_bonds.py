@@ -49,6 +49,14 @@ def analyze_catch_bonds(h5file: str, dt: float = 1.0, prefix: str = "analysis") 
         bonds_ds = fh["/actin/bonds"]
         dirs_ds = fh["/actin/direction"]
         fload_ds = fh["/actin/f_load"]
+        cb_strength_actin = fh["/actin/cb_strength"]
+
+        # Optional myosin datasets
+        myosin_bonds_ds = fh["/myosin/bonds"] if "/myosin/bonds" in fh else None
+        myosin_cb_strength = (
+            fh["/myosin/cb_strength"] if "/myosin/cb_strength" in fh else None
+        )
+
         n_frames = bonds_ds.shape[0]
 
         active: dict[tuple[int, int], dict] = {}
@@ -59,14 +67,20 @@ def analyze_catch_bonds(h5file: str, dt: float = 1.0, prefix: str = "analysis") 
         # Collect all actin directions across frames for a global distribution
         all_dirs = []
 
+        # Percentages of filaments engaged in catch bonds per frame
+        pct_actin_cb: list[float] = []
+        pct_myosin_cb: list[float] = []
+
         for frame in range(n_frames):
             bonds = bonds_ds[frame]
             dirs = np.asarray(dirs_ds[frame])  # (N,3)
             f_load = fload_ds[frame, :, 0]     # (N,)
+            cb_strength_frame = cb_strength_actin[frame, :, 0]
 
             # Accumulate raw directions for global distribution
             all_dirs.append(dirs)
 
+            bonded_actins: set[int] = set()
             current_pairs: set[tuple[int, int]] = set()
             for pair in bonds:
                 a, b = int(pair[0]), int(pair[1])
@@ -75,6 +89,7 @@ def analyze_catch_bonds(h5file: str, dt: float = 1.0, prefix: str = "analysis") 
                 if a > b:
                     a, b = b, a
                 current_pairs.add((a, b))
+                bonded_actins.update([a, b])
 
                 pair_fload, angle = compute_pair_fload(
                     dirs[a], dirs[b], float(f_load[a]), float(f_load[b])
@@ -93,6 +108,25 @@ def analyze_catch_bonds(h5file: str, dt: float = 1.0, prefix: str = "analysis") 
                         "sum_fload": pair_fload,
                         "count": 1,
                     }
+
+            # Percentage of actins engaged in catch bonds (cb_strength > 0.001)
+            n_actins = cb_strength_frame.shape[0]
+            catch_actins = [i for i in bonded_actins if cb_strength_frame[i] > 0.001]
+            pct_actin_cb.append(100.0 * len(catch_actins) / max(n_actins, 1))
+
+            # Percentage of myosins engaged in catch bonds (cb_strength < 0.001)
+            if myosin_bonds_ds is not None and myosin_cb_strength is not None:
+                myo_bonds = myosin_bonds_ds[frame]
+                myo_strength = myosin_cb_strength[frame, :, 0]
+                bonded_myosins: set[int] = set()
+                for pair in myo_bonds:
+                    m, n = int(pair[0]), int(pair[1])
+                    if m < 0 or n < 0:
+                        continue
+                    bonded_myosins.update([m, n])
+                n_myosins = myo_strength.shape[0]
+                catch_myosins = [i for i in bonded_myosins if myo_strength[i] < 0.001]
+                pct_myosin_cb.append(100.0 * len(catch_myosins) / max(n_myosins, 1))
 
             # Close out bonds that ended this frame
             ended = [p for p in active if p not in current_pairs]
@@ -148,6 +182,31 @@ def analyze_catch_bonds(h5file: str, dt: float = 1.0, prefix: str = "analysis") 
         plt.tight_layout()
         plt.savefig(f"{prefix}_actin_direction_angle_to_x.png", dpi=300)
         plt.close()
+
+    # Time series of catch bond engagement percentages
+    if pct_actin_cb:
+        plt.figure()
+        plt.plot(pct_actin_cb)
+        plt.xlabel("Frame")
+        plt.ylabel("Actins in catch bond (%)")
+        plt.tight_layout()
+        plt.savefig(f"{prefix}_actin_catch_bond_percentage.png", dpi=300)
+        plt.close()
+        print(
+            f"Mean actin catch bond percentage: {float(np.mean(pct_actin_cb)):.2f}%"
+        )
+
+    if pct_myosin_cb:
+        plt.figure()
+        plt.plot(pct_myosin_cb)
+        plt.xlabel("Frame")
+        plt.ylabel("Myosins in catch bond (%)")
+        plt.tight_layout()
+        plt.savefig(f"{prefix}_myosin_catch_bond_percentage.png", dpi=300)
+        plt.close()
+        print(
+            f"Mean myosin catch bond percentage: {float(np.mean(pct_myosin_cb)):.2f}%"
+        )
 
 
 def main() -> None:
