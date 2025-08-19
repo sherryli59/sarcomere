@@ -7,6 +7,7 @@
 #include <numeric>
 #include <unordered_map>
 #include <utility>
+#include <tuple>
 #include <omp.h>
 
 #include "components.h"
@@ -107,7 +108,8 @@ private:
     void _set_cb(int& i, std::vector<int> indices, vector cb_strength);
     vec _alignment_torque(const vec& u, double k_bias);
     void _apply_cb_alignment_bias(double& k_theta_bias);
-    std::pair<std::vector<double>, std::vector<double>>  _extract_bonded_pairs(
+    std::tuple<std::vector<double>, std::vector<double>, std::vector<double>>
+        _extract_bonded_pairs(
         const std::vector<std::vector<int>>& actin_actin_bonds,
         const utils::MoleculeConnection& myosinIndicesPerActin);
     void _enforce_myosin_bond_limit();

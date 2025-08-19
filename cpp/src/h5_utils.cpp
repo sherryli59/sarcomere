@@ -213,17 +213,25 @@ void create_file(std::string& filename, Filament& actin, Myosin& myosin)
     maxDims     = {H5S_UNLIMITED, max_n_myosin_bonds, 2};
     chunkDims   = {10, max_n_myosin_bonds, 2};
     create_empty_dataset(file, "/myosin", "bonds", initialDims, maxDims, chunkDims);
+
+    hsize_t max_n_am_bonds = n_myosins * 2;
+    initialDims = {0, max_n_am_bonds, 2};
+    maxDims     = {H5S_UNLIMITED, max_n_am_bonds, 2};
+    chunkDims   = {10, max_n_am_bonds, 2};
+    create_empty_dataset(file, "/actin_myo", "bonds", initialDims, maxDims, chunkDims);
 }
 
 
-void append_to_file(std::string& filename, Filament& actin, Myosin& myosin, 
-    std::vector<double>& flatActinBonds, 
-    std::vector<double>& flatMyosinBonds)
+void append_to_file(std::string& filename, Filament& actin, Myosin& myosin,
+    std::vector<double>& flatActinBonds,
+    std::vector<double>& flatMyosinBonds,
+    std::vector<double>& flatActinMyosinBonds)
 
 {
     H5::H5File file(filename, H5F_ACC_RDWR);
     H5::Group group_actin(file.openGroup("/actin"));
     H5::Group group_myosin(file.openGroup("/myosin"));
+    H5::Group group_am(file.openGroup("/actin_myo"));
 
     hsize_t n_actins  = static_cast<hsize_t>(actin.n);
     hsize_t n_myosins = static_cast<hsize_t>(myosin.n);
@@ -274,10 +282,12 @@ void append_to_file(std::string& filename, Filament& actin, Myosin& myosin,
     // Compute maximum possible bonds per frame.
     int max_n_actin_bonds = actin.n * 5;
     int max_n_myosin_bonds = myosin.n * 4;
+    int max_n_am_bonds = myosin.n * 2;
 
     // Compute current number of bonds (each bond occupies two entries).
     int current_n_actinBonds = static_cast<int>(flatActinBonds.size()) / 2;
     int current_n_myosinBonds = static_cast<int>(flatMyosinBonds.size()) / 2;
+    int current_n_amBonds = static_cast<int>(flatActinMyosinBonds.size()) / 2;
 
     // Pad flatActinBonds if needed.
     if (current_n_actinBonds < max_n_actin_bonds) {
@@ -295,14 +305,24 @@ void append_to_file(std::string& filename, Filament& actin, Myosin& myosin,
             flatMyosinBonds.push_back(-1);
         }
     }
+    // Pad actin-myosin bonds if needed.
+    if (current_n_amBonds < max_n_am_bonds) {
+        int padRows = max_n_am_bonds - current_n_amBonds;
+        for (int i = 0; i < padRows; i++) {
+            flatActinMyosinBonds.push_back(-1);
+            flatActinMyosinBonds.push_back(-1);
+        }
+    }
 
     // Now that each flattened vector has a size corresponding to (max_n * 2),
     // the new dimensions for appending one frame are {1, max_n, 2}.
     hsize_t newActinDims[3] = {1, static_cast<hsize_t>(max_n_actin_bonds), 2};
     hsize_t newMyosinDims[3] = {1, static_cast<hsize_t>(max_n_myosin_bonds), 2};
+    hsize_t newAmDims[3] = {1, static_cast<hsize_t>(max_n_am_bonds), 2};
 
     append_to_dataset(group_actin, "bonds", flatActinBonds, { newActinDims[0], newActinDims[1], newActinDims[2] });
     append_to_dataset(group_myosin, "bonds", flatMyosinBonds, { newMyosinDims[0], newMyosinDims[1], newMyosinDims[2] });
+    append_to_dataset(group_am, "bonds", flatActinMyosinBonds, { newAmDims[0], newAmDims[1], newAmDims[2] });
     // int max_bonds = 10;
     // // Serialize actinIndicesPerActin.
     // auto serialized_indices = serializeActinIndicesPerActin(actinIndicesPerActin, actin.n, max_bonds);

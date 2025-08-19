@@ -878,7 +878,8 @@ void Sarcomere::_set_cb(int& i, std::vector<int> indices, std::vector<double> cb
     }
 }
 
-std::pair<std::vector<double>, std::vector<double>> Sarcomere::_extract_bonded_pairs(
+std::tuple<std::vector<double>, std::vector<double>, std::vector<double>>
+    Sarcomere::_extract_bonded_pairs(
     const std::vector<std::vector<int>>& actin_actin_bonds,
     const utils::MoleculeConnection& myosinIndicesPerActin)
 {
@@ -929,8 +930,18 @@ std::pair<std::vector<double>, std::vector<double>> Sarcomere::_extract_bonded_p
         flattenedMyosinBonds.push_back(static_cast<double>(bond.second));
     }
 
-    // Return the pair: first element is actin bonds, second is myosin bonds.
-    return { flatActinBonds, flattenedMyosinBonds };
+    // Extract actin–myosin bonds from actinIndicesPerMyosin.
+    std::vector<double> flatActinMyosinBonds;
+    for (int m = 0; m < myosin.n; ++m) {
+        auto actins = actinIndicesPerMyosin.getConnections(m);
+        for (int a : actins) {
+            flatActinMyosinBonds.push_back(static_cast<double>(a));
+            flatActinMyosinBonds.push_back(static_cast<double>(m));
+        }
+    }
+
+    // Return the triplet: actin bonds, myosin bonds, and actin–myosin bonds.
+    return { flatActinBonds, flattenedMyosinBonds, flatActinMyosinBonds };
 }
 
 void Sarcomere::_apply_cb_alignment_bias(double& k_theta_bias) {
@@ -970,11 +981,13 @@ void Sarcomere::new_file(){
 }
 
 void Sarcomere::save_state(){
-    std::pair<std::vector<double>, std::vector<double>> bondPairData =
+    auto bondData =
     _extract_bonded_pairs(actin_actin_bonds, myosinIndicesPerActin);
-    std::vector<double> flatActinBonds = bondPairData.first;
-    std::vector<double> flatMyosinBonds = bondPairData.second;
-    append_to_file(filename, actin, myosin, flatActinBonds, flatMyosinBonds);
+    std::vector<double> flatActinBonds = std::get<0>(bondData);
+    std::vector<double> flatMyosinBonds = std::get<1>(bondData);
+    std::vector<double> flatActinMyosinBonds = std::get<2>(bondData);
+    append_to_file(filename, actin, myosin, flatActinBonds,
+                   flatMyosinBonds, flatActinMyosinBonds);
 }
 
 void Sarcomere::load_state(int& n_frames){
