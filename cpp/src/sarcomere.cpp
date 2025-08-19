@@ -2,13 +2,13 @@
 #include <algorithm>
 
 // Constructor
-Sarcomere::Sarcomere() {}
+Sarcomere::Sarcomere() : max_myosin_bonds(2) {}
 
 // Parameterized Constructor
 Sarcomere::Sarcomere(int& n_actins, int& n_myosins, vector box0, double& actin_length, double& myosin_length,
         double& myosin_radius, double& myosin_radius_ratio, double& crosslinker_length, double& k_on, double& k_off,
         double& base_lifetime, double& lifetime_coeff, double& diff_coeff_ratio, double& k_aa, double& kappa_aa, double& k_am, double& kappa_am, double& v_am,
-        std::string& filename, gsl_rng* rng, int& seed, int& fix_myosin, double& dt, bool& directional)
+        std::string& filename, gsl_rng* rng, int& seed, int& fix_myosin, double& dt, bool& directional, int max_myosin_bonds)
             : actin(n_actins, actin_length, box0, rng),
               myosin(n_myosins, myosin_length, myosin_radius, box0, rng),
               myosinIndicesPerActin(n_actins),
@@ -50,6 +50,7 @@ Sarcomere::Sarcomere(int& n_actins, int& n_myosins, vector box0, double& actin_l
             this->lifetime_coeff = lifetime_coeff;
             this->diff_coeff_ratio = diff_coeff_ratio;
             this->directional = directional;
+            this->max_myosin_bonds = max_myosin_bonds;
             cb_mult_factor = 1000;
             cutoff_radius = std::max(actin_length, myosin_length) +
                             std::max(2 * myosin_radius/myosin_radius_ratio, crosslinker_length);
@@ -262,8 +263,10 @@ void Sarcomere::update_system() {
         // Step 4: Reduce actin catch-bond strengths
         utils::reduce_array(actin_cb_strengths_temp, actin.cb_strength);
 
-
-        #pragma omp barrier  
+        #pragma omp barrier
+        #pragma omp single
+        { _enforce_myosin_bond_limit(); }
+        #pragma omp barrier
 
         // Step 5: Concatenate actinIndicesPerMyosin connections
         #pragma omp for
@@ -492,6 +495,41 @@ void Sarcomere::_process_catch_bonds(int& i) {
             }
     }
     _set_cb(i, cb_indices,cb_strengths);
+}
+
+void Sarcomere::_enforce_myosin_bond_limit() {
+    for (int j = 0; j < myosin.n; ++j) {
+        std::vector<int> bound_actins;
+        for (int i = 0; i < actin.n; ++i) {
+            if (am_bonds[i][j] == 1) {
+                bound_actins.push_back(i);
+            }
+        }
+
+        if (static_cast<int>(bound_actins.size()) <= max_myosin_bonds) {
+            continue;
+        }
+
+        std::vector<int> priority(bound_actins.size(), 0);
+        for (size_t idx = 0; idx < bound_actins.size(); ++idx) {
+            int i = bound_actins[idx];
+            bool cb = actin.cb_strength[i] > 0;
+            bool prev = am_bonds_prev[i][j] == 1;
+            if (cb && prev) priority[idx] = 3;
+            else if (cb) priority[idx] = 2;
+            else if (prev) priority[idx] = 1;
+        }
+
+        auto order = utils::sort_indices(priority);
+        for (size_t k = max_myosin_bonds; k < order.size(); ++k) {
+            int actin_idx = bound_actins[order[k]];
+            am_bonds[actin_idx][j] = 0;
+            myosinIndicesPerActin.deleteConnection(actin_idx, j);
+            for (auto& temp_conn : actinIndicesPerMyosin_temp) {
+                temp_conn.deleteConnection(j, actin_idx);
+            }
+        }
+    }
 }
 
 void Sarcomere::_calc_am_force_velocity(int& i) {
