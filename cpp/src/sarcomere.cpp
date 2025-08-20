@@ -72,7 +72,6 @@ Sarcomere::Sarcomere(int& n_actins, int& n_myosins, vector box0, double& actin_l
             for (int i = 0; i < n_actins; i++) {
                 am_interaction[i].resize(n_myosins);
             }
-            actin_f_load_prev.resize(n_actins, 0.0);
             actin.register_feature("myosin_binding_ratio");
             actin.register_feature("crosslink_ratio");
             actin.register_feature("partial_binding_ratio");
@@ -392,7 +391,6 @@ void Sarcomere::_set_to_zero() {
         actin.force[i] = {0, 0, 0};
         actin.torque[i] = {0, 0, 0};
         actin.velocity[i] = {0, 0, 0};
-        actin_f_load_prev[i] = actin.f_load[i];
         actin.f_load[i] = 0;
         actin.cb_strength[i] = 0;
         actin_basic_tension[i] = 0;
@@ -464,19 +462,8 @@ void Sarcomere::_process_actin_myosin_binding(int& i) {
                     actin["myosin_binding_ratio"][i] = am_interaction[i][j].myosin_binding_ratio;
                 }
 
-                // Kinetic Monte Carlo update of bond state
-                double rand = gsl_rng_uniform(rng_engines[thread_id]);
-                bool was_bound = am_bonds_prev[i][j] == 1;
-                if (was_bound) {
-                    double k_off_adjusted = dt /(base_lifetime + lifetime_coeff * actin_f_load_prev[i]);
-                    if (rand >= k_off_adjusted) {
-                        am_bonds[i][j] = 1;
-                    }
-                } else {
-                    if (rand < k_on * dt) {
-                        am_bonds[i][j] = 1;
-                    }
-                }
+                // Immediately register a bond when geometrically allowed
+                am_bonds[i][j] = 1;
             }
         }
     }
