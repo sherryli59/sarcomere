@@ -151,7 +151,10 @@ def plot_system(frame, data, myosin_length, actin_length, Lx, Ly, Lz,
     actin_center = data["/actin/center"][frame]
     actin_direction = data["/actin/direction"][frame]
     cb_status = data["/actin/cb_status"][frame].flatten()
-    f_load = data["/actin/f_load"][frame].flatten()
+
+    mask = cb_status == 2
+    actin_center = actin_center[mask]
+    actin_direction = actin_direction[mask]
 
     plot_filaments_3d(
         center=actin_center,
@@ -161,26 +164,8 @@ def plot_system(frame, data, myosin_length, actin_length, Lx, Ly, Lz,
         Lx=Lx, Ly=Ly, Lz=Lz,
         plotter=plotter,
         color='blue',
-        color_spectrum=cb_status * f_load
+        color_spectrum=None
     )
-
-    # Highlight actins engaged in catch bonds with arrows whose
-    # transparency reflects the catch-bond status (1: transparent,
-    # 2: opaque).
-    for i in range(actin_center.shape[0]):
-        status = cb_status[i]
-        if status <= 0:
-            continue
-        arrow = pv.Arrow(
-            start=actin_center[i] - 0.5 * actin_length * actin_direction[i],
-            direction=actin_direction[i],
-            tip_length=0.25,
-            tip_radius=0.04,
-            shaft_radius=0.02,
-            scale=actin_length,
-        )
-        opacity = 0.3 if status == 1 else 1.0
-        plotter.add_mesh(arrow, color="red", opacity=opacity)
 
     # ------------------------------------------------------------------
     # Myosin filaments
