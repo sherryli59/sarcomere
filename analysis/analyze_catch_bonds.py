@@ -34,7 +34,7 @@ def compute_pair_fload(
 
 
 def analyze_catch_bonds(h5file: str, dt: float = 1.0, prefix: str = "analysis") -> None:
-    """Analyze actin catch bonds in a trajectory file.
+    """Analyze actin catch bonds and actin--myosin connectivity in a trajectory file.
 
     Parameters
     ----------
@@ -53,6 +53,7 @@ def analyze_catch_bonds(h5file: str, dt: float = 1.0, prefix: str = "analysis") 
 
         # Optional myosin datasets
         myosin_bonds_ds = fh["/myosin/bonds"] if "/myosin/bonds" in fh else None
+        am_bonds_ds = fh["/actin_myo/bonds"] if "/actin_myo/bonds" in fh else None
         n_frames = bonds_ds.shape[0]
 
         active: dict[tuple[int, int], dict] = {}
@@ -66,6 +67,10 @@ def analyze_catch_bonds(h5file: str, dt: float = 1.0, prefix: str = "analysis") 
         # Ratios of filaments engaged in catch bonds per frame
         ratio_actin_cb: list[float] = []
         ratio_myosin_cb: list[float] = []
+
+        # Distributions of actin--myosin connectivity
+        myosins_per_actin: list[int] = []
+        actins_per_myosin: list[int] = []
 
         for frame in range(n_frames):
             bonds = bonds_ds[frame]
@@ -109,6 +114,21 @@ def analyze_catch_bonds(h5file: str, dt: float = 1.0, prefix: str = "analysis") 
             n_actins = cb_strength_frame.shape[0]
             catch_actins = [i for i in bonded_actins if cb_strength_frame[i] > 0.01]
             ratio_actin_cb.append(len(catch_actins) / max(n_actins, 1))
+
+            # Actin--myosin connectivity for this frame
+            if am_bonds_ds is not None:
+                am_pairs = am_bonds_ds[frame]
+                a2m: dict[int, set[int]] = {}
+                m2a: dict[int, set[int]] = {}
+                for pair in am_pairs:
+                    a, m = int(pair[0]), int(pair[1])
+                    if a < 0 or m < 0:
+                        continue
+                    a2m.setdefault(a, set()).add(m)
+                    m2a.setdefault(m, set()).add(a)
+
+                myosins_per_actin.extend(len(v) for v in a2m.values())
+                actins_per_myosin.extend(len(v) for v in m2a.values())
 
             # Ratio of myosins engaged in catch bond
             if myosin_bonds_ds is not None:
@@ -197,6 +217,27 @@ def analyze_catch_bonds(h5file: str, dt: float = 1.0, prefix: str = "analysis") 
         plt.ylabel("Myosins in catch bond (ratio)")
         plt.tight_layout()
         plt.savefig(f"{prefix}_myosin_catch_bond_ratio.png", dpi=300)
+        plt.close()
+
+    # Distributions of actin--myosin connections
+    if myosins_per_actin:
+        plt.figure()
+        bins = np.arange(1, max(myosins_per_actin) + 2) - 0.5
+        plt.hist(myosins_per_actin, bins=bins, density=True)
+        plt.xlabel("Myosins bound per actin")
+        plt.ylabel("Probability density")
+        plt.tight_layout()
+        plt.savefig(f"{prefix}_myosins_per_actin_distribution.png", dpi=300)
+        plt.close()
+
+    if actins_per_myosin:
+        plt.figure()
+        bins = np.arange(1, max(actins_per_myosin) + 2) - 0.5
+        plt.hist(actins_per_myosin, bins=bins, density=True)
+        plt.xlabel("Actins bound per myosin")
+        plt.ylabel("Probability density")
+        plt.tight_layout()
+        plt.savefig(f"{prefix}_actins_per_myosin_distribution.png", dpi=300)
         plt.close()
 
 
