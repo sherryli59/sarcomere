@@ -1016,13 +1016,14 @@ std::tuple<std::vector<double>, std::vector<double>, std::vector<double>>
         flattenedMyosinBonds.push_back(static_cast<double>(bond.second));
     }
 
-    // Extract actin–myosin bonds from actinIndicesPerMyosin.
+    // Extract actin–myosin bonds directly from the bond matrix.
     std::vector<double> flatActinMyosinBonds;
-    for (int m = 0; m < myosin.n; ++m) {
-        auto actins = actinIndicesPerMyosin.getConnections(m);
-        for (int a : actins) {
-            flatActinMyosinBonds.push_back(static_cast<double>(a));
-            flatActinMyosinBonds.push_back(static_cast<double>(m));
+    for (int a = 0; a < actin.n; ++a) {
+        for (int m = 0; m < myosin.n; ++m) {
+            if (am_bonds[a][m] == 1) {
+                flatActinMyosinBonds.push_back(static_cast<double>(a));
+                flatActinMyosinBonds.push_back(static_cast<double>(m));
+            }
         }
     }
 
