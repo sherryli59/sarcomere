@@ -2,7 +2,7 @@
 #include <algorithm>
 
 // Constructor
-Sarcomere::Sarcomere() : max_myosin_bonds(2), max_strong_actin_bonds(1) {}
+Sarcomere::Sarcomere() : max_myosin_bonds(3), max_strong_actin_bonds(2) {}
 
 // Parameterized Constructor
 Sarcomere::Sarcomere(int& n_actins, int& n_myosins, vector box0, double& actin_length, double& myosin_length,
@@ -99,10 +99,10 @@ void Sarcomere::partial_fix(int& n_fixed){
         myosin.center[i].y = myosin_positions[i][1];
         myosin.center[i].z = myosin_positions[i][2]; // set z coordinate to 0        
     }
-    // set all myosin directions to x-axis
-    // for (int i = 0; i < myosin.n; i++){
-    //     myosin.direction[i] = {1, 0, 0};
-    // }
+    //set all myosin directions to x-axis
+    for (int i = 0; i < myosin.n; i++){
+        myosin.direction[i] = {1, 0, 0};
+    }
     myosin.update_endpoints();
     update_system();
 }
@@ -291,7 +291,7 @@ void Sarcomere::update_system() {
         }
 
         _volume_exclusion();
-        // double k_theta = 100.0;
+        // double k_theta = 1.0;
         // _apply_cb_alignment_bias(k_theta);
 
         #pragma omp barrier  
@@ -589,6 +589,7 @@ void Sarcomere::_calc_am_force_velocity(int& i) {
         if (am_bonds[i][j] != 1) {
             continue;
         }
+         
         double partial_binding_ratio = am_interaction[i][j].partial_binding_ratio;
         double k_am_adjusted = k_am * actin.f_load[i];
         //double kappa_am_adjusted = kappa_am*std::min(partial_binding_ratio*3,1.0);
