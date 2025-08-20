@@ -144,7 +144,8 @@ void append_to_dataset(H5::Group& group, const std::string& datasetName,
     }
 }
 
-void create_file(std::string& filename, Filament& actin, Myosin& myosin)
+void create_file(std::string& filename, Filament& actin, Myosin& myosin,
+                 int max_myosin_bonds)
 {
     // Remove any existing file with the same name.
     std::remove(filename.c_str());
@@ -214,7 +215,7 @@ void create_file(std::string& filename, Filament& actin, Myosin& myosin)
     chunkDims   = {10, max_n_myosin_bonds, 2};
     create_empty_dataset(file, "/myosin", "bonds", initialDims, maxDims, chunkDims);
 
-    hsize_t max_n_am_bonds = n_myosins * 2;
+    hsize_t max_n_am_bonds = n_myosins * max_myosin_bonds;
     initialDims = {0, max_n_am_bonds, 2};
     maxDims     = {H5S_UNLIMITED, max_n_am_bonds, 2};
     chunkDims   = {10, max_n_am_bonds, 2};
@@ -225,7 +226,8 @@ void create_file(std::string& filename, Filament& actin, Myosin& myosin)
 void append_to_file(std::string& filename, Filament& actin, Myosin& myosin,
     std::vector<double>& flatActinBonds,
     std::vector<double>& flatMyosinBonds,
-    std::vector<double>& flatActinMyosinBonds)
+    std::vector<double>& flatActinMyosinBonds,
+    int max_myosin_bonds)
 
 {
     H5::H5File file(filename, H5F_ACC_RDWR);
@@ -282,7 +284,7 @@ void append_to_file(std::string& filename, Filament& actin, Myosin& myosin,
     // Compute maximum possible bonds per frame.
     int max_n_actin_bonds = actin.n * 5;
     int max_n_myosin_bonds = myosin.n * 4;
-    int max_n_am_bonds = myosin.n * 2;
+    int max_n_am_bonds = myosin.n * max_myosin_bonds;
 
     // Compute current number of bonds (each bond occupies two entries).
     int current_n_actinBonds = static_cast<int>(flatActinBonds.size()) / 2;
