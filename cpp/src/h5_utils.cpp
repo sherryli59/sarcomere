@@ -85,6 +85,31 @@ void create_empty_dataset(H5::H5File& file, const std::string& groupName,
     }
 }
 
+void create_empty_dataset_int(H5::H5File& file, const std::string& groupName,
+                          const std::string& datasetName,
+                          const std::vector<hsize_t>& initialDims,
+                          const std::vector<hsize_t>& maxDims,
+                          const std::vector<hsize_t>& chunkDims)
+{
+    try {
+        H5::Group group;
+        if (!file.nameExists(groupName)) {
+            group = file.createGroup(groupName);
+        } else {
+            group = file.openGroup(groupName);
+        }
+        H5::DataSpace dataspace(initialDims.size(), initialDims.data(), maxDims.data());
+        H5::DSetCreatPropList prop;
+        prop.setChunk(chunkDims.size(), chunkDims.data());
+        H5::IntType datatype(H5::PredType::STD_I32LE);
+        H5::DataSet dataset = group.createDataSet(datasetName, datatype, dataspace, prop);
+    }
+    catch (H5::Exception& error) {
+        error.printErrorStack();
+        std::cerr << "Error creating empty int dataset: " << datasetName << std::endl;
+    }
+}
+
 void append_to_dataset(H5::Group& group, const std::string& datasetName,
                        const std::vector<double> newData,
                        const std::vector<hsize_t>& newDims)
@@ -144,6 +169,31 @@ void append_to_dataset(H5::Group& group, const std::string& datasetName,
     }
 }
 
+void append_to_dataset_int(H5::Group& group, const std::string& datasetName,
+                       const std::vector<int> newData,
+                       const std::vector<hsize_t>& newDims)
+{
+    try {
+        H5::DataSet dataset = group.openDataSet(datasetName);
+        H5::DataSpace filespace = dataset.getSpace();
+        std::vector<hsize_t> currentSize(filespace.getSimpleExtentNdims());
+        filespace.getSimpleExtentDims(currentSize.data(), NULL);
+        std::vector<hsize_t> newSize = currentSize;
+        newSize[0] += newDims[0];
+        dataset.extend(newSize.data());
+        H5::DataSpace newFilespace = dataset.getSpace();
+        std::vector<hsize_t> offset(currentSize.size(), 0);
+        offset[0] = currentSize[0];
+        newFilespace.selectHyperslab(H5S_SELECT_SET, newDims.data(), offset.data());
+        H5::DataSpace memspace(newDims.size(), newDims.data());
+        dataset.write(newData.data(), H5::PredType::STD_I32LE, memspace, newFilespace);
+    }
+    catch (H5::Exception& error) {
+        error.printErrorStack();
+        std::cerr << "Error appending int dataset: " << datasetName << std::endl;
+    }
+}
+
 void create_file(std::string& filename, Filament& actin, Myosin& myosin,
                  int max_myosin_bonds)
 {
@@ -167,7 +217,7 @@ void create_file(std::string& filename, Filament& actin, Myosin& myosin,
     initialDims = {0, n_actins, 1};
     maxDims     = {H5S_UNLIMITED, n_actins, 1};
     chunkDims   = {10, n_actins, 1};
-    create_empty_dataset(file, "/actin", "cb_strength", initialDims, maxDims, chunkDims);
+    create_empty_dataset_int(file, "/actin", "cb_status", initialDims, maxDims, chunkDims);
     create_empty_dataset(file, "/actin", "f_load", initialDims, maxDims, chunkDims);
 
 
@@ -254,7 +304,7 @@ void append_to_file(std::string& filename, Filament& actin, Myosin& myosin,
     std::vector<double> flattened_actin_direction = flatten_3d_array(actin.direction);
     append_to_dataset(group_actin, "direction", flattened_actin_direction, {1, n_actins, 3});
 
-    append_to_dataset(group_actin, "cb_strength", actin.cb_strength, {1, n_actins, 1});
+    append_to_dataset_int(group_actin, "cb_status", actin.cb_status, {1, n_actins, 1});
     append_to_dataset(group_actin, "f_load", actin.f_load, {1, n_actins, 1});
 
 

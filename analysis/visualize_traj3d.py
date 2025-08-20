@@ -163,7 +163,7 @@ def plot_system(frame, data, myosin_length, actin_length, Lx, Ly, Lz, myosin_rad
     # Actin data.
     actin_center = data["/actin/center"][frame]
     actin_direction = data["/actin/direction"][frame]
-    cb_strength = data["/actin/cb_strength"][frame].flatten()
+    cb_strength = data["/actin/cb_status"][frame].flatten()
     f_load = data["/actin/f_load"][frame].flatten()
     actin_direction = data["/actin/direction"][frame]  # shape (N, 3)
     plot_filaments_3d(actin_center, actin_direction, actin_length,
@@ -373,11 +373,11 @@ if __name__ == "__main__":
     print(f"Number of frames: {nframes}")
     if args.print_frame < nframes:
         actin_center = data["/actin/center"][args.print_frame]
-        cb_strength = data["/actin/cb_strength"][args.print_frame]
+        cb_strength = data["/actin/cb_status"][args.print_frame]
         f_load = data["/actin/f_load"][args.print_frame]
         for i in range(actin_center.shape[0]):
-            if cb_strength[i] > 0.01:
-                print(f"Actin filament {i}: catch bond strength: {cb_strength[i]}")
+            if cb_strength[i] > 0:
+                print(f"Actin filament {i}: catch bond status: {cb_strength[i]}")
                 print(f"Actin filament {i}: f load: {f_load[i]}")
                 print(f"Actin filament {i}: center: {actin_center[i]}")
         myosin_center = data["/myosin/center"][args.print_frame]

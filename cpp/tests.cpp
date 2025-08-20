@@ -95,11 +95,11 @@ TEST(Sarcomere, ActinStrongBondLimit)
 
     model.actin_actin_bonds[0][1] = model.actin_actin_bonds[1][0] = 1;
     model.actin_actin_bonds[0][2] = model.actin_actin_bonds[2][0] = 1;
-    model.actin_actin_strength[0][1] = model.actin_actin_strength[1][0] = 2.0;
-    model.actin_actin_strength[0][2] = model.actin_actin_strength[2][0] = 1.5;
-    model.actin.cb_strength[0] = 3.5;
-    model.actin.cb_strength[1] = 2.0;
-    model.actin.cb_strength[2] = 1.5;
+    model.actin_actin_status[0][1] = model.actin_actin_status[1][0] = 2;
+    model.actin_actin_status[0][2] = model.actin_actin_status[2][0] = 2;
+    model.actin.cb_status[0] = 2;
+    model.actin.cb_status[1] = 1;
+    model.actin.cb_status[2] = 2;
     model.actin_n_bonds[0] = 2;
     model.actin_n_bonds[1] = 1;
     model.actin_n_bonds[2] = 1;
@@ -113,8 +113,8 @@ TEST(Sarcomere, ActinStrongBondLimit)
 
     EXPECT_EQ(model.actin_actin_bonds[0][1], 1);
     EXPECT_EQ(model.actin_actin_bonds[0][2], 0);
-    EXPECT_DOUBLE_EQ(model.actin.cb_strength[0], 2.0);
-    EXPECT_DOUBLE_EQ(model.actin.cb_strength[2], 0.0);
+    EXPECT_EQ(model.actin.cb_status[0], 2);
+    EXPECT_EQ(model.actin.cb_status[2], 0);
     EXPECT_EQ(model.actin_n_bonds[0], 1);
     EXPECT_EQ(model.actin_n_bonds[2], 0);
     EXPECT_EQ(model.actin_actin_lifetime[0][2], 0);

@@ -33,13 +33,13 @@ public:
     utils::MoleculeConnection actinIndicesPerActin;
 
     std::vector<std::vector<int>> actin_actin_bonds, actin_actin_bonds_prev;
-    std::vector<std::vector<double>> actin_actin_strength;
+    std::vector<std::vector<int>> actin_actin_status;
     // Track lifetime (in steps) for each actin–actin catch bond
     std::vector<std::vector<int>> actin_actin_lifetime, actin_actin_lifetime_prev;
     // Track actin–myosin bonds
     std::vector<std::vector<int>> am_bonds, am_bonds_prev;
     vector box;
-    double k_aa, kappa_aa, cb_mult_factor, k_on, k_off,
+    double k_aa, kappa_aa, k_on, k_off,
            kappa_am, k_am, v_am, crosslinker_length, myosin_radius_ratio, skin_distance, cutoff_radius,
            dt, base_lifetime, lifetime_coeff, diff_coeff_ratio;
     bool directional;
@@ -57,9 +57,10 @@ public:
     gsl_rng* rng;
     std::string filename;
 
-    std::vector<std::vector<vec>> actin_forces_temp, 
+    std::vector<std::vector<vec>> actin_forces_temp,
                                     myosin_forces_temp, myosin_velocities_temp, actin_torques_temp, myosin_torques_temp;
-    std::vector<std::vector<double>> actin_cb_strengths_temp, myosin_f_load_temp;
+    std::vector<std::vector<int>> actin_cb_status_temp;
+    std::vector<std::vector<double>> myosin_f_load_temp;
     std::vector<utils::MoleculeConnection> actinIndicesPerMyosin_temp;
     std::vector<gsl_rng*> rng_engines;
 
@@ -103,10 +104,10 @@ private:
     void _myosin_exclusion();
     void _myosin_repulsion(int& i, int& j);
     void _actin_repulsion(int& i, int& j);
-    double _get_cb_strength(int& i, int& j);
-    void _get_f_load(int& i);
-    void _set_cb(int& i, int& j, double& normalized_strength, bool& add_connection);
-    void _set_cb(int& i, std::vector<int> indices, vector cb_strength);
+    int determine_cb_status(int& i, int& j);
+    void compute_actin_f_load(int& i);
+    void _set_cb(int& i, int& j, int status, bool& add_connection);
+    void _set_cb(int& i, std::vector<int> indices, std::vector<int> status);
     vec _alignment_torque(const vec& u, double k_bias);
     void _apply_cb_alignment_bias(double& k_theta_bias);
     std::tuple<std::vector<double>, std::vector<double>, std::vector<double>>

@@ -55,7 +55,7 @@ Filament::Filament(int n0, double length0, std::vector<double> box0, gsl_rng* rn
     velocity_y.resize(n);
     velocity_z.resize(n);
     f_load.resize(n);
-    cb_strength.resize(n);
+    cb_status.resize(n);
 
     // Randomly initialize the center positions and directions.
     for (int i = 0; i < n; i++) {
@@ -112,7 +112,7 @@ Filament::Filament(const Filament& other)
     velocity_y = other.velocity_y;
     velocity_z = other.velocity_z;
     f_load = other.f_load;
-    cb_strength = other.cb_strength;
+    cb_status = other.cb_status;
 }
 
 // Displace function (translation only).

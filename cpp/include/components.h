@@ -31,7 +31,7 @@ public:
     std::vector<double> torque_x, torque_y, torque_z;
     std::vector<double> velocity_x, velocity_y, velocity_z;
     std::vector<double> f_load;
-    std::vector<double> cb_strength;
+    std::vector<int> cb_status;
 
     struct VecRef {
         double &x, &y, &z;

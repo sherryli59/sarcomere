@@ -131,7 +131,7 @@ void Langevin::sample_step(double& dt, gsl_rng* rng, int& fix_myosin) {
     }
     // Update actin particles.
     for (int i = 0; i < model.actin.n; i++) {
-        if (model.actin.cb_strength[i] > 1e-3){
+        if (model.actin.cb_status[i] > 0){
             D = D_myosin_trans;
             D_rot = D_myosin_rot;
         }
