@@ -38,13 +38,15 @@ void append_to_dataset(H5::Group& group, const std::string& datasetName,
                        const std::vector<hsize_t>& newDims);
 
 // Create a new HDF5 file and set up datasets for actin and myosin.
-void create_file(std::string& filename, Filament& actin, Myosin& myosin);
+void create_file(std::string& filename, Filament& actin, Myosin& myosin,
+                 int max_myosin_bonds);
 
 // Append simulation data (actin, myosin, energy, connection indices) to the file.
 void append_to_file(std::string& filename, Filament& actin, Myosin& myosin,
     std::vector<double>& flatActinBonds,
     std::vector<double>& flatMyosinBonds,
-    std::vector<double>& flatActinMyosinBonds);
+    std::vector<double>& flatActinMyosinBonds,
+    int max_myosin_bonds);
 
 // Load data from a dataset into a 1D vector of doubles.
 // The dataset dimensions are returned in the dims vector.

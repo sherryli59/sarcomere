@@ -1027,7 +1027,7 @@ void Sarcomere::_apply_cb_alignment_bias(double& k_theta_bias) {
 
 
 void Sarcomere::new_file(){
-    create_file(filename, actin, myosin);
+    create_file(filename, actin, myosin, max_myosin_bonds);
 }
 
 void Sarcomere::save_state(){
@@ -1037,7 +1037,7 @@ void Sarcomere::save_state(){
     std::vector<double> flatMyosinBonds = std::get<1>(bondData);
     std::vector<double> flatActinMyosinBonds = std::get<2>(bondData);
     append_to_file(filename, actin, myosin, flatActinBonds,
-                   flatMyosinBonds, flatActinMyosinBonds);
+                   flatMyosinBonds, flatActinMyosinBonds, max_myosin_bonds);
 }
 
 void Sarcomere::load_state(int& n_frames){
