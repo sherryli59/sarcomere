@@ -2,7 +2,7 @@
 #include <algorithm>
 
 // Constructor
-Sarcomere::Sarcomere() : max_myosin_bonds(3), max_strong_actin_bonds(2) {}
+Sarcomere::Sarcomere() : max_myosin_bonds(5), max_strong_actin_bonds(2) {}
 
 // Parameterized Constructor
 Sarcomere::Sarcomere(int& n_actins, int& n_myosins, vector box0, double& actin_length, double& myosin_length,
