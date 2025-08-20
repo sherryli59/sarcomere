@@ -31,10 +31,18 @@ void create_empty_dataset(H5::H5File& file, const std::string& groupName,
                           const std::vector<hsize_t>& initialDims,
                           const std::vector<hsize_t>& maxDims,
                           const std::vector<hsize_t>& chunkDims);
+void create_empty_dataset_int(H5::H5File& file, const std::string& groupName,
+                          const std::string& datasetName,
+                          const std::vector<hsize_t>& initialDims,
+                          const std::vector<hsize_t>& maxDims,
+                          const std::vector<hsize_t>& chunkDims);
 
 // Append new data to an existing dataset within a given group.
 void append_to_dataset(H5::Group& group, const std::string& datasetName,
                        const std::vector<double> newData,
+                       const std::vector<hsize_t>& newDims);
+void append_to_dataset_int(H5::Group& group, const std::string& datasetName,
+                       const std::vector<int> newData,
                        const std::vector<hsize_t>& newDims);
 
 // Create a new HDF5 file and set up datasets for actin and myosin.

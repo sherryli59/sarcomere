@@ -49,7 +49,7 @@ def analyze_catch_bonds(h5file: str, dt: float = 1.0, prefix: str = "analysis") 
         bonds_ds = fh["/actin/bonds"]
         dirs_ds = fh["/actin/direction"]
         fload_ds = fh["/actin/f_load"]
-        cb_strength_actin = fh["/actin/cb_strength"]
+        cb_status_actin = fh["/actin/cb_status"]
 
         actin_vel_ds = fh["/actin/velocity"]
         myosin_vel_ds = fh["/myosin/velocity"] if "/myosin/velocity" in fh else None
@@ -85,7 +85,7 @@ def analyze_catch_bonds(h5file: str, dt: float = 1.0, prefix: str = "analysis") 
             bonds = bonds_ds[frame]
             dirs = np.asarray(dirs_ds[frame])  # (N,3)
             f_load = fload_ds[frame, :, 0]     # (N,)
-            cb_strength_frame = cb_strength_actin[frame, :, 0]
+            cb_strength_frame = cb_status_actin[frame, :, 0]
 
             actin_speed = np.linalg.norm(actin_vel_ds[frame], axis=1)
             actin_speeds.extend(actin_speed)
@@ -127,9 +127,9 @@ def analyze_catch_bonds(h5file: str, dt: float = 1.0, prefix: str = "analysis") 
                         "count": 1,
                     }
 
-            # Ratio of actins engaged in catch bonds (cb_strength > 0.01)
+            # Ratio of actins engaged in catch bonds (cb_status > 0)
             n_actins = cb_strength_frame.shape[0]
-            catch_actins = [i for i in bonded_actins if cb_strength_frame[i] > 0.01]
+            catch_actins = [i for i in bonded_actins if cb_strength_frame[i] > 0]
             ratio_actin_cb.append(len(catch_actins) / max(n_actins, 1))
 
             # Actin--myosin connectivity for this frame
