@@ -158,19 +158,23 @@ def plot_system(frame, data, myosin_length, actin_length, Lx, Ly, Lz, myosin_rad
         color_spectrum=cb_strength * f_load
     )
 
-    # Myosins (plot all in one color, semi-transparent)
-    myosin_center = data["/myosin/center"][frame]
-    myosin_direction = data["/myosin/direction"][frame]
+    # Myosins engaged in catch bonds
+    bonds = data["/myosin/bonds"][frame]
+    valid_pairs = bonds[bonds[:, 0] >= 0].astype(int)
+    bonded_indices = np.unique(valid_pairs.flatten())
+    if bonded_indices.size > 0:
+        myosin_center = data["/myosin/center"][frame][bonded_indices]
+        myosin_direction = data["/myosin/direction"][frame][bonded_indices]
 
-    plot_filaments_3d(
-        center=myosin_center,
-        direction=myosin_direction,
-        radius=myosin_radius,
-        l=myosin_length,
-        Lx=Lx, Ly=Ly, Lz=Lz,
-        plotter=plotter,
-        color='lemon_chiffon',   # change to your preferred color      # semi-transparent
-    )
+        plot_filaments_3d(
+            center=myosin_center,
+            direction=myosin_direction,
+            radius=myosin_radius,
+            l=myosin_length,
+            Lx=Lx, Ly=Ly, Lz=Lz,
+            plotter=plotter,
+            color='lemon_chiffon',
+        )
 
     plotter.set_background("white")
     plotter.set_scale(xscale=Lx, yscale=Ly, zscale=Lz)
