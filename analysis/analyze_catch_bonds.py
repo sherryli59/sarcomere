@@ -51,6 +51,10 @@ def analyze_catch_bonds(h5file: str, dt: float = 1.0, prefix: str = "analysis") 
         fload_ds = fh["/actin/f_load"]
         cb_strength_actin = fh["/actin/cb_strength"]
 
+        actin_vel_ds = fh["/actin/velocity"]
+        myosin_vel_ds = fh["/myosin/velocity"] if "/myosin/velocity" in fh else None
+        myosin_fload_ds = fh["/myosin/f_load"] if "/myosin/f_load" in fh else None
+
         # Optional myosin datasets
         myosin_bonds_ds = fh["/myosin/bonds"] if "/myosin/bonds" in fh else None
         am_bonds_ds = fh["/actin_myo/bonds"] if "/actin_myo/bonds" in fh else None
@@ -72,11 +76,24 @@ def analyze_catch_bonds(h5file: str, dt: float = 1.0, prefix: str = "analysis") 
         myosins_per_actin: list[int] = []
         actins_per_myosin: list[int] = []
 
+        actin_speeds: list[float] = []
+        actin_load_vals: list[float] = []
+        myosin_speeds: list[float] = []
+        myosin_load_vals: list[float] = []
+
         for frame in range(n_frames):
             bonds = bonds_ds[frame]
             dirs = np.asarray(dirs_ds[frame])  # (N,3)
             f_load = fload_ds[frame, :, 0]     # (N,)
             cb_strength_frame = cb_strength_actin[frame, :, 0]
+
+            actin_speed = np.linalg.norm(actin_vel_ds[frame], axis=1)
+            actin_speeds.extend(actin_speed)
+            actin_load_vals.extend(f_load)
+            if myosin_vel_ds is not None and myosin_fload_ds is not None:
+                myosin_speed = np.linalg.norm(myosin_vel_ds[frame], axis=1)
+                myosin_speeds.extend(myosin_speed)
+                myosin_load_vals.extend(myosin_fload_ds[frame, :, 0])
 
             # Accumulate raw directions for global distribution
             all_dirs.append(dirs)
@@ -158,6 +175,24 @@ def analyze_catch_bonds(h5file: str, dt: float = 1.0, prefix: str = "analysis") 
             mean_fload = entry["sum_fload"] / max(entry["count"], 1)
             lifetimes.append(lifetime)
             mean_floads.append(mean_fload)
+
+    if actin_speeds:
+        plt.figure()
+        plt.scatter(actin_load_vals, actin_speeds, s=10, alpha=0.7)
+        plt.xlabel("f_load")
+        plt.ylabel("Actin speed")
+        plt.tight_layout()
+        plt.savefig(f"{prefix}_actin_velocity_vs_load.png", dpi=300)
+        plt.close()
+
+    if myosin_speeds:
+        plt.figure()
+        plt.scatter(myosin_load_vals, myosin_speeds, s=10, alpha=0.7)
+        plt.xlabel("f_load")
+        plt.ylabel("Myosin speed")
+        plt.tight_layout()
+        plt.savefig(f"{prefix}_myosin_velocity_vs_load.png", dpi=300)
+        plt.close()
 
     # Plot lifetime vs load for bonded pairs
     if lifetimes:
