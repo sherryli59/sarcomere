@@ -140,13 +140,19 @@ def plot_filaments_3d(plotter, center, direction, radius, l, Lx, Ly, Lz, color='
 
 
 
-def plot_system(frame, data, myosin_length, actin_length, Lx, Ly, Lz, myosin_radius):
+def plot_system(frame, data, myosin_length, actin_length, Lx, Ly, Lz,
+                myosin_radius, myosin_display="all"):
+    """Render the system for a single frame."""
     plotter = pv.Plotter(off_screen=True)
-    # Actin
+
+    # ------------------------------------------------------------------
+    # Actin filaments
+    # ------------------------------------------------------------------
     actin_center = data["/actin/center"][frame]
     actin_direction = data["/actin/direction"][frame]
-    cb_strength = data["/actin/cb_status"][frame].flatten()
+    cb_status = data["/actin/cb_status"][frame].flatten()
     f_load = data["/actin/f_load"][frame].flatten()
+
     plot_filaments_3d(
         center=actin_center,
         direction=actin_direction,
@@ -155,17 +161,41 @@ def plot_system(frame, data, myosin_length, actin_length, Lx, Ly, Lz, myosin_rad
         Lx=Lx, Ly=Ly, Lz=Lz,
         plotter=plotter,
         color='blue',
-        color_spectrum=cb_strength * f_load
+        color_spectrum=cb_status * f_load
     )
 
-    # Myosins engaged in catch bonds
-    bonds = data["/myosin/bonds"][frame]
-    valid_pairs = bonds[bonds[:, 0] >= 0].astype(int)
-    bonded_indices = np.unique(valid_pairs.flatten())
-    if bonded_indices.size > 0:
-        myosin_center = data["/myosin/center"][frame][bonded_indices]
-        myosin_direction = data["/myosin/direction"][frame][bonded_indices]
+    # Highlight actins engaged in catch bonds with arrows whose
+    # transparency reflects the catch-bond status (1: transparent,
+    # 2: opaque).
+    for i in range(actin_center.shape[0]):
+        status = cb_status[i]
+        if status <= 0:
+            continue
+        arrow = pv.Arrow(
+            start=actin_center[i] - 0.5 * actin_length * actin_direction[i],
+            direction=actin_direction[i],
+            tip_length=0.25,
+            tip_radius=0.04,
+            shaft_radius=0.02,
+            scale=actin_length,
+        )
+        opacity = 0.3 if status == 1 else 1.0
+        plotter.add_mesh(arrow, color="red", opacity=opacity)
 
+    # ------------------------------------------------------------------
+    # Myosin filaments
+    # ------------------------------------------------------------------
+    if myosin_display == "bonded":
+        bonds = data["/myosin/bonds"][frame]
+        valid_pairs = bonds[bonds[:, 0] >= 0].astype(int)
+        bonded_indices = np.unique(valid_pairs.flatten())
+        myosin_center = data["/myosin/center"][frame][bonded_indices] if bonded_indices.size > 0 else np.empty((0, 3))
+        myosin_direction = data["/myosin/direction"][frame][bonded_indices] if bonded_indices.size > 0 else np.empty((0, 3))
+    else:  # plot all myosins
+        myosin_center = data["/myosin/center"][frame]
+        myosin_direction = data["/myosin/direction"][frame]
+
+    if myosin_center.size > 0:
         plot_filaments_3d(
             center=myosin_center,
             direction=myosin_direction,
@@ -234,6 +264,12 @@ def parse_args():
                         help="Start frame (inclusive)")
     parser.add_argument("--end_frame", type=int, default=None,
                         help="End frame (exclusive); default is the last frame")
+    parser.add_argument(
+        "--myosin_display",
+        choices=["all", "bonded"],
+        default="all",
+        help="Display all myosins or only those engaged in bonds.",
+    )
     return parser.parse_args()
 
 
@@ -341,6 +377,7 @@ if __name__ == "__main__":
     myosin_radius = args.myosin_radius
     actin_length = args.actin_length
     myosin_length = args.myosin_length
+    myosin_display = args.myosin_display
 
     # Open the HDF5 file and convert to dictionary.
     traj = h5py.File(filename, 'r')
@@ -388,7 +425,8 @@ if __name__ == "__main__":
                       myosin_radius=myosin_radius,
                       actin_length=actin_length,
                       myosin_length=myosin_length,
-                      Lx=Lx, Ly=Ly, Lz=Lz)
+                      Lx=Lx, Ly=Ly, Lz=Lz,
+                      myosin_display=myosin_display)
         for i in range(cpu_workers)
     )
 
