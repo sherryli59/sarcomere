@@ -79,7 +79,8 @@ int main(int argc, char* argv[]){
             ("n_fixed_myosins", "Number of fixed myosins", cxxopts::value<int>(n_fixed_myosins)->default_value("0"))
             ("filename", "Filename", cxxopts::value<std::string>(filename)->default_value("data/traj.h5"))
             ("initial_structure", "Type of initial structure", cxxopts::value<std::string>(init_struc)->default_value("random"))
-            ("max_myosin_bonds", "Maximum actin bonds per myosin", cxxopts::value<int>()->default_value("5"))
+            ("max_myosin_bonds", "Maximum actin bonds per myosin",
+             cxxopts::value<int>(max_myosin_bonds)->default_value("5"))
             ("h, help", "Print usage");
 
         auto result = options.parse(argc, argv);
