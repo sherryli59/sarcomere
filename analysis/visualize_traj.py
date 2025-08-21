@@ -253,7 +253,7 @@ def parse_args():
     parser.add_argument(
         "--myosin_display",
         choices=["all", "bonded"],
-        default="bonded",
+        default="all",
         help="Display all myosins or only those engaged in bonds.",
     )
     return parser.parse_args()

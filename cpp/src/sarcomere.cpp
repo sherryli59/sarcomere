@@ -1,14 +1,12 @@
 #include "sarcomere.h"
 #include <algorithm>
 
-// Constructor
-Sarcomere::Sarcomere() : max_myosin_bonds(5), max_strong_actin_bonds(2) {}
 
 // Parameterized Constructor
 Sarcomere::Sarcomere(int& n_actins, int& n_myosins, vector box0, double& actin_length, double& myosin_length,
         double& myosin_radius, double& myosin_radius_ratio, double& crosslinker_length, double& k_on, double& k_off,
         double& base_lifetime, double& lifetime_coeff, double& diff_coeff_ratio, double& k_aa, double& kappa_aa, double& k_am, double& kappa_am, double& v_am,
-        std::string& filename, gsl_rng* rng, int& seed, int& fix_myosin, double& dt, bool& directional, int max_myosin_bonds, int max_strong_actin_bonds)
+        std::string& filename, gsl_rng* rng, int& seed, int& fix_myosin, double& dt, bool& directional, int max_myosin_bonds)
             : actin(n_actins, actin_length, box0, rng),
               myosin(n_myosins, myosin_length, myosin_radius, box0, rng),
               myosinIndicesPerActin(n_actins),
@@ -54,7 +52,7 @@ Sarcomere::Sarcomere(int& n_actins, int& n_myosins, vector box0, double& actin_l
             this->diff_coeff_ratio = diff_coeff_ratio;
             this->directional = directional;
             this->max_myosin_bonds = max_myosin_bonds;
-            this->max_strong_actin_bonds = max_strong_actin_bonds;
+            this->max_strong_actin_bonds = 2;
             cutoff_radius = std::max(actin_length, myosin_length) +
                             std::max(2 * myosin_radius/myosin_radius_ratio, crosslinker_length);
             double skin_distance = 0.15 * cutoff_radius;
@@ -571,7 +569,7 @@ void Sarcomere::_calc_am_force_velocity(int& i) {
         }
 
         vector force_vec = compute_am_force_and_energy(
-            actin, myosin, i, j, box, k_am * actin.f_load[i], kappa_am, cutoff, 1.1*myosin.radius);
+            actin, myosin, i, j, box, k_am * actin.f_load[i], kappa_am, cutoff, 1.9*myosin.radius);
         local_actin_forces[i].x += force_vec[0];
         local_actin_forces[i].y += force_vec[1];
         local_actin_forces[i].z += force_vec[2];
@@ -808,7 +806,7 @@ void Sarcomere::_set_cb(int& i, int& j, int status, bool& add_connection){
     auto& local_actin_cb_status = actin_cb_status_temp[thread_id];
     auto& local_myosin_forces = myosin_forces_temp[thread_id];
     auto& local_myosin_torques = myosin_torques_temp[thread_id];
-    if (status < 0){
+    if (status == 0){
         return;
     }
     // assign status to temporary arrays

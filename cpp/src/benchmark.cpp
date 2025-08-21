@@ -59,7 +59,7 @@ public:
             myosin_radius, myosin_radius_ratio, crosslinker_length, k_on, k_off,
             base_lifetime, lifetime_coeff, diff_coeff_ratio,
               k_aa, kappa_aa, k_am, kappa_am, v_am,
-            filename,rng, seed, n_fixed_myosins, dt, directional);
+            filename,rng, seed, n_fixed_myosins, dt, directional, 5);
 
         // Create the Langevin simulation instance.
         sim = new Langevin(*model, beta, dt, actin_diff_coeff_trans,actin_diff_coeff_rot,

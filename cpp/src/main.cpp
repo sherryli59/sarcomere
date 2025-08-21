@@ -38,6 +38,7 @@ int main(int argc, char* argv[]){
     bool resume;
     bool directional;
     int n_fixed_myosins;
+    int max_myosin_bonds;
 
     std::string filename;
     std::string init_struc;
@@ -78,6 +79,7 @@ int main(int argc, char* argv[]){
             ("n_fixed_myosins", "Number of fixed myosins", cxxopts::value<int>(n_fixed_myosins)->default_value("0"))
             ("filename", "Filename", cxxopts::value<std::string>(filename)->default_value("data/traj.h5"))
             ("initial_structure", "Type of initial structure", cxxopts::value<std::string>(init_struc)->default_value("random"))
+            ("max_myosin_bonds", "Maximum actin bonds per myosin", cxxopts::value<int>()->default_value("5"))
             ("h, help", "Print usage");
 
         auto result = options.parse(argc, argv);
@@ -104,7 +106,7 @@ int main(int argc, char* argv[]){
                         myosin_radius, myosin_radius_ratio, crosslinker_length, k_on, k_off,
                         base_lifetime, lifetime_coeff, diff_coeff_ratio,
                           k_aa, kappa_aa, k_am, kappa_am, v_am,
-                        filename,rng, seed, n_fixed_myosins, dt, directional);
+                        filename,rng, seed, n_fixed_myosins, dt, directional, max_myosin_bonds);
 
     Langevin sim(model, beta, dt, actin_diff_coeff_trans,actin_diff_coeff_rot, myosin_diff_coeff_trans, myosin_diff_coeff_rot, save_every, resume);
     if (!resume){
