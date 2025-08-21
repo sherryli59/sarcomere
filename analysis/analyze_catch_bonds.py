@@ -56,9 +56,13 @@ def analyze_catch_bonds(h5file: str, dt: float = 1.0, prefix: str = "analysis") 
         myosin_vel_ds = fh["/myosin/velocity"] if "/myosin/velocity" in fh else None
         myosin_fload_ds = fh["/myosin/f_load"] if "/myosin/f_load" in fh else None
 
-        # Optional myosin datasets
-        myosin_bonds_ds = fh["/myosin/bonds"] if "/myosin/bonds" in fh else None
+        # Optional datasets
         am_bonds_ds = fh["/actin_myo/bonds"] if "/actin_myo/bonds" in fh else None
+        n_myosins_total = (
+            myosin_vel_ds.shape[1]
+            if myosin_vel_ds is not None
+            else (myosin_fload_ds.shape[1] if myosin_fload_ds is not None else 0)
+        )
         n_frames = bonds_ds.shape[0]
 
         active: dict[tuple[int, int], dict] = {}
@@ -157,18 +161,14 @@ def analyze_catch_bonds(h5file: str, dt: float = 1.0, prefix: str = "analysis") 
                 myosins_per_actin.extend(len(v) for v in a2m.values())
                 actins_per_myosin.extend(len(v) for v in m2a.values())
 
-            # Ratio of myosins engaged in catch bond
-            if myosin_bonds_ds is not None:
-                myo_bonds = myosin_bonds_ds[frame]
-                n_myosins = 100
-                bonded_myosins: set[int] = set()
-                for pair in myo_bonds:
-                    m, n = int(pair[0]), int(pair[1])
-                    if m < 0 or n < 0:
-                        continue
-                    bonded_myosins.update([m, n])
-                catch_myosins = [i for i in bonded_myosins]
-                ratio_myosin_cb.append(len(catch_myosins) / max(n_myosins, 1))
+                # Myosins attached to actins with cb_status == 2 are catch bonded
+                cb_actins = np.where(cb_strength_frame == 2)[0]
+                catch_myosins: set[int] = set()
+                for a in cb_actins:
+                    catch_myosins.update(a2m.get(int(a), set()))
+                ratio_myosin_cb.append(
+                    len(catch_myosins) / max(n_myosins_total, 1)
+                )
 
             # Close out bonds that ended this frame
             ended = [p for p in active if p not in current_pairs]
