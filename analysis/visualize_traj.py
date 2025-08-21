@@ -151,8 +151,9 @@ def plot_system(frame, data, myosin_length, actin_length, Lx, Ly, Lz,
     actin_center = data["/actin/center"][frame]
     actin_direction = data["/actin/direction"][frame]
     f_load = data["/actin/f_load"][frame].flatten()
+    cb_status = data["/actin/cb_status"][frame].flatten()
 
-    mask = f_load > 0
+    mask = cb_status > 1
     actin_center = actin_center[mask]
     actin_direction = actin_direction[mask]
 
@@ -252,7 +253,7 @@ def parse_args():
     parser.add_argument(
         "--myosin_display",
         choices=["all", "bonded"],
-        default="all",
+        default="bonded",
         help="Display all myosins or only those engaged in bonds.",
     )
     return parser.parse_args()
@@ -388,13 +389,13 @@ if __name__ == "__main__":
         cb_strength = data["/actin/cb_status"][args.print_frame]
         f_load = data["/actin/f_load"][args.print_frame]
         for i in range(actin_center.shape[0]):
-            if cb_strength[i] > 0:
+            if cb_strength[i] > 1:
                 print(f"Actin filament {i}: catch bond status: {cb_strength[i]}")
                 print(f"Actin filament {i}: f load: {f_load[i]}")
                 print(f"Actin filament {i}: center: {actin_center[i]}")
-        myosin_center = data["/myosin/center"][args.print_frame]
-        for i in range(myosin_center.shape[0]):
-            print(f"Myosin filament {i}: center: {myosin_center[i]}")
+        #myosin_center = data["/myosin/center"][args.print_frame]
+        # for i in range(myosin_center.shape[0]):
+        #     print(f"Myosin filament {i}: center: {myosin_center[i]}")
 
     cpu_workers = joblib.cpu_count()
     print(f"Using {cpu_workers} CPU workers for parallel processing.")

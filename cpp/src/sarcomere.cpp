@@ -571,7 +571,7 @@ void Sarcomere::_calc_am_force_velocity(int& i) {
         }
 
         vector force_vec = compute_am_force_and_energy(
-            actin, myosin, i, j, box, k_am * actin.f_load[i], kappa_am, cutoff, 2*myosin.radius);
+            actin, myosin, i, j, box, k_am * actin.f_load[i], kappa_am, cutoff, 1.1*myosin.radius);
         local_actin_forces[i].x += force_vec[0];
         local_actin_forces[i].y += force_vec[1];
         local_actin_forces[i].z += force_vec[2];
@@ -780,14 +780,14 @@ void Sarcomere::compute_actin_f_load(int& i){
     int thread_id = omp_get_thread_num();
     auto& local_myosin_f_load = myosin_f_load_temp[thread_id];
     actin.f_load[i] = 0;
-    if (actin.cb_status[i] == 0){
-        std::vector<int> myosin_indices = myosinIndicesPerActin.getConnections(i);
-        for (int j : myosin_indices){
-            local_myosin_f_load[j] = 0;
-        }
-        actin_f_load_computed[i] = true;
-        return;
-    }
+    // if (actin.cb_status[i] == 0){
+    //     std::vector<int> myosin_indices = myosinIndicesPerActin.getConnections(i);
+    //     for (int j : myosin_indices){
+    //         local_myosin_f_load[j] = 0;
+    //     }
+    //     actin_f_load_computed[i] = true;
+    //     return;
+    // }
     std::vector<int> myosin_indices = myosinIndicesPerActin.getConnections(i);
     double sum = 0;
     for (int j : myosin_indices){
@@ -814,10 +814,11 @@ void Sarcomere::_set_cb(int& i, int& j, int status, bool& add_connection){
     // assign status to temporary arrays
     local_actin_cb_status[i] = std::max(local_actin_cb_status[i], status);
     local_actin_cb_status[j] = std::max(local_actin_cb_status[j], status);
-
-    // compute load for both actins
-    compute_actin_f_load(i);
-    compute_actin_f_load(j);
+    if (status == 2){
+        // compute load for both actins
+        compute_actin_f_load(i);
+        compute_actin_f_load(j);
+    }
 
     double rand = gsl_rng_uniform(rng_engines[thread_id]);
     double abs_cos_angle = std::abs(actin.direction[i].dot(actin.direction[j]));
