@@ -150,9 +150,9 @@ def plot_system(frame, data, myosin_length, actin_length, Lx, Ly, Lz,
     # ------------------------------------------------------------------
     actin_center = data["/actin/center"][frame]
     actin_direction = data["/actin/direction"][frame]
-    cb_status = data["/actin/cb_status"][frame].flatten()
+    f_load = data["/actin/f_load"][frame].flatten()
 
-    mask = cb_status == 2
+    mask = f_load > 0
     actin_center = actin_center[mask]
     actin_direction = actin_direction[mask]
 
