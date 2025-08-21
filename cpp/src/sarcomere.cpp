@@ -271,7 +271,8 @@ void Sarcomere::update_system() {
 
         #pragma omp barrier
         #pragma omp single
-        { _enforce_actin_cb_limit(); _enforce_myosin_bond_limit(); }
+        { //_enforce_actin_cb_limit();
+         _enforce_myosin_bond_limit(); }
         #pragma omp barrier
 
         // Step 5: Concatenate actinIndicesPerMyosin connections
@@ -307,31 +308,16 @@ void Sarcomere::update_system() {
         reduce_array(myosin_forces_temp, myosin.force);
         reduce_array(myosin_velocities_temp, myosin.velocity);
         reduce_array(myosin_torques_temp, myosin.torque);
-        
-    
-        //set max velocity for myosin
-        //std::vector<double> myosin_min_load(myosin.n, 0);
-        // // Parallelize over myosins
-        // #pragma omp for
-        // for (int myosin_idx = 0; myosin_idx < myosin.n; ++myosin_idx) {
-        //     double min_load = myosin_f_load_temp[0][myosin_idx];
-        //     // Find max across threads
-        //     for (int thread_idx = 1; thread_idx < omp_get_max_threads(); ++thread_idx) {
-        //         min_load = std::min(min_load, myosin_f_load_temp[thread_idx][myosin_idx]);
-        //     }
-        //     myosin_min_load[myosin_idx] = min_load;
-        //     printf("myosin %d, min_load: %f\n", myosin_idx, min_load);
-        // }
 
-        #pragma omp for
-        for (int i = 0; i < myosin.n; i++){
-            double v_max = v_am / (diff_coeff_ratio + 1);// * (1 - myosin_min_load[i]);
-            //printf("myosin %d, v_max: %f\n", i, v_max);
-            double v = myosin.velocity[i].norm();
-            if (v>v_max){
-                myosin.velocity[i] = myosin.velocity[i]/v*v_max;
-            }
-        }
+        // #pragma omp for
+        // for (int i = 0; i < myosin.n; i++){
+        //     double v_max = v_am / (diff_coeff_ratio + 1);// * (1 - myosin_min_load[i]);
+        //     //printf("myosin %d, v_max: %f\n", i, v_max);
+        //     double v = myosin.velocity[i].norm();
+        //     if (v>v_max){
+        //         myosin.velocity[i] = myosin.velocity[i]/v*v_max;
+        //     }
+        // }
     }
 }
 
@@ -483,7 +469,7 @@ void Sarcomere::_process_catch_bonds(int& i) {
             int j = actin_neighbors[index];
             if (i>j){
                 int status = determine_cb_status(i,j);
-                if (status>0){
+                if (status > 0){
                     cb_indices.push_back(j);
                     statuses.push_back(status);
                 }
@@ -758,7 +744,7 @@ int Sarcomere::determine_cb_status(int& i, int& j){
         }
     }
     if (!crosslink){
-        return 0;
+        return 0; // return -1 for non-catch bond
     }
     double cos_angle = actin.direction[i].dot(actin.direction[j]);
     bool catch_bond =(actin_basic_tension[i]>EPS && actin_basic_tension[j]>EPS);
@@ -766,7 +752,7 @@ int Sarcomere::determine_cb_status(int& i, int& j){
         catch_bond = (catch_bond && cos_angle<0);
     }
     if (!catch_bond){
-        return 0;
+        return 1;
     }
     auto& myosin_indices_i = myosinIndicesPerActin.getConnections(i);
     auto& myosin_indices_j = myosinIndicesPerActin.getConnections(j);
@@ -813,7 +799,7 @@ void Sarcomere::_set_cb(int& i, int& j, int status, bool& add_connection){
     auto& local_actin_cb_status = actin_cb_status_temp[thread_id];
     auto& local_myosin_forces = myosin_forces_temp[thread_id];
     auto& local_myosin_torques = myosin_torques_temp[thread_id];
-    if (status == 0){
+    if (status < 0){
         return;
     }
     // assign status to temporary arrays
