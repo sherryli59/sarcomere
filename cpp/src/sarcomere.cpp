@@ -775,7 +775,7 @@ int Sarcomere::determine_cb_status(int& i, int& j){
     }
     for (int mi : myosin_indices_i){
         for (int mj : myosin_indices_j){
-            if (mi != mj){
+            if (mi == mj){
                 return 2;
             }
         }
