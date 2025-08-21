@@ -533,7 +533,7 @@ void Sarcomere::_enforce_myosin_bond_limit() {
         std::vector<int> priority(bound_actins.size(), 0);
         for (size_t idx = 0; idx < bound_actins.size(); ++idx) {
             int i = bound_actins[idx];
-            bool cb = actin.cb_status[i] > 0;
+            bool cb = actin.cb_status[i] > 1;
             bool prev = am_bonds_prev[i][j] == 1;
             if (cb && prev) priority[idx] = 3;
             else if (cb) priority[idx] = 2;

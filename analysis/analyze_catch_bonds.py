@@ -150,7 +150,7 @@ def analyze_catch_bonds(h5file: str, dt: float = 1.0, prefix: str = "analysis") 
             # Ratio of myosins engaged in catch bond
             if myosin_bonds_ds is not None:
                 myo_bonds = myosin_bonds_ds[frame]
-                n_myosins = 250
+                n_myosins = 100
                 bonded_myosins: set[int] = set()
                 for pair in myo_bonds:
                     m, n = int(pair[0]), int(pair[1])
