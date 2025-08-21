@@ -26,7 +26,9 @@ Sarcomere::Sarcomere(int& n_actins, int& n_myosins, vector box0, double& actin_l
                 actin_cb_status_temp(omp_get_max_threads(), std::vector<int>(n_actins, 0)),
                 myosin_f_load_temp(omp_get_max_threads(), std::vector<double>(n_myosins, 0)),
                 actinIndicesPerMyosin_temp(omp_get_max_threads(), utils::MoleculeConnection(n_myosins)),
-                rng_engines(omp_get_max_threads(), nullptr)
+                rng_engines(omp_get_max_threads(), nullptr),
+                actin_f_load_computed(n_actins, false),
+                actin_f_load_mutex(n_actins)
 
             {
             box.resize(3);
@@ -391,6 +393,7 @@ void Sarcomere::_set_to_zero() {
         actin["myosin_binding_ratio"][i] = 0;
         actin["crosslink_ratio"][i] = 1;
         actin["partial_binding_ratio"][i] = 0;
+        actin_f_load_computed[i] = false;
         myosinIndicesPerActin.deleteAllConnections(i);
         for (int j = 0; j < actin.n; j++){
             actin_actin_bonds_prev[i][j] = actin_actin_bonds[i][j];
@@ -770,6 +773,10 @@ int Sarcomere::determine_cb_status(int& i, int& j){
 }
 
 void Sarcomere::compute_actin_f_load(int& i){
+    std::lock_guard<std::mutex> guard(actin_f_load_mutex[i]);
+    if (actin_f_load_computed[i]) {
+        return;
+    }
     int thread_id = omp_get_thread_num();
     auto& local_myosin_f_load = myosin_f_load_temp[thread_id];
     actin.f_load[i] = 0;
@@ -778,6 +785,7 @@ void Sarcomere::compute_actin_f_load(int& i){
         for (int j : myosin_indices){
             local_myosin_f_load[j] = 0;
         }
+        actin_f_load_computed[i] = true;
         return;
     }
     std::vector<int> myosin_indices = myosinIndicesPerActin.getConnections(i);
@@ -790,6 +798,7 @@ void Sarcomere::compute_actin_f_load(int& i){
         sum += contrib;
     }
     actin.f_load[i] = (1 - std::exp(-2 * sum)) / (1 - std::exp(-2));
+    actin_f_load_computed[i] = true;
 }
 
 void Sarcomere::_set_cb(int& i, int& j, int status, bool& add_connection){
