@@ -50,6 +50,7 @@ def analyze_catch_bonds(h5file: str, dt: float = 1.0, prefix: str = "analysis") 
         dirs_ds = fh["/actin/direction"]
         fload_ds = fh["/actin/f_load"]
         cb_status_actin = fh["/actin/cb_status"]
+        partial_binding_ds = fh["/actin/partial_binding_ratio"]
 
         actin_vel_ds = fh["/actin/velocity"]
         myosin_vel_ds = fh["/myosin/velocity"] if "/myosin/velocity" in fh else None
@@ -81,11 +82,20 @@ def analyze_catch_bonds(h5file: str, dt: float = 1.0, prefix: str = "analysis") 
         myosin_speeds: list[float] = []
         myosin_load_vals: list[float] = []
 
+        # Track actins that report cb status 2 but zero partial binding ratio
+        cb2_zero_partial: list[tuple[int, np.ndarray]] = []
+
         for frame in range(n_frames):
             bonds = bonds_ds[frame]
             dirs = np.asarray(dirs_ds[frame])  # (N,3)
             f_load = fload_ds[frame, :, 0]     # (N,)
             cb_strength_frame = cb_status_actin[frame, :, 0]
+            partial_binding = partial_binding_ds[frame, :, 0]
+
+            cb2_indices = np.where(cb_strength_frame == 2)[0]
+            zero_partial = cb2_indices[partial_binding[cb2_indices] <= 0]
+            if zero_partial.size:
+                cb2_zero_partial.append((frame, zero_partial))
 
             actin_speed = np.linalg.norm(actin_vel_ds[frame], axis=1)
             actin_speeds.extend(actin_speed)
@@ -175,6 +185,13 @@ def analyze_catch_bonds(h5file: str, dt: float = 1.0, prefix: str = "analysis") 
             mean_fload = entry["sum_fload"] / max(entry["count"], 1)
             lifetimes.append(lifetime)
             mean_floads.append(mean_fload)
+
+        if cb2_zero_partial:
+            for frame_idx, indices in cb2_zero_partial:
+                print(
+                    f"Frame {frame_idx}: actins {indices.tolist()} have cb_status 2"
+                    " but zero partial binding ratio"
+                )
 
     if actin_speeds:
         plt.figure()
