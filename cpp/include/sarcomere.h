@@ -9,6 +9,7 @@
 #include <utility>
 #include <tuple>
 #include <omp.h>
+#include <mutex>
 
 #include "components.h"
 #include "utils.h"
@@ -53,6 +54,8 @@ public:
     std::vector<int> n_myosins_per_actin;
     std::vector<std::pair<std::vector<int>, std::vector<int>>> actin_neighbors_by_species;
     vector actin_basic_tension;
+    std::vector<bool> actin_f_load_computed;
+    std::vector<std::mutex> actin_f_load_mutex;
         
     gsl_rng* rng;
     std::string filename;
