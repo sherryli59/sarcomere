@@ -62,8 +62,9 @@ public:
             filename,rng, seed, n_fixed_myosins, dt, directional, 5);
 
         // Create the Langevin simulation instance.
+        bool is3D = true;
         sim = new Langevin(*model, beta, dt, actin_diff_coeff_trans,actin_diff_coeff_rot,
-             myosin_diff_coeff_trans, myosin_diff_coeff_rot, save_every, resume);
+             myosin_diff_coeff_trans, myosin_diff_coeff_rot, save_every, resume, is3D);
 
         // Set up the initial structure.
         if (!resume) {

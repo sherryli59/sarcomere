@@ -12,10 +12,10 @@ std::mutex save_mutex;
 // loads the previous state and prints details. Otherwise, creates a new file.
 //---------------------------------------------------------------------
 Langevin::Langevin(Sarcomere& model0, double& beta0, double& dt0, double& D0_actin_trans,
-    double& D0_actin_rot, double& D0_myosin_trans, double& D0_myosin_rot, int& save_every0, bool& resume)
+    double& D0_actin_rot, double& D0_myosin_trans, double& D0_myosin_rot, int& save_every0, bool& resume, bool is3D)
         : model(model0), beta(beta0), dt(dt0), D_actin_trans(D0_actin_trans),
         D_actin_rot(D0_actin_rot),D_myosin_trans(D0_myosin_trans), D_myosin_rot(D0_myosin_rot),
-        save_every(save_every0)
+        save_every(save_every0), is3D(is3D)
 {
     if (resume) {
         int n_frames;
@@ -114,19 +114,30 @@ void Langevin::sample_step(double& dt, gsl_rng* rng, int& fix_myosin) {
     double D_rot = D_myosin_rot;
     // Update myosin particles.
     for (int i = fix_myosin; i < model.myosin.n; i++) {
+        if (!is3D) {
+            model.myosin.force[i].z = 0;
+            model.myosin.velocity[i].z = 0;
+            model.myosin.torque[i].z = 0;
+        }
         double dx = model.myosin.force[i].x * beta * D * dt +
                     model.myosin.velocity[i].x * dt +
                     sqrt(2 * D * dt) * noise[i * 6];
         double dy = model.myosin.force[i].y * beta * D * dt +
                     model.myosin.velocity[i].y * dt +
                     sqrt(2 * D * dt) * noise[i * 6 + 1];
-        double dz = model.myosin.force[i].z * beta * D * dt +
+        double dz = is3D ? (model.myosin.force[i].z * beta * D * dt +
                     model.myosin.velocity[i].z * dt +
-                    sqrt(2 * D * dt) * noise[i * 6 + 2];
+                    sqrt(2 * D * dt) * noise[i * 6 + 2]) : 0.0;
         model.myosin.displace(i, dx, dy, dz);
-        vec rot_noise={noise[i * 6 + 3], noise[i * 6 + 4], noise[i * 6 + 5]};
+        vec rot_noise={noise[i * 6 + 3], noise[i * 6 + 4], is3D ? noise[i * 6 + 5] : 0.0};
         vec delta_u = sqrt(2 * D_rot * dt) * rot_noise + dt * model.myosin.torque[i] * D_rot * beta;
+        if (!is3D) {
+            delta_u.z = 0;
+        }
         model.myosin.direction[i] += delta_u;
+        if (!is3D) {
+            model.myosin.direction[i].z = 0;
+        }
         model.myosin.direction[i].normalize();
     }
     // Update actin particles.
@@ -139,22 +150,33 @@ void Langevin::sample_step(double& dt, gsl_rng* rng, int& fix_myosin) {
             D = D_actin_trans;
             D_rot = D_actin_rot;
         }
+        if (!is3D) {
+            model.actin.force[i].z = 0;
+            model.actin.velocity[i].z = 0;
+            model.actin.torque[i].z = 0;
+        }
         double dx = model.actin.force[i].x * beta * D * dt +
                     model.actin.velocity[i].x * dt +
                     sqrt(2 * D * dt) * noise[offset + i * 6];
         double dy = model.actin.force[i].y * beta * D * dt +
                     model.actin.velocity[i].y * dt +
                     sqrt(2 * D * dt) * noise[offset + i * 6 + 1];
-        double dz = model.actin.force[i].z * beta * D * dt +
+        double dz = is3D ? (model.actin.force[i].z * beta * D * dt +
                     model.actin.velocity[i].z * dt +
-                    sqrt(2 * D * dt) * noise[offset + i * 6 + 2];
+                    sqrt(2 * D * dt) * noise[offset + i * 6 + 2]) : 0.0;
         if (dx > 0.04 || dy > 0.04) {
             printf("actin %d displacement too large \n", i);
         }
         model.actin.displace(i, dx, dy, dz);
-        vec rot_noise={noise[offset + i * 6 + 3], noise[offset + i * 6 + 4], noise[offset + i * 6 + 5]};
+        vec rot_noise={noise[offset + i * 6 + 3], noise[offset + i * 6 + 4], is3D ? noise[offset + i * 6 + 5] : 0.0};
         vec delta_u = sqrt(2 * D_rot * dt) * rot_noise + dt * model.actin.torque[i] * D_rot * beta;
+        if (!is3D) {
+            delta_u.z = 0;
+        }
         model.actin.direction[i] += delta_u;
+        if (!is3D) {
+            model.actin.direction[i].z = 0;
+        }
         model.actin.direction[i].normalize();
     }
 }
