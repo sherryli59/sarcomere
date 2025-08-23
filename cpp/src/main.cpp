@@ -30,6 +30,7 @@ int main(int argc, char* argv[]){
     double Lx;
     double Ly;
     double Lz;
+    int dim;
     double actin_length;
     double myosin_length;
     double myosin_radius;
@@ -81,6 +82,7 @@ int main(int argc, char* argv[]){
             ("initial_structure", "Type of initial structure", cxxopts::value<std::string>(init_struc)->default_value("random"))
             ("max_myosin_bonds", "Maximum actin bonds per myosin",
              cxxopts::value<int>(max_myosin_bonds)->default_value("5"))
+            ("dimension", "Simulation dimension (2 or 3)", cxxopts::value<int>(dim)->default_value("3"))
             ("h, help", "Print usage");
 
         auto result = options.parse(argc, argv);
@@ -98,10 +100,10 @@ int main(int argc, char* argv[]){
 
     gsl_rng * rng = gsl_rng_alloc(gsl_rng_mt19937);
     gsl_rng_set(rng,seed);
-    std::vector <double> box(3);
+    std::vector<double> box(3);
     box[0] = Lx;
     box[1] = Ly;
-    box[2] = Lz;
+    box[2] = (dim == 2 ? 0.0 : Lz);
     double diff_coeff_ratio = actin_diff_coeff_trans/myosin_diff_coeff_trans;
     Sarcomere model(n_actins, n_myosins, box, actin_length, myosin_length,
                         myosin_radius, myosin_radius_ratio, crosslinker_length, k_on, k_off,
