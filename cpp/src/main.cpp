@@ -39,6 +39,7 @@ int main(int argc, char* argv[]){
     bool directional;
     int n_fixed_myosins;
     int max_myosin_bonds;
+    int dimension;
 
     std::string filename;
     std::string init_struc;
@@ -81,6 +82,8 @@ int main(int argc, char* argv[]){
             ("initial_structure", "Type of initial structure", cxxopts::value<std::string>(init_struc)->default_value("random"))
             ("max_myosin_bonds", "Maximum actin bonds per myosin",
              cxxopts::value<int>(max_myosin_bonds)->default_value("5"))
+            ("dimension", "Simulation dimensionality (2 or 3)",
+             cxxopts::value<int>(dimension)->default_value("3"))
             ("h, help", "Print usage");
 
         auto result = options.parse(argc, argv);
@@ -96,6 +99,12 @@ int main(int argc, char* argv[]){
 	  }
 
 
+    if (dimension != 2 && dimension != 3) {
+        std::cerr << "dimension must be 2 or 3" << std::endl;
+        return 1;
+    }
+    bool is3D = (dimension == 3);
+
     gsl_rng * rng = gsl_rng_alloc(gsl_rng_mt19937);
     gsl_rng_set(rng,seed);
     std::vector <double> box(3);
@@ -109,7 +118,26 @@ int main(int argc, char* argv[]){
                           k_aa, kappa_aa, k_am, kappa_am, v_am,
                         filename,rng, seed, n_fixed_myosins, dt, directional, max_myosin_bonds);
 
-    Langevin sim(model, beta, dt, actin_diff_coeff_trans,actin_diff_coeff_rot, myosin_diff_coeff_trans, myosin_diff_coeff_rot, save_every, resume);
+    if (!is3D) {
+        for (int i = 0; i < n_actins; ++i) {
+            model.actin.center[i].z = 0;
+            model.actin.direction[i].z = 0;
+            model.actin.force[i].z = 0;
+            model.actin.velocity[i].z = 0;
+            model.actin.torque[i].z = 0;
+        }
+        for (int i = 0; i < n_myosins; ++i) {
+            model.myosin.center[i].z = 0;
+            model.myosin.direction[i].z = 0;
+            model.myosin.force[i].z = 0;
+            model.myosin.velocity[i].z = 0;
+            model.myosin.torque[i].z = 0;
+        }
+        model.actin.update_endpoints();
+        model.myosin.update_endpoints();
+    }
+
+    Langevin sim(model, beta, dt, actin_diff_coeff_trans,actin_diff_coeff_rot, myosin_diff_coeff_trans, myosin_diff_coeff_rot, save_every, resume, is3D);
     if (!resume){
         if (init_struc == "sarcomere") {
         sim.model.sarcomeric_structure();}

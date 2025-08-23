@@ -20,7 +20,7 @@ public:
     // Note: Parameters are passed by reference as in the original code.
     Langevin(Sarcomere& model0, double& beta0, double& dt0, double& D0_actin_trans,
         double& D0_actin_rot, double& D0_myosin_trans, double& D0_myosin_rot,
-        int& save_every0, bool& resume);
+        int& save_every0, bool& resume, bool is3D);
     // Destructor.
     ~Langevin();
 
@@ -32,6 +32,7 @@ public:
 
     // Data members.
     double dt, beta, D_actin_trans, D_actin_rot, D_myosin_trans, D_myosin_rot;
+    bool is3D;
     int save_every, start_step;
     Sarcomere& model;
 };
