@@ -778,14 +778,6 @@ void Sarcomere::compute_actin_f_load(int& i){
     int thread_id = omp_get_thread_num();
     auto& local_myosin_f_load = myosin_f_load_temp[thread_id];
     actin.f_load[i] = 0;
-    // if (actin.cb_status[i] == 0){
-    //     std::vector<int> myosin_indices = myosinIndicesPerActin.getConnections(i);
-    //     for (int j : myosin_indices){
-    //         local_myosin_f_load[j] = 0;
-    //     }
-    //     actin_f_load_computed[i] = true;
-    //     return;
-    // }
     std::vector<int> myosin_indices = myosinIndicesPerActin.getConnections(i);
     double sum = 0;
     for (int j : myosin_indices){
@@ -794,6 +786,10 @@ void Sarcomere::compute_actin_f_load(int& i){
         double contrib = 3.0 * std::max(partial, 1.0/3.0);
         local_myosin_f_load[j] = contrib;
         sum += contrib;
+        if (sum > 1.0) {
+            sum = 1.0; // cap the sum to avoid overflow
+            break; // no need to continue if we reached the limit
+        }
     }
     actin.f_load[i] = (1 - std::exp(-2 * sum)) / (1 - std::exp(-2));
     actin_f_load_computed[i] = true;
