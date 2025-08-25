@@ -569,7 +569,7 @@ void Sarcomere::_calc_am_force_velocity(int& i) {
         }
 
         vector force_vec = compute_am_force_and_energy(
-            actin, myosin, i, j, box, k_am * actin.f_load[i], kappa_am, cutoff, 1.9*myosin.radius);
+            actin, myosin, i, j, box, k_am * actin.f_load[i], kappa_am, cutoff, cutoff*0.9);
         local_actin_forces[i].x += force_vec[0];
         local_actin_forces[i].y += force_vec[1];
         local_actin_forces[i].z += force_vec[2];
@@ -708,9 +708,10 @@ void Sarcomere::_actin_repulsion(int& i, int& j){
         double distance = result.first;
         double min_dist = 0.01;
         if (distance < min_dist){
+            printf("Very close actins: %d and %d, distance: %f\n", i, j, distance);
             vec normal_vector = result.second["normal"];
             double norm = normal_vector.norm();
-            double factor = 10*(min_dist - distance)/min_dist;
+            double factor = 100*(min_dist - distance)/min_dist;
             if (norm==0){
                 normal_vector.x = center_displacement.x;
                 normal_vector.y = center_displacement.y;

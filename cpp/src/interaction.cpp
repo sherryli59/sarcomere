@@ -31,24 +31,24 @@ real am_energy1(const ArrayXreal& center1, const double& length1, const ArrayXre
     real strength = abs(dot_val);
     dot_val = std::max(real(-1), std::min(real(1), dot_val));  // clamp
     real angle_energy = 0.5 * kappa_am * (1.0 - dot_val * dot_val); 
-    // if (dist > 0.8 * myosin_radius) {
-    //     if (dist > myosin_radius) {
-    //     printf("something's wrong. dist: %f\n", dist.val());
-    //     exit(1);
-    // }
-    // return 0.5 * k_am * strength * dist * dist + angle_energy;
-    // } else {
-    // return 0.5 * (k_am / 10) * strength * dist * dist + angle_energy;
-    //}
-    if (dist > cutoff) {
+    if (dist > 0.8 * cutoff) {
+        if (dist > cutoff) {
         printf("something's wrong. dist: %f\n", dist.val());
-        return angle_energy;
+        exit(1);
     }
-    else {
-        real offset = dist - optimal;
-        //printf("offset: %f, dist: %f, optimal: %f\n", offset.val(), dist.val(), optimal);
-        return 0.5 * k_am * strength * offset * offset + angle_energy;
+    return 0.5 * k_am * strength * dist * dist + angle_energy;
+    } else {
+    return 0.5 * (k_am / 10) * strength * dist * dist + angle_energy;
     }
+    // if (dist > cutoff) {
+    //     printf("something's wrong. dist: %f\n", dist.val());
+    //     return angle_energy;
+    // }
+    // else {
+    //     real offset = dist - optimal;
+    //     printf("offset: %f, dist: %f, optimal: %f\n", offset.val(), dist.val(), optimal);
+    //     return 0.5 * k_am * strength * offset * offset + angle_energy;
+    // }
 }
 
 real am_energy(const ArrayXreal& dir1, const ArrayXreal& dir2, const double kappa_am)
