@@ -309,15 +309,15 @@ void Sarcomere::update_system() {
         reduce_array(myosin_velocities_temp, myosin.velocity);
         reduce_array(myosin_torques_temp, myosin.torque);
 
-        // #pragma omp for
-        // for (int i = 0; i < myosin.n; i++){
-        //     double v_max = v_am / (diff_coeff_ratio + 1);// * (1 - myosin_min_load[i]);
-        //     //printf("myosin %d, v_max: %f\n", i, v_max);
-        //     double v = myosin.velocity[i].norm();
-        //     if (v>v_max){
-        //         myosin.velocity[i] = myosin.velocity[i]/v*v_max;
-        //     }
-        // }
+        #pragma omp for
+        for (int i = 0; i < myosin.n; i++){
+            double v_max = v_am;// / (diff_coeff_ratio + 1);// * (1 - myosin_min_load[i]);
+            //printf("myosin %d, v_max: %f\n", i, v_max);
+            double v = myosin.velocity[i].norm();
+            if (v>v_max){
+                myosin.velocity[i] = myosin.velocity[i]/v*v_max;
+            }
+        }
     }
 }
 
@@ -779,14 +779,6 @@ void Sarcomere::compute_actin_f_load(int& i){
     int thread_id = omp_get_thread_num();
     auto& local_myosin_f_load = myosin_f_load_temp[thread_id];
     actin.f_load[i] = 0;
-    // if (actin.cb_status[i] == 0){
-    //     std::vector<int> myosin_indices = myosinIndicesPerActin.getConnections(i);
-    //     for (int j : myosin_indices){
-    //         local_myosin_f_load[j] = 0;
-    //     }
-    //     actin_f_load_computed[i] = true;
-    //     return;
-    // }
     std::vector<int> myosin_indices = myosinIndicesPerActin.getConnections(i);
     double sum = 0;
     for (int j : myosin_indices){
@@ -795,8 +787,13 @@ void Sarcomere::compute_actin_f_load(int& i){
         double contrib = 3.0 * std::max(partial, 1.0/3.0);
         local_myosin_f_load[j] = contrib;
         sum += contrib;
+        if (sum >= 1.0){
+            sum = 1.0;
+            break;
+        }
     }
     actin.f_load[i] = (1 - std::exp(-2 * sum)) / (1 - std::exp(-2));
+    printf("Actin %d, f_load: %f, n_myosins: %d\n", i, actin.f_load[i], (int)myosin_indices.size());
     actin_f_load_computed[i] = true;
 }
 
