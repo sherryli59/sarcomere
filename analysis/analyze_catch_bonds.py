@@ -79,6 +79,9 @@ def analyze_catch_bonds(h5file: str, dt: float = 1.0,
         ratio_actin_cb: list[float] = []
         ratio_myosin_cb: list[float] = []
 
+        # Nematic order per frame
+        nematic_order: list[float] = []
+
         # Distributions of actin--myosin connectivity
         myosins_per_actin: list[int] = []
         actins_per_myosin: list[int] = []
@@ -115,6 +118,15 @@ def analyze_catch_bonds(h5file: str, dt: float = 1.0,
 
             # Accumulate raw directions for global distribution
             all_dirs.append(dirs)
+
+            # Nematic order parameter for this frame
+            if dirs.size:
+                norms = np.linalg.norm(dirs, axis=1, keepdims=True)
+                norms[norms == 0] = 1.0
+                U = dirs / norms
+                q = 1.5 * (U.T @ U) / U.shape[0] - 0.5 * np.eye(3)
+                eigvals = np.linalg.eigvalsh(q)
+                nematic_order.append(float(eigvals[-1]))
 
             bonded_actins: set[int] = set()
             current_pairs: set[tuple[int, int]] = set()
@@ -252,6 +264,17 @@ def analyze_catch_bonds(h5file: str, dt: float = 1.0,
         plt.ylabel("Probability density")
         plt.tight_layout()
         plt.savefig(f"{prefix}_actin_direction_angle_to_x.png", dpi=300)
+        plt.close()
+
+    # Time series of nematic order parameter
+    if nematic_order:
+        times = np.arange(len(nematic_order)) * dt
+        plt.figure()
+        plt.plot(times, nematic_order)
+        plt.xlabel("Time")
+        plt.ylabel("Nematic order")
+        plt.tight_layout()
+        plt.savefig(f"{prefix}_nematic_order_vs_time.png", dpi=300)
         plt.close()
 
     # Time series of catch bond engagement ratios
