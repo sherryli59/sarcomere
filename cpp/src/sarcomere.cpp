@@ -240,6 +240,8 @@ void Sarcomere::sarcomeric_structure(){
 
 
 void Sarcomere::update_system() {
+    // Advance global step counter each time the system is updated
+    current_step++;
     _update_neighbors();
     #pragma omp parallel
     {   
@@ -323,6 +325,8 @@ void Sarcomere::update_system() {
 
 
 void Sarcomere::update_system_sterics_only() {
+    // Advance step counter as well for sterics-only updates
+    current_step++;
     _update_neighbors();
     #pragma omp parallel
     {   
@@ -737,28 +741,46 @@ void Sarcomere::_actin_repulsion(int& i, int& j){
 }
 
 int Sarcomere::determine_cb_status(int& i, int& j){
+    // Compute geometric metrics used for diagnostics
+    double distance = geometry::segment_segment_distance(
+        actin.left_end[i], actin.right_end[i], actin.left_end[j], actin.right_end[j], box);
+    double cos_angle = actin.direction[i].dot(actin.direction[j]);
+
+    bool was_strong = (actin_actin_status[i][j] == 2);
     bool crosslink = false;
     if (actin_crosslink_ratio[i] > EPS && actin_crosslink_ratio[j] > EPS || ! directional){
-        double distance = geometry::segment_segment_distance(actin.left_end[i],
-            actin.right_end[i], actin.left_end[j], actin.right_end[j], box);
         if (distance<crosslinker_length){
             crosslink = true;
         }
     }
     if (!crosslink){
+        if (was_strong){
+            cb_breakage_events.insert(cb_breakage_events.end(),
+                                      {static_cast<double>(i), static_cast<double>(j),
+                                       static_cast<double>(current_step), distance, cos_angle});
+        }
         return 0; // return -1 for non-catch bond
     }
-    double cos_angle = actin.direction[i].dot(actin.direction[j]);
     bool catch_bond =(actin_basic_tension[i]>EPS && actin_basic_tension[j]>EPS);
     if (directional){
         catch_bond = (catch_bond && cos_angle<0);
     }
     if (!catch_bond){
+        if (was_strong){
+            cb_breakage_events.insert(cb_breakage_events.end(),
+                                      {static_cast<double>(i), static_cast<double>(j),
+                                       static_cast<double>(current_step), distance, cos_angle});
+        }
         return 1;
     }
     auto& myosin_indices_i = myosinIndicesPerActin.getConnections(i);
     auto& myosin_indices_j = myosinIndicesPerActin.getConnections(j);
     if (myosin_indices_i.empty() || myosin_indices_j.empty()){
+        if (was_strong){
+            cb_breakage_events.insert(cb_breakage_events.end(),
+                                      {static_cast<double>(i), static_cast<double>(j),
+                                       static_cast<double>(current_step), distance, cos_angle});
+        }
         return 1;
     }
     for (int mi : myosin_indices_i){
@@ -769,6 +791,11 @@ int Sarcomere::determine_cb_status(int& i, int& j){
                 return 2;
             }
         }
+    }
+    if (was_strong){
+        cb_breakage_events.insert(cb_breakage_events.end(),
+                                  {static_cast<double>(i), static_cast<double>(j),
+                                   static_cast<double>(current_step), distance, cos_angle});
     }
     return 1;
 }
@@ -1041,6 +1068,16 @@ void Sarcomere::save_state(){
     std::vector<double> flatActinMyosinBonds = std::get<2>(bondData);
     append_to_file(filename, actin, myosin, flatActinBonds,
                    flatMyosinBonds, flatActinMyosinBonds, max_myosin_bonds);
+
+    // Flush any recorded catch-bond breakage events to the HDF5 file
+    if (!cb_breakage_events.empty()) {
+        H5::H5File file(filename, H5F_ACC_RDWR);
+        H5::Group group_cb(file.openGroup("/catch_bond"));
+        hsize_t n_events = cb_breakage_events.size() / 5;
+        append_to_dataset(group_cb, "breakage", cb_breakage_events,
+                           {n_events, static_cast<hsize_t>(5)});
+        cb_breakage_events.clear();
+    }
 }
 
 void Sarcomere::load_state(int& n_frames){

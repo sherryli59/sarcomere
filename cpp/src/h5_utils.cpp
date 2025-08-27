@@ -270,6 +270,13 @@ void create_file(std::string& filename, Filament& actin, Myosin& myosin,
     maxDims     = {H5S_UNLIMITED, max_n_am_bonds, 2};
     chunkDims   = {10, max_n_am_bonds, 2};
     create_empty_dataset(file, "/actin_myo", "bonds", initialDims, maxDims, chunkDims);
+
+    // Dataset to record catch-bond breakage events:
+    // columns: i, j, step, distance, cos_angle
+    initialDims = {0, 5};
+    maxDims     = {H5S_UNLIMITED, 5};
+    chunkDims   = {10, 5};
+    create_empty_dataset(file, "/catch_bond", "breakage", initialDims, maxDims, chunkDims);
 }
 
 
