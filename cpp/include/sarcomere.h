@@ -10,6 +10,7 @@
 #include <tuple>
 #include <omp.h>
 #include <mutex>
+#include <cstddef>
 
 #include "components.h"
 #include "utils.h"
@@ -66,6 +67,11 @@ public:
     std::vector<std::vector<double>> myosin_f_load_temp;
     std::vector<utils::MoleculeConnection> actinIndicesPerMyosin_temp;
     std::vector<gsl_rng*> rng_engines;
+
+    // Record the global simulation step and catch-bond breakage events
+    size_t current_step = 0;
+    // Flat buffer storing (i, j, step, distance, cos_angle) for each breakage
+    std::vector<double> cb_breakage_events;
 
     // Constructors & Destructor
     Sarcomere();

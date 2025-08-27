@@ -33,6 +33,39 @@ def compute_pair_fload(
     return f_load, angle
 
 
+def plot_breakage_events(h5file: str, dt: float = 1.0, prefix: str = "analysis") -> None:
+    """Read recorded catch-bond breakage events and plot distance and angle vs time."""
+    with h5py.File(h5file, "r") as fh:
+        if "/catch_bond/breakage" not in fh:
+            print("No catch-bond breakage data found in file")
+            return
+        data = np.asarray(fh["/catch_bond/breakage"])
+
+    if data.size == 0:
+        return
+
+    steps = data[:, 2]
+    times = steps * dt
+    distances = data[:, 3]
+    angles = np.degrees(np.arccos(np.clip(data[:, 4], -1.0, 1.0)))
+
+    plt.figure()
+    plt.scatter(times, distances, s=10, alpha=0.7)
+    plt.xlabel("Time")
+    plt.ylabel("Segment distance at break")
+    plt.tight_layout()
+    plt.savefig(f"{prefix}_cb_break_distance_vs_time.png", dpi=300)
+    plt.close()
+
+    plt.figure()
+    plt.scatter(times, angles, s=10, alpha=0.7)
+    plt.xlabel("Time")
+    plt.ylabel("Angle at break (deg)")
+    plt.tight_layout()
+    plt.savefig(f"{prefix}_cb_break_angle_vs_time.png", dpi=300)
+    plt.close()
+
+
 def analyze_catch_bonds(h5file: str, dt: float = 1.0,
                         prefix: str = "analysis",
                         start_frame: int = 0) -> None:
@@ -332,6 +365,7 @@ def main() -> None:
                         dt=args.dt,
                         prefix=args.prefix,
                         start_frame=args.start_frame)
+    plot_breakage_events(args.h5file, dt=args.dt, prefix=args.prefix)
 
 if __name__ == "__main__":
     main()
