@@ -154,6 +154,7 @@ def plot_system(frame, data, myosin_length, actin_length, Lx, Ly, Lz,
     cb_status = data["/actin/cb_status"][frame].flatten()
 
     mask = cb_status > 1
+    print(f"Frame {frame}: {np.sum(mask)} actin filaments in catch-bond state")
     actin_center = actin_center[mask]
     actin_direction = actin_direction[mask]
 
