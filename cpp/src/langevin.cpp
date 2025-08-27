@@ -69,7 +69,7 @@ void Langevin::run_langevin(int nsteps, gsl_rng* rng, int& fix_myosin) {
             end = omp_get_wtime();
             printf("Step %d took %f seconds\n", i, end - start);
             //model.debug_cb_stats();
-        }
+        } 
     }
 }
 

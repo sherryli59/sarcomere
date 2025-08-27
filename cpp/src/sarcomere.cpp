@@ -712,7 +712,7 @@ void Sarcomere::_actin_repulsion(int& i, int& j){
         double distance = result.first;
         double min_dist = 0.01;
         if (distance < min_dist){
-            printf("Very close actins: %d and %d, distance: %f\n", i, j, distance);
+            //printf("Very close actins: %d and %d, distance: %f\n", i, j, distance);
             vec normal_vector = result.second["normal"];
             double norm = normal_vector.norm();
             double factor = 100*(min_dist - distance)/min_dist;
@@ -755,6 +755,7 @@ int Sarcomere::determine_cb_status(int& i, int& j){
     }
     if (!crosslink){
         if (was_strong){
+            printf("Actins %d and %d no longer crosslinked, distance: %f, cos_angle: %f\n", i, j, distance, cos_angle);
             cb_breakage_events.insert(cb_breakage_events.end(),
                                       {static_cast<double>(i), static_cast<double>(j),
                                        static_cast<double>(current_step), distance, cos_angle});

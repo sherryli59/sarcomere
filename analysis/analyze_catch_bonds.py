@@ -42,6 +42,7 @@ def plot_breakage_events(h5file: str, dt: float = 1.0, prefix: str = "analysis")
         data = np.asarray(fh["/catch_bond/breakage"])
 
     if data.size == 0:
+        print("No catch-bond breakage events recorded")
         return
 
     steps = data[:, 2]
