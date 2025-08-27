@@ -250,32 +250,13 @@ void Sarcomere::update_system() {
         for (int i = 0; i < actin.n; i++) {
             _process_actin_myosin_binding(i);
         }
-
-        #pragma omp barrier  
-        if (base_lifetime > 0 || lifetime_coeff > 0) {
-        // Step 3: Compute catch bonds
-        #pragma omp for schedule(dynamic)
-        for (int i = 0; i < actin.n; i++) {
-            _process_catch_bonds(i);
-        }
-        }
-        #pragma omp barrier  
-
-        // Step 4: Reduce actin catch-bond status using max over threads
-        #pragma omp for
-        for (int i = 0; i < actin.n; ++i) {
-            for (int t = 0; t < omp_get_num_threads(); ++t) {
-                actin.cb_status[i] = std::max(actin.cb_status[i], actin_cb_status_temp[t][i]);
-            }
-        }
-
         #pragma omp barrier
         #pragma omp single
         { //_enforce_actin_cb_limit();
          _enforce_myosin_bond_limit(); }
         #pragma omp barrier
 
-        // Step 5: Concatenate actinIndicesPerMyosin connections
+        // Step 3: Concatenate actinIndicesPerMyosin connections
         #pragma omp for
         for (int i = 0; i < myosin.n; ++i) {
             for (int t = 0; t < omp_get_num_threads(); ++t) {
@@ -285,6 +266,25 @@ void Sarcomere::update_system() {
                 }
             }
         }
+
+        #pragma omp barrier  
+        if (base_lifetime > 0 || lifetime_coeff > 0) {
+        // Step 4: Compute catch bonds
+        #pragma omp for schedule(dynamic)
+        for (int i = 0; i < actin.n; i++) {
+            _process_catch_bonds(i);
+        }
+        }
+        #pragma omp barrier  
+
+        // Step 5: Reduce actin catch-bond status using max over threads
+        #pragma omp for
+        for (int i = 0; i < actin.n; ++i) {
+            for (int t = 0; t < omp_get_num_threads(); ++t) {
+                actin.cb_status[i] = std::max(actin.cb_status[i], actin_cb_status_temp[t][i]);
+            }
+        }
+
 
         #pragma omp barrier  
 
@@ -786,7 +786,7 @@ void Sarcomere::compute_actin_f_load(int& i){
     for (int j : myosin_indices){
         if (am_bonds[i][j] != 1) continue;
         double partial = am_interaction[i][j].partial_binding_ratio;
-        double contrib = 3.0 * std::max(partial, 1.0/3.0);
+        double contrib = 3.0 * std::min(partial, 1.0/3.0);
         local_myosin_f_load[j] = contrib;
         sum += contrib;
         if (sum >= 1.0){
@@ -795,7 +795,7 @@ void Sarcomere::compute_actin_f_load(int& i){
         }
     }
     actin.f_load[i] = (1 - std::exp(-2 * sum)) / (1 - std::exp(-2));
-    printf("Actin %d, f_load: %f, n_myosins: %d\n", i, actin.f_load[i], (int)myosin_indices.size());
+    //printf("Actin %d, f_load: %f, n_myosins: %d\n", i, actin.f_load[i], (int)myosin_indices.size());
     actin_f_load_computed[i] = true;
 }
 

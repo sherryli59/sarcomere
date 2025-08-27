@@ -275,7 +275,7 @@ def analyze_catch_bonds(h5file: str, dt: float = 1.0, prefix: str = "analysis") 
     if myosins_per_actin:
         plt.figure()
         bins = np.arange(1, max(myosins_per_actin) + 2) - 0.5
-        plt.hist(myosins_per_actin, bins=bins, density=True)
+        plt.hist(myosins_per_actin, bins=bins)
         plt.xlabel("Myosins bound per actin")
         plt.ylabel("Probability density")
         plt.tight_layout()
