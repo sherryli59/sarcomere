@@ -33,7 +33,9 @@ def compute_pair_fload(
     return f_load, angle
 
 
-def analyze_catch_bonds(h5file: str, dt: float = 1.0, prefix: str = "analysis") -> None:
+def analyze_catch_bonds(h5file: str, dt: float = 1.0,
+                        prefix: str = "analysis",
+                        start_frame: int = 0) -> None:
     """Analyze actin catch bonds and actin--myosin connectivity in a trajectory file.
 
     Parameters
@@ -90,6 +92,8 @@ def analyze_catch_bonds(h5file: str, dt: float = 1.0, prefix: str = "analysis") 
         cb2_zero_partial: list[tuple[int, np.ndarray]] = []
 
         for frame in range(n_frames):
+            if frame < start_frame:
+                continue
             bonds = bonds_ds[frame]
             dirs = np.asarray(dirs_ds[frame])  # (N,3)
             f_load = fload_ds[frame, :, 0]     # (N,)
@@ -298,9 +302,13 @@ def main() -> None:
     parser.add_argument("h5file", help="Path to HDF5 trajectory")
     parser.add_argument("--dt", type=float, default=0.02, help="Time between frames")
     parser.add_argument("--prefix", default="analysis", help="Prefix for output files")
-    args = parser.parse_args()
-    analyze_catch_bonds(args.h5file, dt=args.dt, prefix=args.prefix)
+    parser.add_argument("--start_frame", type=int, default=0,help="First frame to include in analysis (skip earlier frames)")
 
+    args = parser.parse_args()
+    analyze_catch_bonds(args.h5file,
+                        dt=args.dt,
+                        prefix=args.prefix,
+                        start_frame=args.start_frame)
 
 if __name__ == "__main__":
     main()

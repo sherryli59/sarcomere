@@ -38,7 +38,7 @@ real am_energy1(const ArrayXreal& center1, const double& length1, const ArrayXre
     }
     return 0.5 * k_am * strength * dist * dist + angle_energy;
     } else {
-    return 0.5 * (k_am / 10) * strength * dist * dist + angle_energy;
+    return angle_energy;
     }
     // if (dist > cutoff) {
     //     printf("something's wrong. dist: %f\n", dist.val());
