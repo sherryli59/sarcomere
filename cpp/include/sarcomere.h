@@ -35,7 +35,7 @@ public:
     utils::MoleculeConnection actinIndicesPerActin;
 
     std::vector<std::vector<int>> actin_actin_bonds, actin_actin_bonds_prev;
-    std::vector<std::vector<int>> actin_actin_status;
+    std::vector<std::vector<int>> actin_actin_status, actin_actin_status_prev;
     // Track lifetime (in steps) for each actin–actin catch bond
     std::vector<std::vector<int>> actin_actin_lifetime, actin_actin_lifetime_prev;
     // Track actin–myosin bonds
