@@ -14,6 +14,7 @@ Sarcomere::Sarcomere(int& n_actins, int& n_myosins, vector box0, double& actin_l
               neighbor_list(0.0, box0, 0.0),
                 actin_actin_bonds(n_actins, std::vector<int>(n_actins, 0)),
                 actin_actin_status(n_actins, std::vector<int>(n_actins, 0)),
+                actin_actin_status_prev(n_actins, std::vector<int>(n_actins, 0)),
                 actin_actin_lifetime(n_actins, std::vector<int>(n_actins, 0)),
                 am_bonds(n_actins, std::vector<int>(n_myosins, 0)),
                 actin_forces_temp(omp_get_max_threads(), std::vector<vec>(n_actins, {0, 0, 0})),
@@ -399,6 +400,7 @@ void Sarcomere::_set_to_zero() {
         myosinIndicesPerActin.deleteAllConnections(i);
         for (int j = 0; j < actin.n; j++){
             actin_actin_bonds_prev[i][j] = actin_actin_bonds[i][j];
+            actin_actin_status_prev[i][j] = actin_actin_status[i][j];
             actin_actin_bonds[i][j] = 0;
             actin_actin_status[i][j] = 0;
             actin_actin_lifetime_prev[i][j] = actin_actin_lifetime[i][j];
@@ -746,7 +748,7 @@ int Sarcomere::determine_cb_status(int& i, int& j){
         actin.left_end[i], actin.right_end[i], actin.left_end[j], actin.right_end[j], box);
     double cos_angle = actin.direction[i].dot(actin.direction[j]);
 
-    bool was_strong = (actin_actin_status[i][j] == 2);
+    bool was_strong = (actin_actin_status_prev[i][j] == 2);
     bool crosslink = false;
     if (actin_crosslink_ratio[i] > EPS && actin_crosslink_ratio[j] > EPS || ! directional){
         if (distance<crosslinker_length){
