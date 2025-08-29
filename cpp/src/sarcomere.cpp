@@ -752,6 +752,35 @@ int Sarcomere::determine_cb_status(int& i, int& j){
     if (was_strong){
         printf("Actins %d and %d were strongly crosslinked, distance: %f, cos_angle: %f\n", i, j, distance, cos_angle);
     }
+
+    auto record_break = [&](void){
+        auto& myosin_indices_i = myosinIndicesPerActin.getConnections(i);
+        auto& myosin_indices_j = myosinIndicesPerActin.getConnections(j);
+        double tension_i = actin_basic_tension[i];
+        double tension_j = actin_basic_tension[j];
+        printf("Catch bond between actins %d and %d broke. distance: %f, cos_angle: %f, tensions: %f, %f, myosins_i(%zu):",
+               i, j, distance, cos_angle, tension_i, tension_j, myosin_indices_i.size());
+        for (int mi : myosin_indices_i) { printf(" %d", mi); }
+        printf("; myosins_j(%zu):", myosin_indices_j.size());
+        for (int mj : myosin_indices_j) { printf(" %d", mj); }
+        printf("\n");
+        cb_breakage_events.insert(cb_breakage_events.end(),
+                                  {static_cast<double>(i), static_cast<double>(j),
+                                   static_cast<double>(current_step), distance, cos_angle,
+                                   tension_i, tension_j,
+                                   static_cast<double>(myosin_indices_i.size()),
+                                   static_cast<double>(myosin_indices_j.size())});
+        for (int k = 0; k < max_myosin_bonds; ++k) {
+            cb_breakage_events.push_back(
+                k < static_cast<int>(myosin_indices_i.size()) ?
+                    static_cast<double>(myosin_indices_i[k]) : -1.0);
+        }
+        for (int k = 0; k < max_myosin_bonds; ++k) {
+            cb_breakage_events.push_back(
+                k < static_cast<int>(myosin_indices_j.size()) ?
+                    static_cast<double>(myosin_indices_j[k]) : -1.0);
+        }
+    };
     bool crosslink = false;
     if (actin_crosslink_ratio[i] > EPS && actin_crosslink_ratio[j] > EPS || ! directional){
         if (distance<crosslinker_length){
@@ -761,9 +790,7 @@ int Sarcomere::determine_cb_status(int& i, int& j){
     if (!crosslink){
         if (was_strong){
             printf("Actins %d and %d no longer crosslinked, distance: %f, cos_angle: %f\n", i, j, distance, cos_angle);
-            cb_breakage_events.insert(cb_breakage_events.end(),
-                                      {static_cast<double>(i), static_cast<double>(j),
-                                       static_cast<double>(current_step), distance, cos_angle});
+            record_break();
         }
         return 0; // return -1 for non-catch bond
     }
@@ -773,9 +800,7 @@ int Sarcomere::determine_cb_status(int& i, int& j){
     }
     if (!catch_bond){
         if (was_strong){
-            cb_breakage_events.insert(cb_breakage_events.end(),
-                                      {static_cast<double>(i), static_cast<double>(j),
-                                       static_cast<double>(current_step), distance, cos_angle});
+            record_break();
         }
         return 1;
     }
@@ -783,9 +808,7 @@ int Sarcomere::determine_cb_status(int& i, int& j){
     auto& myosin_indices_j = myosinIndicesPerActin.getConnections(j);
     if (myosin_indices_i.empty() || myosin_indices_j.empty()){
         if (was_strong){
-            cb_breakage_events.insert(cb_breakage_events.end(),
-                                      {static_cast<double>(i), static_cast<double>(j),
-                                       static_cast<double>(current_step), distance, cos_angle});
+            record_break();
         }
         return 1;
     }
@@ -799,9 +822,7 @@ int Sarcomere::determine_cb_status(int& i, int& j){
         }
     }
     if (was_strong){
-        cb_breakage_events.insert(cb_breakage_events.end(),
-                                  {static_cast<double>(i), static_cast<double>(j),
-                                   static_cast<double>(current_step), distance, cos_angle});
+        record_break();
     }
     return 1;
 }
@@ -1079,9 +1100,10 @@ void Sarcomere::save_state(){
     if (!cb_breakage_events.empty()) {
         H5::H5File file(filename, H5F_ACC_RDWR);
         H5::Group group_cb(file.openGroup("/catch_bond"));
-        hsize_t n_events = cb_breakage_events.size() / 5;
+        hsize_t event_width = 9 + 2 * max_myosin_bonds;
+        hsize_t n_events = cb_breakage_events.size() / event_width;
         append_to_dataset(group_cb, "breakage", cb_breakage_events,
-                           {n_events, static_cast<hsize_t>(5)});
+                           {n_events, event_width});
         cb_breakage_events.clear();
     }
 }
