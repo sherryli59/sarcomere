@@ -726,7 +726,7 @@ void Sarcomere::_actin_repulsion(int& i, int& j){
             else {
                 normal_vector = normal_vector/norm;
             }
-            if (actin.cb_status[i]>0 && actin.cb_status[j]==0){
+            if (actin.cb_status[i] > 0 && actin.cb_status[j]==0){
                 //move actin j only
                 local_actin_forces[j] = local_actin_forces[j]-2*factor*normal_vector;
             }
@@ -749,6 +749,9 @@ int Sarcomere::determine_cb_status(int& i, int& j){
     double cos_angle = actin.direction[i].dot(actin.direction[j]);
 
     bool was_strong = (actin_actin_status_prev[i][j] == 2);
+    if (was_strong){
+        printf("Actins %d and %d were strongly crosslinked, distance: %f, cos_angle: %f\n", i, j, distance, cos_angle);
+    }
     bool crosslink = false;
     if (actin_crosslink_ratio[i] > EPS && actin_crosslink_ratio[j] > EPS || ! directional){
         if (distance<crosslinker_length){
