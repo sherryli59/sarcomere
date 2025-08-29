@@ -34,7 +34,8 @@ def compute_pair_fload(
 
 
 def plot_breakage_events(h5file: str, dt: float = 1.0, prefix: str = "analysis") -> None:
-    """Read recorded catch-bond breakage events and plot distance and angle vs time."""
+    """Read recorded catch-bond breakage events and plot distance, angle,
+    tension and myosin-attachment metrics vs time."""
     with h5py.File(h5file, "r") as fh:
         if "/catch_bond/breakage" not in fh:
             print("No catch-bond breakage data found in file")
@@ -49,6 +50,12 @@ def plot_breakage_events(h5file: str, dt: float = 1.0, prefix: str = "analysis")
     times = steps * dt
     distances = data[:, 3]
     angles = np.degrees(np.arccos(np.clip(data[:, 4], -1.0, 1.0)))
+    tension_i = data[:, 5]
+    tension_j = data[:, 6]
+    min_tension = np.minimum(tension_i, tension_j)
+    count_i = data[:, 7]
+    count_j = data[:, 8]
+    total_myo = count_i + count_j
 
     plt.figure()
     plt.scatter(times, distances, s=10, alpha=0.7)
@@ -65,6 +72,27 @@ def plot_breakage_events(h5file: str, dt: float = 1.0, prefix: str = "analysis")
     plt.tight_layout()
     plt.savefig(f"{prefix}_cb_break_angle_vs_time.png", dpi=300)
     plt.close()
+
+    plt.figure()
+    plt.scatter(times, min_tension, s=10, alpha=0.7)
+    plt.xlabel("Time")
+    plt.ylabel("Minimum tension at break")
+    plt.tight_layout()
+    plt.savefig(f"{prefix}_cb_break_min_tension_vs_time.png", dpi=300)
+    plt.close()
+
+    plt.figure()
+    plt.scatter(times, total_myo, s=10, alpha=0.7)
+    plt.xlabel("Time")
+    plt.ylabel("Total myosins attached at break")
+    plt.tight_layout()
+    plt.savefig(f"{prefix}_cb_break_total_myosins_vs_time.png", dpi=300)
+    plt.close()
+
+    tensionless = np.sum(min_tension < 1e-6)
+    detached = np.sum((count_i == 0) | (count_j == 0))
+    print(f"{tensionless} of {len(times)} break events occurred with near-zero tension")
+    print(f"{detached} events involved an actin with no myosin attachments")
 
 
 def analyze_catch_bonds(h5file: str, dt: float = 1.0,
