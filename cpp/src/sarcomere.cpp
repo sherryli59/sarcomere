@@ -517,6 +517,14 @@ void Sarcomere::_enforce_actin_cb_limit() {
                 if (actin_actin_bonds[j][k2] == 1)
                     actin.cb_status[j] = std::max(actin.cb_status[j], actin_actin_status[j][k2]);
             }
+            // Log the enforced removal with timestamp and current bond counts
+            printf("Limit removal of actins %d-%d at step %zu (bonds: %d %d)\n",
+                   i, j, current_step, actin_n_bonds[i], actin_n_bonds[j]);
+            cb_limit_events.insert(cb_limit_events.end(),
+                                   {static_cast<double>(i), static_cast<double>(j),
+                                    static_cast<double>(current_step),
+                                    static_cast<double>(actin_n_bonds[i]),
+                                    static_cast<double>(actin_n_bonds[j])});
         }
     }
 }
@@ -1096,15 +1104,26 @@ void Sarcomere::save_state(){
     append_to_file(filename, actin, myosin, flatActinBonds,
                    flatMyosinBonds, flatActinMyosinBonds, max_myosin_bonds);
 
-    // Flush any recorded catch-bond breakage events to the HDF5 file
-    if (!cb_breakage_events.empty()) {
+    // Flush any recorded catch-bond events to the HDF5 file
+    if (!cb_breakage_events.empty() || !cb_limit_events.empty()) {
         H5::H5File file(filename, H5F_ACC_RDWR);
         H5::Group group_cb(file.openGroup("/catch_bond"));
-        hsize_t event_width = 9 + 2 * max_myosin_bonds;
-        hsize_t n_events = cb_breakage_events.size() / event_width;
-        append_to_dataset(group_cb, "breakage", cb_breakage_events,
-                           {n_events, event_width});
-        cb_breakage_events.clear();
+
+        if (!cb_breakage_events.empty()) {
+            hsize_t event_width = 9 + 2 * max_myosin_bonds;
+            hsize_t n_events = cb_breakage_events.size() / event_width;
+            append_to_dataset(group_cb, "breakage", cb_breakage_events,
+                               {n_events, event_width});
+            cb_breakage_events.clear();
+        }
+
+        if (!cb_limit_events.empty()) {
+            hsize_t limit_width = 5;
+            hsize_t n_limit = cb_limit_events.size() / limit_width;
+            append_to_dataset(group_cb, "limit_removal", cb_limit_events,
+                               {n_limit, limit_width});
+            cb_limit_events.clear();
+        }
     }
 }
 

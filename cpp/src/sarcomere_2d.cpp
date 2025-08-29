@@ -554,6 +554,14 @@ void Sarcomere::_enforce_actin_cb_limit() {
             actin_n_bonds[j] -= 1;
             actin_strong_cb_count[i] -= 1;
             actin_strong_cb_count[j] -= 1;
+            // Log the enforced removal with timestamp and current bond counts
+            printf("Limit removal of actins %d-%d at step %zu (bonds: %d %d)\n",
+                   i, j, current_step, actin_n_bonds[i], actin_n_bonds[j]);
+            cb_limit_events.insert(cb_limit_events.end(),
+                                   {static_cast<double>(i), static_cast<double>(j),
+                                    static_cast<double>(current_step),
+                                    static_cast<double>(actin_n_bonds[i]),
+                                    static_cast<double>(actin_n_bonds[j])});
         }
     }
 }
