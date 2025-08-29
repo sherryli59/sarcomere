@@ -73,6 +73,10 @@ public:
     // Flat buffer storing (i, j, step, distance, cos_angle) for each breakage
     std::vector<double> cb_breakage_events;
 
+    // Flat buffer storing (i, j, step, bond_count_i, bond_count_j) for
+    // removals triggered by the max_strong_actin_bonds limit
+    std::vector<double> cb_limit_events;
+
     // Constructors & Destructor
     Sarcomere();
     Sarcomere(int& n_actins, int& n_myosins, vector box0, double& actin_length, double& myosin_length,

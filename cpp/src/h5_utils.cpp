@@ -280,6 +280,14 @@ void create_file(std::string& filename, Filament& actin, Myosin& myosin,
     maxDims     = {H5S_UNLIMITED, event_width};
     chunkDims   = {10, event_width};
     create_empty_dataset(file, "/catch_bond", "breakage", initialDims, maxDims, chunkDims);
+
+    // Dataset to record removals triggered by max_strong_actin_bonds
+    // columns: i, j, step, bond_count_i, bond_count_j
+    hsize_t limit_width = 5;
+    initialDims = {0, limit_width};
+    maxDims     = {H5S_UNLIMITED, limit_width};
+    chunkDims   = {10, limit_width};
+    create_empty_dataset(file, "/catch_bond", "limit_removal", initialDims, maxDims, chunkDims);
 }
 
 

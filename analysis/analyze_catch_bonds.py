@@ -95,6 +95,25 @@ def plot_breakage_events(h5file: str, dt: float = 1.0, prefix: str = "analysis")
     print(f"{detached} events involved an actin with no myosin attachments")
 
 
+def summarize_limit_removals(h5file: str) -> None:
+    """Print a table summarizing limit-enforced catch-bond removals."""
+    with h5py.File(h5file, "r") as fh:
+        if "/catch_bond/limit_removal" not in fh:
+            print("No limit-removal data found in file")
+            return
+        data = np.asarray(fh["/catch_bond/limit_removal"])
+
+    if data.size == 0:
+        print("No limit-removal events recorded")
+        return
+
+    header = f"{'step':>10} {'i':>5} {'j':>5} {'bonds_i':>8} {'bonds_j':>8}"
+    print("Limit-enforced removals")
+    print(header)
+    for row in data:
+        print(f"{int(row[2]):>10} {int(row[0]):>5} {int(row[1]):>5} {int(row[3]):>8} {int(row[4]):>8}")
+
+
 def analyze_catch_bonds(h5file: str, dt: float = 1.0,
                         prefix: str = "analysis",
                         start_frame: int = 0) -> None:
@@ -395,6 +414,7 @@ def main() -> None:
                         prefix=args.prefix,
                         start_frame=args.start_frame)
     plot_breakage_events(args.h5file, dt=args.dt, prefix=args.prefix)
+    summarize_limit_removals(args.h5file)
 
 if __name__ == "__main__":
     main()
