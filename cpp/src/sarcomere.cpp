@@ -24,6 +24,7 @@ Sarcomere::Sarcomere(int& n_actins, int& n_myosins, vector box0, double& actin_l
                 myosin_torques_temp(omp_get_max_threads(), std::vector<vec>(n_myosins, {0, 0, 0})),
                 actin_cb_status_temp(omp_get_max_threads(), std::vector<int>(n_actins, 0)),
                 myosin_f_load_temp(omp_get_max_threads(), std::vector<double>(n_myosins, 0)),
+                myosin_f_load(n_myosins, 0),
                 actinIndicesPerMyosin_temp(omp_get_max_threads(), utils::MoleculeConnection(n_myosins)),
                 rng_engines(omp_get_max_threads(), nullptr),
                 actin_f_load_computed(n_actins, false),
@@ -289,9 +290,21 @@ void Sarcomere::update_system() {
         }
 
 
-        #pragma omp barrier  
+        #pragma omp barrier
 
-        // Step 6: Compute actin-myosin forces
+        // Step 6: Aggregate myosin load across threads
+        #pragma omp for
+        for (int j = 0; j < myosin.n; ++j) {
+            double sum_load = 0;
+            for (int t = 0; t < omp_get_num_threads(); ++t) {
+                sum_load += myosin_f_load_temp[t][j];
+            }
+            myosin_f_load[j] = std::min(sum_load, 1.0);
+        }
+
+        #pragma omp barrier
+
+        // Step 7: Compute actin-myosin forces
         #pragma omp for schedule(dynamic)
         for (int i = 0; i < actin.n; i++) {
             _calc_am_force_velocity(i);
@@ -303,11 +316,11 @@ void Sarcomere::update_system() {
 
         #pragma omp barrier  
 
-        // Step 7: Reduce actin forces and angular forces
+        // Step 8: Reduce actin forces and angular forces
         reduce_array(actin_forces_temp, actin.force);
         reduce_array(actin_torques_temp, actin.torque);
 
-        // Step 8: Reduce myosin forces, velocities, and angular forces
+        // Step 9: Reduce myosin forces, velocities, and angular forces
         reduce_array(myosin_forces_temp, myosin.force);
         reduce_array(myosin_velocities_temp, myosin.velocity);
         reduce_array(myosin_torques_temp, myosin.torque);
@@ -419,6 +432,7 @@ void Sarcomere::_set_to_zero() {
         myosin.torque[i] = {0, 0, 0};
         myosin.velocity[i] = {0, 0, 0};
         actinIndicesPerMyosin.deleteAllConnections(i);
+        myosin_f_load[i] = 0;
     }
     #pragma omp for
     for (size_t i = 0; i < actin.center.size(); i++) {
@@ -571,7 +585,6 @@ void Sarcomere::_calc_am_force_velocity(int& i) {
     auto& local_actin_torques = actin_torques_temp[thread_id];
     auto& local_myosin_forces = myosin_forces_temp[thread_id];
     auto& local_myosin_velocities = myosin_velocities_temp[thread_id];
-    auto& local_myosin_f_load = myosin_f_load_temp[thread_id];
     auto& local_myosin_torques = myosin_torques_temp[thread_id];
     std::vector<int> myosin_indices = myosinIndicesPerActin.getConnections(i);
     vec velocity = v_am * actin.direction[i];
@@ -598,7 +611,7 @@ void Sarcomere::_calc_am_force_velocity(int& i) {
         local_myosin_torques[j].z += force_vec[8];
 
         if (actin.cb_status[i] > 0) {
-            double contrib = local_myosin_f_load[j];
+            double contrib = myosin_f_load[j];
             double f_load_am = (1 - std::exp(-2 * contrib)) / (1 - std::exp(-2));
             local_myosin_velocities[j] += -v_am * (1 - f_load_am) * actin.direction[i];
         } else {
@@ -853,7 +866,7 @@ void Sarcomere::compute_actin_f_load(int& i){
         if (am_bonds[i][j] != 1) continue;
         double partial = am_interaction[i][j].partial_binding_ratio;
         double contrib = 3.0 * std::min(partial, 1.0/3.0);
-        local_myosin_f_load[j] = contrib;
+        local_myosin_f_load[j] += contrib;
         sum += contrib;
         if (sum >= 1.0){
             sum = 1.0;

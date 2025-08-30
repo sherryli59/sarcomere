@@ -65,6 +65,7 @@ public:
                                     myosin_forces_temp, myosin_velocities_temp, actin_torques_temp, myosin_torques_temp;
     std::vector<std::vector<int>> actin_cb_status_temp;
     std::vector<std::vector<double>> myosin_f_load_temp;
+    std::vector<double> myosin_f_load;
     std::vector<utils::MoleculeConnection> actinIndicesPerMyosin_temp;
     std::vector<gsl_rng*> rng_engines;
 
