@@ -41,6 +41,37 @@ def plot_breakage_events(h5file: str, dt: float = 1.0, prefix: str = "analysis")
             print("No catch-bond breakage data found in file")
             return
         data = np.asarray(fh["/catch_bond/breakage"])
+        act_vel_ds = fh["/actin/velocity"] if "/actin/velocity" in fh else None
+        myo_vel_ds = fh["/myosin/velocity"] if "/myosin/velocity" in fh else None
+
+        act_speeds: list[float] = []
+        myo_speeds: list[float] = []
+        if data.size:
+            if act_vel_ds is not None:
+                for row in data:
+                    step_idx = int(row[2])
+                    i = int(row[0])
+                    j = int(row[1])
+                    frame_vel = act_vel_ds[min(step_idx, act_vel_ds.shape[0] - 1)]
+                    act_speeds.extend(
+                        [
+                            float(np.linalg.norm(frame_vel[i])),
+                            float(np.linalg.norm(frame_vel[j])),
+                        ]
+                    )
+            if myo_vel_ds is not None:
+                max_myo = (data.shape[1] - 9) // 2
+                for row in data:
+                    step_idx = int(row[2])
+                    frame_myo_vel = myo_vel_ds[min(step_idx, myo_vel_ds.shape[0] - 1)]
+                    for idx in row[9:9 + max_myo]:
+                        mi = int(idx)
+                        if mi >= 0:
+                            myo_speeds.append(float(np.linalg.norm(frame_myo_vel[mi])))
+                    for idx in row[9 + max_myo:9 + 2 * max_myo]:
+                        mi = int(idx)
+                        if mi >= 0:
+                            myo_speeds.append(float(np.linalg.norm(frame_myo_vel[mi])))
 
     if data.size == 0:
         print("No catch-bond breakage events recorded")
@@ -88,6 +119,24 @@ def plot_breakage_events(h5file: str, dt: float = 1.0, prefix: str = "analysis")
     plt.tight_layout()
     plt.savefig(f"{prefix}_cb_break_total_myosins_vs_time.png", dpi=300)
     plt.close()
+
+    if act_speeds:
+        plt.figure()
+        plt.hist(act_speeds, bins=50, density=True)
+        plt.xlabel("Actin speed before break")
+        plt.ylabel("Probability density")
+        plt.tight_layout()
+        plt.savefig(f"{prefix}_cb_break_actin_speed_distribution.png", dpi=300)
+        plt.close()
+
+    if myo_speeds:
+        plt.figure()
+        plt.hist(myo_speeds, bins=50, density=True)
+        plt.xlabel("Myosin speed before break")
+        plt.ylabel("Probability density")
+        plt.tight_layout()
+        plt.savefig(f"{prefix}_cb_break_myosin_speed_distribution.png", dpi=300)
+        plt.close()
 
     tensionless = np.sum(min_tension < 1e-6)
     detached = np.sum((count_i == 0) | (count_j == 0))
