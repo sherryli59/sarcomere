@@ -757,17 +757,15 @@ int Sarcomere::determine_cb_status(int& i, int& j){
     double cos_angle = actin.direction[i].dot(actin.direction[j]);
 
     bool was_strong = (actin_actin_status_prev[i][j] == 2);
-    if (was_strong){
-        printf("Actins %d and %d were strongly crosslinked, distance: %f, cos_angle: %f\n", i, j, distance, cos_angle);
-    }
 
     auto record_break = [&](void){
         auto& myosin_indices_i = myosinIndicesPerActin.getConnections(i);
         auto& myosin_indices_j = myosinIndicesPerActin.getConnections(j);
         double tension_i = actin_basic_tension[i];
         double tension_j = actin_basic_tension[j];
-        printf("Catch bond between actins %d and %d broke. distance: %f, cos_angle: %f, tensions: %f, %f, myosins_i(%zu):",
-               i, j, distance, cos_angle, tension_i, tension_j, myosin_indices_i.size());
+        printf("Catch bond between actins %d and %d broke. distance: %f, cos_angle: %f, tensions: %f, %f, myosins_i(%zu),myosins_j(%zu), crosslink_ratio_i: %f;  crosslink_ratio_j: %f\n",
+               i, j, distance, cos_angle, tension_i, tension_j, myosin_indices_i.size(), myosin_indices_j.size(),
+                actin_crosslink_ratio[i], actin_crosslink_ratio[j]);
         for (int mi : myosin_indices_i) { printf(" %d", mi); }
         printf("; myosins_j(%zu):", myosin_indices_j.size());
         for (int mj : myosin_indices_j) { printf(" %d", mj); }
@@ -808,6 +806,8 @@ int Sarcomere::determine_cb_status(int& i, int& j){
     }
     if (!catch_bond){
         if (was_strong){
+            printf("Actins %d and %d no longer form catch bonds, distance: %f, cos_angle: %f, tensions: %f, %f\n",
+                   i, j, distance, cos_angle, actin_basic_tension[i], actin_basic_tension[j]);
             record_break();
         }
         return 1;
@@ -816,6 +816,8 @@ int Sarcomere::determine_cb_status(int& i, int& j){
     auto& myosin_indices_j = myosinIndicesPerActin.getConnections(j);
     if (myosin_indices_i.empty() || myosin_indices_j.empty()){
         if (was_strong){
+            printf("Actins %d and %d no longer form catch bonds (no myosin), distance: %f, cos_angle: %f, tensions: %f, %f\n",
+                   i, j, distance, cos_angle, actin_basic_tension[i], actin_basic_tension[j]);
             record_break();
         }
         return 1;
@@ -830,6 +832,8 @@ int Sarcomere::determine_cb_status(int& i, int& j){
         }
     }
     if (was_strong){
+        printf("Actins %d and %d no longer form catch bonds (no shared myosin), distance: %f, cos_angle: %f, tensions: %f, %f\n",
+               i, j, distance, cos_angle, actin_basic_tension[i], actin_basic_tension[j]);
         record_break();
     }
     return 1;
