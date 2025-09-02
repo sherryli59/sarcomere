@@ -35,7 +35,9 @@ def compute_pair_fload(
 
 def plot_breakage_events(h5file: str, dt: float = 1.0, prefix: str = "analysis") -> None:
     """Read recorded catch-bond breakage events and plot distance, angle,
-    tension and myosin-attachment metrics vs time."""
+    tension and myosin-attachment metrics vs time. For break events where an
+    actin is under nearly zero tension, also collect the tension of attached
+    myosins one frame prior and plot its distribution."""
     with h5py.File(h5file, "r") as fh:
         if "/catch_bond/breakage" not in fh:
             print("No catch-bond breakage data found in file")
@@ -45,12 +47,16 @@ def plot_breakage_events(h5file: str, dt: float = 1.0, prefix: str = "analysis")
         myo_vel_ds = (
             fh["/myosin/velocity"] if "/myosin/velocity" in fh else None
         )
+        myo_fload_ds = (
+            fh["/myosin/f_load"] if "/myosin/f_load" in fh else None
+        )
         am_bonds_ds = (
             fh["/actin_myo/bonds"] if "/actin_myo/bonds" in fh else None
         )
 
         speeds: list[float] = []
         myo_speeds: list[float] = []
+        tensionless_myo_tensions: list[float] = []
         if data.size:
             for row in data:
                 step_idx = int(row[2])
@@ -79,6 +85,29 @@ def plot_breakage_events(h5file: str, dt: float = 1.0, prefix: str = "analysis")
                             myo_speeds.append(
                                 float(np.linalg.norm(frame_myo_vel[m]))
                             )
+
+                # Collect myosin tension from previous frame if an actin is tensionless
+                if (
+                    myo_fload_ds is not None
+                    and am_bonds_ds is not None
+                    and (row[5] < 1e-6 or row[6] < 1e-6)
+                ):
+                    prev_idx = max(int(step_idx) - 1, 0)
+                    prev_idx = min(prev_idx, am_bonds_ds.shape[0] - 1)
+                    prev_idx_myo = min(prev_idx, myo_fload_ds.shape[0] - 1)
+                    am_pairs_prev = am_bonds_ds[prev_idx]
+                    tensionless_actins = []
+                    if row[5] < 1e-6:
+                        tensionless_actins.append(i)
+                    if row[6] < 1e-6:
+                        tensionless_actins.append(j)
+                    for pair in am_pairs_prev:
+                        a, m = int(pair[0]), int(pair[1])
+                        if m < 0 or a not in tensionless_actins:
+                            continue
+                        tensionless_myo_tensions.append(
+                            float(myo_fload_ds[prev_idx_myo, m, 0])
+                        )
 
     if data.size == 0:
         print("No catch-bond breakage events recorded")
@@ -143,6 +172,17 @@ def plot_breakage_events(h5file: str, dt: float = 1.0, prefix: str = "analysis")
         plt.ylabel("Probability density")
         plt.tight_layout()
         plt.savefig(f"{prefix}_cb_break_myosin_speed_distribution.png", dpi=300)
+        plt.close()
+
+    if tensionless_myo_tensions:
+        plt.figure()
+        plt.hist(tensionless_myo_tensions, bins=50, density=True)
+        plt.xlabel("Myosin tension before break (tensionless actin)")
+        plt.ylabel("Probability density")
+        plt.tight_layout()
+        plt.savefig(
+            f"{prefix}_cb_break_tensionless_myo_tension_distribution.png", dpi=300
+        )
         plt.close()
 
     tensionless = np.sum(min_tension < 1e-6)
