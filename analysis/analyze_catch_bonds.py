@@ -119,9 +119,11 @@ def plot_breakage_events(h5file: str, dt: float = 1.0, prefix: str = "analysis")
     angles = np.degrees(np.arccos(np.clip(data[:, 4], -1.0, 1.0)))
     tension_i = data[:, 5]
     tension_j = data[:, 6]
+    cross_i = data[:, 7]
+    cross_j = data[:, 8]
     min_tension = np.minimum(tension_i, tension_j)
-    count_i = data[:, 7]
-    count_j = data[:, 8]
+    count_i = data[:, 9]
+    count_j = data[:, 10]
     total_myo = count_i + count_j
 
     plt.figure()
@@ -187,8 +189,10 @@ def plot_breakage_events(h5file: str, dt: float = 1.0, prefix: str = "analysis")
 
     tensionless = np.sum(min_tension < 1e-6)
     detached = np.sum((count_i == 0) | (count_j == 0))
+    cross_zero = np.sum((cross_i == 0) | (cross_j == 0))
     print(f"{tensionless} of {len(times)} break events occurred with near-zero tension")
     print(f"{detached} events involved an actin with no myosin attachments")
+    print(f"{cross_zero} events had crosslink ratio equal to zero")
 
 
 def summarize_limit_removals(h5file: str) -> None:

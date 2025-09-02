@@ -787,6 +787,7 @@ int Sarcomere::determine_cb_status(int& i, int& j){
                                   {static_cast<double>(i), static_cast<double>(j),
                                    static_cast<double>(current_step), distance, cos_angle,
                                    tension_i, tension_j,
+                                   actin_crosslink_ratio[i], actin_crosslink_ratio[j],
                                    static_cast<double>(myosin_indices_i.size()),
                                    static_cast<double>(myosin_indices_j.size())});
         for (int k = 0; k < max_myosin_bonds; ++k) {
@@ -1127,7 +1128,7 @@ void Sarcomere::save_state(){
         H5::Group group_cb(file.openGroup("/catch_bond"));
 
         if (!cb_breakage_events.empty()) {
-            hsize_t event_width = 9 + 2 * max_myosin_bonds;
+            hsize_t event_width = 11 + 2 * max_myosin_bonds;
             hsize_t n_events = cb_breakage_events.size() / event_width;
             append_to_dataset(group_cb, "breakage", cb_breakage_events,
                                {n_events, event_width});
