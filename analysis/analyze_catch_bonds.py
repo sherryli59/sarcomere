@@ -53,10 +53,14 @@ def plot_breakage_events(h5file: str, dt: float = 1.0, prefix: str = "analysis")
         am_bonds_ds = (
             fh["/actin_myo/bonds"] if "/actin_myo/bonds" in fh else None
         )
+        crosslink_ds = (
+            fh["/actin/crosslink_ratio"] if "/actin/crosslink_ratio" in fh else None
+        )
 
         speeds: list[float] = []
         myo_speeds: list[float] = []
         tensionless_myo_tensions: list[float] = []
+        prev_crosslink_ratios: list[float] = []
         if data.size:
             for row in data:
                 step_idx = int(row[2])
@@ -108,6 +112,18 @@ def plot_breakage_events(h5file: str, dt: float = 1.0, prefix: str = "analysis")
                         tensionless_myo_tensions.append(
                             float(myo_fload_ds[prev_idx_myo, m, 0])
                         )
+
+                # Record previous-frame crosslink ratio if an actin has zero crosslink ratio
+                if crosslink_ds is not None and (row[7] == 0 or row[8] == 0):
+                    prev_idx = max(step_idx - 1, 0)
+                    prev_idx = min(prev_idx, crosslink_ds.shape[0] - 1)
+                    prev_cross = crosslink_ds[prev_idx]
+                    if prev_cross.ndim > 1:
+                        prev_cross = prev_cross[:, 0]
+                    if row[7] == 0:
+                        prev_crosslink_ratios.append(float(prev_cross[i]))
+                    if row[8] == 0:
+                        prev_crosslink_ratios.append(float(prev_cross[j]))
 
     if data.size == 0:
         print("No catch-bond breakage events recorded")
@@ -184,6 +200,17 @@ def plot_breakage_events(h5file: str, dt: float = 1.0, prefix: str = "analysis")
         plt.tight_layout()
         plt.savefig(
             f"{prefix}_cb_break_tensionless_myo_tension_distribution.png", dpi=300
+        )
+        plt.close()
+
+    if prev_crosslink_ratios:
+        plt.figure()
+        plt.hist(prev_crosslink_ratios, bins=50, density=True)
+        plt.xlabel("Actin crosslink ratio one frame before break (zero-ratio events)")
+        plt.ylabel("Probability density")
+        plt.tight_layout()
+        plt.savefig(
+            f"{prefix}_cb_break_prev_crosslink_ratio_distribution.png", dpi=300
         )
         plt.close()
 
