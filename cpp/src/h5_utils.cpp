@@ -273,9 +273,10 @@ void create_file(std::string& filename, Filament& actin, Myosin& myosin,
 
     // Dataset to record catch-bond breakage events:
     // columns: i, j, step, distance, cos_angle,
-    //          tension_i, tension_j, myosin_count_i, myosin_count_j,
+    //          tension_i, tension_j, crosslink_ratio_i, crosslink_ratio_j,
+    //          myosin_count_i, myosin_count_j,
     //          myosin_ids_i[0:max_myosin_bonds-1], myosin_ids_j[0:max_myosin_bonds-1]
-    hsize_t event_width = 9 + 2 * max_myosin_bonds;
+    hsize_t event_width = 11 + 2 * max_myosin_bonds;
     initialDims = {0, event_width};
     maxDims     = {H5S_UNLIMITED, event_width};
     chunkDims   = {10, event_width};
