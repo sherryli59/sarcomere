@@ -802,8 +802,10 @@ int Sarcomere::determine_cb_status(int& i, int& j){
         }
     };
     bool crosslink = false;
-    if (actin_crosslink_ratio[i] > EPS && actin_crosslink_ratio[j] > EPS || ! directional){
-        if (distance<crosslinker_length){
+    double partial_i = actin["partial_binding_ratio"][i];
+    double partial_j = actin["partial_binding_ratio"][j];
+    if ((partial_i < 1.0 - EPS && partial_j < 1.0 - EPS) || !directional) {
+        if (distance < crosslinker_length) {
             crosslink = true;
         }
     }
