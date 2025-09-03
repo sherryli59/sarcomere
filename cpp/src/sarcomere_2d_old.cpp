@@ -690,10 +690,13 @@ double Sarcomere::_get_cb_strength(int& i, int& j){
     double angle = actin.theta[i] - actin.theta[j];
     double cos_angle = std::cos(angle);
     bool crosslink = false;
-    if (actin_crosslink_ratio[i]>EPS && actin_crosslink_ratio[j]>EPS || ! directional){
-        double distance = geometry::segment_segment_distance(actin.left_end[i], 
-            actin.right_end[i], actin.left_end[j], actin.right_end[j], box, pbc_mask);
-        if (distance<crosslinker_length){
+    double partial_i = actin["partial_binding_ratio"][i];
+    double partial_j = actin["partial_binding_ratio"][j];
+    if ((partial_i < 1.0 - EPS && partial_j < 1.0 - EPS) || !directional) {
+        double distance = geometry::segment_segment_distance(
+            actin.left_end[i], actin.right_end[i],
+            actin.left_end[j], actin.right_end[j], box, pbc_mask);
+        if (distance < crosslinker_length) {
             crosslink = true;
         }
     }
