@@ -1,6 +1,7 @@
 #ifndef INTERACTION_H
 #define INTERACTION_H
 
+#include <array>
 #include <cmath>
 #include <vector>
 #include <map>
@@ -44,7 +45,8 @@ T clamp(T x, T lo, T hi) {
 template<typename T>
 T segment_segment_distance(const T* A, const T* B, 
                            const T* C, const T* D, 
-                           const std::vector<double>& box) {
+                           const std::vector<double>& box,
+                           const std::array<bool,3>& periodic) {
     const double EPS = 1e-9;
     
     // --- Global PBC Adjustment via Midpoints ---
@@ -71,7 +73,12 @@ T segment_segment_distance(const T* A, const T* B,
     // Compute the shift vector using the box dimensions.
     T shift[3];
     for (int i = 0; i < 3; ++i) {
-        shift[i] = -T(box[i]) * smooth_round(disp[i] / T(box[i]));
+        double L = (i < static_cast<int>(box.size())) ? box[i] : 0.0;
+        if (periodic[i] && L > 0.0) {
+            shift[i] = -T(L) * smooth_round(disp[i] / T(L));
+        } else {
+            shift[i] = T(0);
+        }
     }
     
     // Apply the shift to the first segment's endpoints.
@@ -176,13 +183,14 @@ real aa_energy(const ArrayXreal& center1, const double& length1,
     const ArrayXreal& dir1,
     const ArrayXreal& center2, const double& length2, 
     const ArrayXreal& dir2,
-    const std::vector<double>& box, 
-    const double k_aa, const double kappa_aa);
+    const std::vector<double>& box, const std::array<bool,3>& periodic, 
+    const double k_aa, const double kappa_aa,
+    const double cutoff, const double optimal);
 
 // Compute the energy between an actin and a myosin segment in 3D.
 real am_energy1(const ArrayXreal& center1, const double& length1, const ArrayXreal& dir1,
     const ArrayXreal& center2, const double& length2, const ArrayXreal& dir2,
-    const std::vector<double>& box, const double k_am, const double kappa_am,
+    const std::vector<double>& box, const std::array<bool,3>& periodic, const double k_am, const double kappa_am,
     const double cutoff, const double optimal);
 
 // Compute the energy between two segments based solely on their angles in 3D.
@@ -192,7 +200,9 @@ real am_energy(const ArrayXreal& dir1, const ArrayXreal& dir2, const double kapp
 std::vector<double> compute_aa_force_and_energy(Filament& actin,
                                                 int& actin1_index, int& actin2_index,
                                                 const std::vector<double>& box,
-                                                const double k_aa, const double kappa_aa);
+                                                const double k_aa, const double kappa_aa,
+                                                const double cutoff, const double optimal);
+
 
 // Compute forces and energy for actin–myosin interaction in 3D.
 std::vector<double> compute_am_force_and_energy(Filament& actin, Myosin& myosin,
@@ -200,5 +210,76 @@ std::vector<double> compute_am_force_and_energy(Filament& actin, Myosin& myosin,
                                                 const std::vector<double>& box,
                                                 const double k_am, const double kappa_am,
                                                 const double cutoff, const double optimal);
+
+// Result container for pairwise repulsion calculations.
+struct RepulsionResult {
+    bool applied = false;
+    vec force_on_first {0.0, 0.0, 0.0};
+    vec force_on_second {0.0, 0.0, 0.0};
+};
+
+// Myosin–myosin segment repulsion helper.
+RepulsionResult compute_myosin_repulsion(const Filament& actin,
+                                         const Myosin& myosin,
+                                         int i,
+                                         int j,
+                                         const std::vector<double>& box,
+                                         int fix_myosin,
+                                         const utils::MoleculeConnection& actinIndicesPerMyosin,
+                                         double stiffness,
+                                         double max_force_cap);
+
+// Actin–actin segment repulsion helper.
+RepulsionResult compute_actin_repulsion(const Filament& actin,
+                                        int i,
+                                        int j,
+                                        const std::vector<double>& box,
+                                        double crosslinker_length,
+                                        double stiffness,
+                                        double max_force_cap);
+
+// Actin–myosin axial end-stop repulsion helper.
+vec compute_actin_myosin_repulsion(const Filament& actin,
+                                   const Myosin& myosin,
+                                   int act_idx,
+                                   int myo_idx,
+                                   const std::vector<double>& box,
+                                   double radius,
+                                   double stiffness,
+                                   double max_force_cap);
+
+// Convenience wrappers that accumulate repulsion forces.
+bool apply_myosin_repulsion(const Filament& actin,
+                            const Myosin& myosin,
+                            int i,
+                            int j,
+                            const std::vector<double>& box,
+                            int fix_myosin,
+                            const utils::MoleculeConnection& actinIndicesPerMyosin,
+                            double stiffness,
+                            double max_force_cap,
+                            vec& force_on_first,
+                            vec& force_on_second);
+
+bool apply_actin_repulsion(const Filament& actin,
+                           int i,
+                           int j,
+                           const std::vector<double>& box,
+                           double crosslinker_length,
+                           double stiffness,
+                           double max_force_cap,
+                           vec& force_on_first,
+                           vec& force_on_second);
+
+bool apply_actin_myosin_repulsion(const Filament& actin,
+                                  const Myosin& myosin,
+                                  int act_idx,
+                                  int myo_idx,
+                                  const std::vector<double>& box,
+                                  double radius,
+                                  double stiffness,
+                                  double max_force_cap,
+                                  vec& force_on_actin,
+                                  vec& force_on_myosin);
 
 #endif  // INTERACTION_H

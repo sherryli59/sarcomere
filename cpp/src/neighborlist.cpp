@@ -1,16 +1,20 @@
 #include "neighborlist.h"
 
 // Constructor with parameters for 3D.
-NeighborList::NeighborList(double cutoff_radius, const std::vector<double>& box, double threshold)
-    : cutoff_radius_(cutoff_radius), threshold_(threshold), box_(box)
+NeighborList::NeighborList(double cutoff_radius, const std::vector<double>& box, double threshold,
+                           const std::array<bool,3>& periodic_axes)
+    : cutoff_radius_(cutoff_radius), threshold_(threshold), box_(box), periodic_axes_(periodic_axes)
 {
     // Assume box has three dimensions.
-    num_cells_x_ = std::max(1, static_cast<int>(std::floor(box[0] / cutoff_radius)));
-    num_cells_y_ = std::max(1, static_cast<int>(std::floor(box[1] / cutoff_radius)));
-    num_cells_z_ = std::max(1, static_cast<int>(std::floor(box[2] / cutoff_radius)));
-    cell_size_x_ = box[0] / num_cells_x_;
-    cell_size_y_ = box[1] / num_cells_y_;
-    cell_size_z_ = box[2] / num_cells_z_;
+    double Lx = box.size() > 0 ? box[0] : cutoff_radius;
+    double Ly = box.size() > 1 ? box[1] : cutoff_radius;
+    double Lz = box.size() > 2 ? box[2] : cutoff_radius;
+    num_cells_x_ = std::max(1, static_cast<int>(std::floor(Lx / cutoff_radius)));
+    num_cells_y_ = std::max(1, static_cast<int>(std::floor(Ly / cutoff_radius)));
+    num_cells_z_ = std::max(1, static_cast<int>(std::floor(Lz / cutoff_radius)));
+    cell_size_x_ = (num_cells_x_ > 0) ? Lx / num_cells_x_ : Lx;
+    cell_size_y_ = (num_cells_y_ > 0) ? Ly / num_cells_y_ : Ly;
+    cell_size_z_ = (num_cells_z_ > 0) ? Lz / num_cells_z_ : Lz;
 
     // Precompute offsets for neighboring cells in 3D.
     // Using a triple nested loop for dx, dy, dz from -1 to 1.
@@ -45,17 +49,34 @@ NeighborList::NeighborList(double cutoff_radius, const std::vector<double>& box,
 // Default constructor.
 NeighborList::NeighborList() {}
 
+void NeighborList::set_periodic_axes(const std::array<bool,3>& periodic_axes) {
+    periodic_axes_ = periodic_axes;
+}
+
 // Compute the 3D cell index for a position using PBC.
 // Returns a tuple of (cell_x, cell_y, cell_z).
 std::tuple<int, int, int> NeighborList::get_cell_index(double x, double y, double z) const {
-    int cell_x = static_cast<int>(std::floor((x + box_[0]) / cell_size_x_)) % num_cells_x_;
-    int cell_y = static_cast<int>(std::floor((y + box_[1]) / cell_size_y_)) % num_cells_y_;
-    int cell_z = static_cast<int>(std::floor((z + box_[2]) / cell_size_z_)) % num_cells_z_;
-
-    // Correct negative indices.
-    cell_x = (cell_x % num_cells_x_ + num_cells_x_) % num_cells_x_;
-    cell_y = (cell_y % num_cells_y_ + num_cells_y_) % num_cells_y_;
-    cell_z = (cell_z % num_cells_z_ + num_cells_z_) % num_cells_z_;
+    auto compute_index = [](double coord, double L, double cell_size, int num_cells, bool periodic) {
+        if (cell_size <= 0 || num_cells <= 0) {
+            return 0;
+        }
+        double shifted = coord + 0.5 * L;
+        int idx = static_cast<int>(std::floor(shifted / cell_size));
+        if (periodic) {
+            int mod = idx % num_cells;
+            if (mod < 0) {
+                mod += num_cells;
+            }
+            return mod;
+        }
+        return std::clamp(idx, 0, num_cells - 1);
+    };
+    double Lx = box_.size() > 0 ? box_[0] : cell_size_x_;
+    double Ly = box_.size() > 1 ? box_[1] : cell_size_y_;
+    double Lz = box_.size() > 2 ? box_[2] : cell_size_z_;
+    int cell_x = compute_index(x, Lx, cell_size_x_, num_cells_x_, periodic_axes_[0]);
+    int cell_y = compute_index(y, Ly, cell_size_y_, num_cells_y_, periodic_axes_[1]);
+    int cell_z = compute_index(z, Lz, cell_size_z_, num_cells_z_, periodic_axes_[2]);
 
     return std::make_tuple(cell_x, cell_y, cell_z);
 }
@@ -117,21 +138,33 @@ void NeighborList::computeNeighbors(std::vector<std::vector<std::pair<size_t, si
                 int dx = std::get<0>(offset_tuple);
                 int dy = std::get<1>(offset_tuple);
                 int dz = std::get<2>(offset_tuple);
-                int neighbor_x = (std::get<0>(cell) + dx + num_cells_x_) % num_cells_x_;
-                int neighbor_y = (std::get<1>(cell) + dy + num_cells_y_) % num_cells_y_;
-                int neighbor_z = (std::get<2>(cell) + dz + num_cells_z_) % num_cells_z_;
+                int neighbor_x = std::get<0>(cell) + dx;
+                int neighbor_y = std::get<1>(cell) + dy;
+                int neighbor_z = std::get<2>(cell) + dz;
+                if (periodic_axes_[0]) {
+                    neighbor_x = (neighbor_x % num_cells_x_ + num_cells_x_) % num_cells_x_;
+                } else if (neighbor_x < 0 || neighbor_x >= num_cells_x_) {
+                    continue;
+                }
+                if (periodic_axes_[1]) {
+                    neighbor_y = (neighbor_y % num_cells_y_ + num_cells_y_) % num_cells_y_;
+                } else if (neighbor_y < 0 || neighbor_y >= num_cells_y_) {
+                    continue;
+                }
+                if (periodic_axes_[2]) {
+                    neighbor_z = (neighbor_z % num_cells_z_ + num_cells_z_) % num_cells_z_;
+                } else if (neighbor_z < 0 || neighbor_z >= num_cells_z_) {
+                    continue;
+                }
                 int neighbor_index = neighbor_x + num_cells_x_ * (neighbor_y + num_cells_y_ * neighbor_z);
                 if (cell_list_[neighbor_index].empty())
                     continue;
                 for (int j : cell_list_[neighbor_index]) {
                     if (i >= static_cast<size_t>(j))
                         continue;
-                    double dx = all_x_[i] - all_x_[j];
-                    dx -= box_[0] * std::round(dx / box_[0]);
-                    double dy = all_y_[i] - all_y_[j];
-                    dy -= box_[1] * std::round(dy / box_[1]);
-                    double dz = all_z_[i] - all_z_[j];
-                    dz -= box_[2] * std::round(dz / box_[2]);
+                    double dx = utils::wrap_axis(all_x_[i] - all_x_[j], box_.size() > 0 ? box_[0] : 0.0, periodic_axes_[0]);
+                    double dy = utils::wrap_axis(all_y_[i] - all_y_[j], box_.size() > 1 ? box_[1] : 0.0, periodic_axes_[1]);
+                    double dz = utils::wrap_axis(all_z_[i] - all_z_[j], box_.size() > 2 ? box_[2] : 0.0, periodic_axes_[2]);
                     double distance = std::sqrt(dx * dx + dy * dy + dz * dz);
                     if (distance < cutoff_radius_) {
                         local_pairs.emplace_back(i, j);
@@ -339,12 +372,9 @@ std::pair<std::vector<int>, std::vector<int>> NeighborList::get_neighbors_by_typ
 // Compute the displacement between two positions (with periodic boundaries).
 double NeighborList::displacement(double cx, double cy, double cz,
                                   double lx, double ly, double lz) const {
-    double dx = cx - lx;
-    dx -= box_[0] * std::round(dx / box_[0]);
-    double dy = cy - ly;
-    dy -= box_[1] * std::round(dy / box_[1]);
-    double dz = cz - lz;
-    dz -= box_[2] * std::round(dz / box_[2]);
+    double dx = utils::wrap_axis(cx - lx, box_.size() > 0 ? box_[0] : 0.0, periodic_axes_[0]);
+    double dy = utils::wrap_axis(cy - ly, box_.size() > 1 ? box_[1] : 0.0, periodic_axes_[1]);
+    double dz = utils::wrap_axis(cz - lz, box_.size() > 2 ? box_[2] : 0.0, periodic_axes_[2]);
     return std::sqrt(dx * dx + dy * dy + dz * dz);
 }
 
@@ -367,5 +397,3 @@ void NeighborList::track_species_types() {
     species_types_.insert(species_types_.end(), actin_x_.size(), ParticleType::Actin);
     species_types_.insert(species_types_.end(), myosin_x_.size(), ParticleType::Myosin);
 }
-
-

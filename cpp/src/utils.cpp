@@ -21,7 +21,18 @@ bool compare_indices(const std::vector<int>& a, const std::vector<int>& b) {
 }
 
 double pbc_wrap(double x, double& box) {
-    return x - box * std::round(x / box);
+    return wrap_axis(x, box, true);
+}
+
+vec pbc_diff_masked(const vec& a, const vec& b, const std::vector<double>& box, const std::array<bool,3>& periodic) {
+    double Lx = box.size() > 0 ? box[0] : 0.0;
+    double Ly = box.size() > 1 ? box[1] : 0.0;
+    double Lz = box.size() > 2 ? box[2] : 0.0;
+    return vec {
+        wrap_axis(a.x - b.x, Lx, periodic[0]),
+        wrap_axis(a.y - b.y, Ly, periodic[1]),
+        wrap_axis(a.z - b.z, Lz, periodic[2])
+    };
 }
 
 

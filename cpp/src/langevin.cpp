@@ -12,16 +12,29 @@ std::mutex save_mutex;
 // loads the previous state and prints details. Otherwise, creates a new file.
 //---------------------------------------------------------------------
 Langevin::Langevin(Sarcomere& model0, double& beta0, double& dt0, double& D0_actin_trans,
-    double& D0_actin_rot, double& D0_myosin_trans, double& D0_myosin_rot, int& save_every0, bool& resume, bool is3D)
+    double& D0_actin_rot, double& D0_myosin_trans, double& D0_myosin_rot, int& save_every0, bool& resume, bool is3D,
+    double max_actin_displacement0, double max_myosin_displacement0,
+    double max_actin_rotation0, double max_myosin_rotation0,
+    int resume_frame)
         : model(model0), beta(beta0), dt(dt0), D_actin_trans(D0_actin_trans),
         D_actin_rot(D0_actin_rot),D_myosin_trans(D0_myosin_trans), D_myosin_rot(D0_myosin_rot),
-        save_every(save_every0), is3D(is3D)
+        save_every(save_every0), is3D(is3D),
+        max_actin_displacement(max_actin_displacement0), max_myosin_displacement(max_myosin_displacement0),
+        max_actin_rotation(max_actin_rotation0), max_myosin_rotation(max_myosin_rotation0),
+        loaded_frame_index(-1)
 {
     if (resume) {
         int n_frames;
-        model.load_state(n_frames);
-        start_step = (n_frames-1) * save_every + 1;
-        printf("Resuming from file %s at step %d\n", model.filename.c_str(), start_step);
+        int requested_frame = resume_frame;
+        int frame_idx = model.load_state(n_frames, requested_frame);
+        loaded_frame_index = frame_idx;
+        start_step = frame_idx * save_every + 1;
+        printf("Resuming from file %s at step %d (frame %d of %d)\n",
+               model.filename.c_str(), start_step, frame_idx, n_frames);
+        if (requested_frame >= 0 && frame_idx != requested_frame) {
+            printf("Requested resume frame %d adjusted to %d (available frames: %d)\n",
+                   requested_frame, frame_idx, n_frames);
+        }
         // Print myosin details.
         // for (int i = 0; i < model.myosin.n; i++) {
         //     printf("Myosin %d: %f %f %f\n", i, model.myosin.center[i].x, model.myosin.center[i].y, model.myosin.center[i].z);
@@ -38,6 +51,7 @@ Langevin::Langevin(Sarcomere& model0, double& beta0, double& dt0, double& D0_act
         // }
     } else {
         start_step = 0;
+        loaded_frame_index = -1;
         model.new_file();
     }
 }
@@ -55,9 +69,10 @@ Langevin::~Langevin() {
 //---------------------------------------------------------------------
 void Langevin::run_langevin(int nsteps, gsl_rng* rng, int& fix_myosin) {
     double start, end;
-    for (int i = 0; i < nsteps; i++) {
-        if (i % save_every == 0) {
-            std::cout << "Step " << i << std::endl;
+    int end_step = start_step + nsteps;
+    for (int step = start_step; step < end_step; ++step) {
+        if (step % save_every == 0) {
+            std::cout << "Step " << step << std::endl;
             // Optionally protect saving with the mutex:
             // std::lock_guard<std::mutex> lock(save_mutex);
             model.save_state();
@@ -65,30 +80,33 @@ void Langevin::run_langevin(int nsteps, gsl_rng* rng, int& fix_myosin) {
         }
         model.update_system();
         sample_step(dt, rng, fix_myosin);
-        if (i % save_every == 0) {
+        if (step % save_every == 0) {
             end = omp_get_wtime();
-            printf("Step %d took %f seconds\n", i, end - start);
+            printf("Step %d took %f seconds\n", step, end - start);
             //model.debug_cb_stats();
         } 
     }
+    start_step = end_step;
 }
 
 void Langevin::volume_exclusion(int nsteps, gsl_rng* rng, int& fix_myosin) {
     double start, end;
-    for (int i = 0; i < nsteps; i++) {
-        if (i % save_every == 0) {
-            std::cout << "Step " << i << std::endl;
+    int end_step = start_step + nsteps;
+    for (int step = start_step; step < end_step; ++step) {
+        if (step % save_every == 0) {
+            std::cout << "Step " << step << std::endl;
             // Optionally protect saving with the mutex:
             // std::lock_guard<std::mutex> lock(save_mutex);
             start = omp_get_wtime();
         }
         model.update_system_sterics_only();
         sample_step(dt, rng, fix_myosin);
-        if (i % save_every == 0) {
+        if (step % save_every == 0) {
             end = omp_get_wtime();
-            printf("Step %d took %f seconds\n", i, end - start);
+            printf("Step %d took %f seconds\n", step, end - start);
         }
     }
+    start_step = end_step;
 }
 
 //---------------------------------------------------------------------
@@ -113,6 +131,7 @@ void Langevin::sample_step(double& dt, gsl_rng* rng, int& fix_myosin) {
     double D = D_myosin_trans;
     double D_rot = D_myosin_rot;
     // Update myosin particles.
+    const double displacement_slack = 1.3;
     for (int i = fix_myosin; i < model.myosin.n; i++) {
         if (!is3D) {
             model.myosin.force[i].z = 0;
@@ -121,19 +140,31 @@ void Langevin::sample_step(double& dt, gsl_rng* rng, int& fix_myosin) {
         }
         double dx = model.myosin.force[i].x * beta * D * dt +
                     model.myosin.velocity[i].x * dt +
-                    sqrt(2 * D * dt) * noise[i * 6];
+                    std::sqrt(2 * D * dt) * noise[i * 6];
         double dy = model.myosin.force[i].y * beta * D * dt +
                     model.myosin.velocity[i].y * dt +
-                    sqrt(2 * D * dt) * noise[i * 6 + 1];
+                    std::sqrt(2 * D * dt) * noise[i * 6 + 1];
         double dz = is3D ? (model.myosin.force[i].z * beta * D * dt +
                     model.myosin.velocity[i].z * dt +
-                    sqrt(2 * D * dt) * noise[i * 6 + 2]) : 0.0;
+                    std::sqrt(2 * D * dt) * noise[i * 6 + 2]) : 0.0;
+        double disp_sq = dx * dx + dy * dy + (is3D ? dz * dz : 0.0);
+        double disp_limit = max_myosin_displacement;
+        if (disp_limit > 0.0 && std::isfinite(disp_limit)) {
+            double disp_mag = std::sqrt(disp_sq);
+            double allowed = displacement_slack * disp_limit;
+        }
         model.myosin.displace(i, dx, dy, dz);
         vec rot_noise={noise[i * 6 + 3], noise[i * 6 + 4], is3D ? noise[i * 6 + 5] : 0.0};
-        vec delta_u = sqrt(2 * D_rot * dt) * rot_noise + dt * model.myosin.torque[i] * D_rot * beta;
+        vec delta_u = std::sqrt(2 * D_rot * dt) * rot_noise + dt * model.myosin.torque[i] * D_rot * beta;
         if (!is3D) {
             delta_u.z = 0;
         }
+        double rot_limit = max_myosin_rotation;
+        // if (rot_limit > 0.0 && std::isfinite(rot_limit)) {
+        //     double rot_mag = delta_u.norm();
+        //     double allowed = displacement_slack * rot_limit;
+        // }
+
         model.myosin.direction[i] += delta_u;
         if (!is3D) {
             model.myosin.direction[i].z = 0;
@@ -142,7 +173,7 @@ void Langevin::sample_step(double& dt, gsl_rng* rng, int& fix_myosin) {
     }
     // Update actin particles.
     for (int i = 0; i < model.actin.n; i++) {
-        if (model.actin.cb_status[i] > 0){
+        if (model.actin.cb_status[i] > 1){
             D = D_myosin_trans;
             D_rot = D_myosin_rot;
         }
@@ -157,21 +188,32 @@ void Langevin::sample_step(double& dt, gsl_rng* rng, int& fix_myosin) {
         }
         double dx = model.actin.force[i].x * beta * D * dt +
                     model.actin.velocity[i].x * dt +
-                    sqrt(2 * D * dt) * noise[offset + i * 6];
+                    std::sqrt(2 * D * dt) * noise[offset + i * 6];
         double dy = model.actin.force[i].y * beta * D * dt +
                     model.actin.velocity[i].y * dt +
-                    sqrt(2 * D * dt) * noise[offset + i * 6 + 1];
+                    std::sqrt(2 * D * dt) * noise[offset + i * 6 + 1];
         double dz = is3D ? (model.actin.force[i].z * beta * D * dt +
                     model.actin.velocity[i].z * dt +
-                    sqrt(2 * D * dt) * noise[offset + i * 6 + 2]) : 0.0;
-        if (dx > 0.04 || dy > 0.04) {
-            printf("actin %d displacement too large \n", i);
+                    std::sqrt(2 * D * dt) * noise[offset + i * 6 + 2]) : 0.0;
+        double disp_sq = dx * dx + dy * dy + (is3D ? dz * dz : 0.0);
+        double disp_limit = max_actin_displacement;
+        if (disp_limit > 0.0 && std::isfinite(disp_limit)) {
+            double disp_mag = std::sqrt(disp_sq);
+            double allowed = displacement_slack * disp_limit;
         }
         model.actin.displace(i, dx, dy, dz);
         vec rot_noise={noise[offset + i * 6 + 3], noise[offset + i * 6 + 4], is3D ? noise[offset + i * 6 + 5] : 0.0};
-        vec delta_u = sqrt(2 * D_rot * dt) * rot_noise + dt * model.actin.torque[i] * D_rot * beta;
+        vec delta_u = std::sqrt(2 * D_rot * dt) * rot_noise + dt * model.actin.torque[i] * D_rot * beta;
         if (!is3D) {
             delta_u.z = 0;
+        }
+        double rot_limit = max_actin_rotation;
+        if (rot_limit > 0.0 && std::isfinite(rot_limit)) {
+            double rot_mag = delta_u.norm();
+            double allowed = displacement_slack * rot_limit;
+            if (rot_mag > allowed) {
+                double noise_mag = (rot_noise).norm();
+            }
         }
         model.actin.direction[i] += delta_u;
         if (!is3D) {

@@ -21,6 +21,7 @@ public:
     int n;
     std::vector<double> box;
     double length;
+    std::array<bool,3> periodic_axes{true, true, true};
 
     // Structure-of-arrays storage for vector quantities
     std::vector<double> center_x, center_y, center_z;
@@ -50,6 +51,9 @@ public:
             if (norm > 0) { x /= norm; y /= norm; z /= norm; }
         }
         double dot(const VecRef& other) const {
+            return x * other.x + y * other.y + z * other.z;
+        }
+        double dot(const vec& other) const {
             return x * other.x + y * other.y + z * other.z;
         }
         double norm() const { return std::sqrt(x * x + y * y + z * z); }
@@ -85,6 +89,7 @@ public:
     Filament(const Filament& other);
 
     // Member functions.
+    void set_periodic_axes(const std::array<bool,3>& periodic);
     void displace(int& i, double& dx, double& dy, double& dz);
     void update_endpoints(int& i);
     void update_endpoints();

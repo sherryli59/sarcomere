@@ -19,10 +19,10 @@ namespace geometry {
     // Function declarations
 
     // Compute the shortest distance between a point x and a segment ab (with PBC).
-    double point_segment_distance(vec x, vec a, vec b, std::vector<double> box);
+    double point_segment_distance(vec x, vec a, vec b, std::vector<double> box, const std::array<bool,3>& periodic);
 
     // Compute the shortest distance (and the corresponding normal vector) between a point x and a segment ab (with PBC).
-    std::pair<double, vec> point_segment_distance_w_normal(vec x, vec a, vec b, std::vector<double> box);
+    std::pair<double, vec> point_segment_distance_w_normal(vec x, vec a, vec b, std::vector<double> box, const std::array<bool,3>& periodic);
 
     // Compute the orientation of three points with periodic boundary conditions.
     int orientation(const vec& p, const vec& q, const vec& r, const std::vector<double>& box);
@@ -31,10 +31,10 @@ namespace geometry {
     int orientation(const vec& p, const vec& q, const vec& r);
 
     // Compute the shortest distance between two segments ab and cd (with PBC).
-    double segment_segment_distance(const vec& a, const vec& b, const vec& c, const vec& d, const std::vector<double>& box);
+    double segment_segment_distance(const vec& a, const vec& b, const vec& c, const vec& d, const std::vector<double>& box, const std::array<bool,3>& periodic);
 
     // Compute the shortest distance between two segments and return a map containing a normal vector and associated information.
-    std::pair<double, std::map<std::string, vec>> segment_segment_distance_w_normal(const vec& a, const vec& b, const vec& c, const vec& d, const std::vector<double>& box);
+    std::pair<double, std::map<std::string, vec>> segment_segment_distance_w_normal(const vec& a, const vec& b, const vec& c, const vec& d, const std::vector<double>& box, const std::array<bool,3>& periodic);
 
 
     // Structure to store actin–myosin interaction information.
@@ -50,7 +50,7 @@ namespace geometry {
 
     // Apply periodic boundary conditions to align four endpoints.
     void apply_pbc(vec& actin_left, vec& actin_right,
-                   vec& myosin_left, vec& myosin_right, std::vector<double> box);
+                   vec& myosin_left, vec& myosin_right, std::vector<double> box, const std::array<bool,3>& periodic);
 
     // Return only the roots within [t_start, t_end] (used in quadratic solving).
     std::vector<double> findRootsInInterval(const std::vector<double>& roots, double t_start, double t_end);
@@ -68,11 +68,11 @@ namespace geometry {
     std::tuple<double, vec, vec> subsegment_within_distance(vec A, vec B, vec C, vec D, double d);
 
     // Overloaded version: first applies PBC using the provided box.
-    std::tuple<double, vec, vec> subsegment_within_distance(vec A, vec B, vec C, vec D, double d, std::vector<double> box);
+    std::tuple<double, vec, vec> subsegment_within_distance(vec A, vec B, vec C, vec D, double d, std::vector<double> box, const std::array<bool,3>& periodic);
 
     // Analyze actin–myosin interaction geometry and return an interaction struct.
     am_interaction analyze_am(vec actin_left, vec actin_right,
-                              vec myosin_left, vec myosin_right, double d, std::vector<double> box);
+                              vec myosin_left, vec myosin_right, double d, std::vector<double> box, const std::array<bool,3>& periodic);
 }
 
 #endif // GEOMETRY_H

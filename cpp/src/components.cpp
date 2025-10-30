@@ -81,6 +81,7 @@ Filament::~Filament() {
 // Copy constructor.
 Filament::Filament(const Filament& other)
     : n(other.n), box(other.box), length(other.length),
+      periodic_axes(other.periodic_axes),
       center(center_x, center_y, center_z),
       direction(direction_x, direction_y, direction_z),
       left_end(left_end_x, left_end_y, left_end_z),
@@ -121,7 +122,7 @@ void Filament::displace(int& i, double& dx, double& dy, double& dz) {
     center_y[i] += dy;
     center_z[i] += dz;
     vec temp{center_x[i], center_y[i], center_z[i]};
-    temp.pbc_wrap(box);
+    temp.pbc_wrap(box, periodic_axes);
     center_x[i] = temp.x;
     center_y[i] = temp.y;
     center_z[i] = temp.z;
@@ -151,6 +152,18 @@ void Filament::update_center(std::vector<vec> new_center) {
         center_x[i] = new_center[i].x;
         center_y[i] = new_center[i].y;
         center_z[i] = new_center[i].z;
+    }
+    update_endpoints();
+}
+
+void Filament::set_periodic_axes(const std::array<bool,3>& periodic) {
+    periodic_axes = periodic;
+    for (int i = 0; i < n; ++i) {
+        vec wrapped{center_x[i], center_y[i], center_z[i]};
+        wrapped.pbc_wrap(box, periodic_axes);
+        center_x[i] = wrapped.x;
+        center_y[i] = wrapped.y;
+        center_z[i] = wrapped.z;
     }
     update_endpoints();
 }
@@ -203,4 +216,3 @@ Myosin::Myosin(int n0, double length0, double radius0, std::vector<double> box0,
 Myosin::Myosin(const Myosin& other) : Filament(other) {
     radius = other.radius;
 }
-

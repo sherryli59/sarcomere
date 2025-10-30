@@ -117,7 +117,8 @@ real segment_segment_distance(const vector<real>& a_in, const vector<real>& b_in
 real aa_energy(const ArrayXreal& center1, const double& length1, const real& theta1,
                const ArrayXreal& center2, const double& length2, const real& theta2,
                const vector<double>& box, const utils::PBCMask& pbc_mask,
-               const double k_aa, const double kappa_aa)
+               const double k_aa, const double kappa_aa,
+               const double cutoff, const double optimal)
 {
     vector<real> a = {center1[0] - (length1/2) * cos(theta1),
                       center1[1] - (length1/2) * sin(theta1)};
@@ -129,10 +130,13 @@ real aa_energy(const ArrayXreal& center1, const double& length1, const real& the
                       center2[1] + (length2/2) * sin(theta2)};
 
     real dist = segment_segment_distance(a, b, c, d, box, pbc_mask);
-    dist = dist - 0.03;
     real angle = theta1 - theta2;
     angle_wrap(angle);
     angle = min(abs(angle), M_PI - abs(angle));
+    if (cutoff > 0.0 && dist > cutoff) {
+        return 0.5 * kappa_aa * angle * angle;
+    }
+    dist = dist - optimal;
     return 0.5 * (k_aa * dist * dist + kappa_aa * angle * angle);
 }
 
@@ -175,7 +179,8 @@ real am_energy(const real& theta1, const real& theta2, const double kappa_am)
 
 vector<double> compute_aa_force_and_energy(Filament& actin, int& i, int& j,
                                            const vector<double>& box, const utils::PBCMask& pbc_mask,
-                                           const double k_aa, const double kappa_aa)
+                                           const double k_aa, const double kappa_aa,
+                                           const double cutoff, const double optimal)
 {
     ArrayXreal center1(2);
     center1 << actin.center[i].x, actin.center[i].y;
@@ -185,7 +190,7 @@ vector<double> compute_aa_force_and_energy(Filament& actin, int& i, int& j,
     real theta2 = actin.theta[j];
     real energy;
     VectorXd grad = -gradient(aa_energy, wrt(center1, theta1, theta2),
-                              at(center1, actin.length, theta1, center2, actin.length, theta2, box, pbc_mask, k_aa, kappa_aa), energy);
+                              at(center1, actin.length, theta1, center2, actin.length, theta2, box, pbc_mask, k_aa, kappa_aa, cutoff, optimal), energy);
     vector<double> forces(grad.size());
     Eigen::Map<VectorXd>(&forces[0], grad.size()) = grad;
     return forces;

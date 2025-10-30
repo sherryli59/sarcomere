@@ -1,6 +1,7 @@
 #ifndef UTILS_H
 #define UTILS_H
 
+#include <array>
 #include <cmath>
 #include <vector>
 #include <map>
@@ -13,6 +14,13 @@
 
 
 namespace utils {
+
+inline double wrap_axis(double x, double L, bool periodic) {
+    if (!periodic || L == 0.0) {
+        return x;
+    }
+    return x - L * std::round(x / L);
+}
 
 //------------------------------------------------------------------------------
 // The vec structure: represents a 3D vector/point and provides common operations.
@@ -69,10 +77,13 @@ struct vec {
 
     // Wrap the coordinates according to periodic boundary conditions.
     // The box vector is assumed to contain the periodic lengths in x and y.
-    void pbc_wrap(const std::vector<double>& box) {
-        x = x - box[0] * std::round(x / box[0]);
-        y = y - box[1] * std::round(y / box[1]);
-        z = z - box[2] * std::round(z / box[2]);
+    void pbc_wrap(const std::vector<double>& box, const std::array<bool,3>& periodic) {
+        double Lx = box.size() > 0 ? box[0] : 0.0;
+        double Ly = box.size() > 1 ? box[1] : 0.0;
+        double Lz = box.size() > 2 ? box[2] : 0.0;
+        x = wrap_axis(x, Lx, periodic[0]);
+        y = wrap_axis(y, Ly, periodic[1]);
+        z = wrap_axis(z, Lz, periodic[2]);
     }
 
     // Euclidean distance (no periodic boundaries).
@@ -83,19 +94,19 @@ struct vec {
     }
 
     // Distance squared with periodic boundary conditions.
-    double distance_squared(const vec& p, const std::vector<double>& box) const {
-        double dx = x - p.x;
-        double dy = y - p.y;
-        double dz = z - p.z;
-        dx = dx - box[0] * std::round(dx / box[0]);
-        dy = dy - box[1] * std::round(dy / box[1]);
-        dz = dz - box[2] * std::round(dz / box[2]);
+    double distance_squared(const vec& p, const std::vector<double>& box, const std::array<bool,3>& periodic) const {
+        double Lx = box.size() > 0 ? box[0] : 0.0;
+        double Ly = box.size() > 1 ? box[1] : 0.0;
+        double Lz = box.size() > 2 ? box[2] : 0.0;
+        double dx = wrap_axis(x - p.x, Lx, periodic[0]);
+        double dy = wrap_axis(y - p.y, Ly, periodic[1]);
+        double dz = wrap_axis(z - p.z, Lz, periodic[2]);
         return dx * dx + dy * dy + dz * dz;
     }
     
     // Distance computed with periodic boundary conditions.
-    double distance(const vec& p, const std::vector<double>& box) const {
-        return std::sqrt(distance_squared(p, box));
+    double distance(const vec& p, const std::vector<double>& box, const std::array<bool,3>& periodic) const {
+        return std::sqrt(distance_squared(p, box, periodic));
     }
 
     // Dot product.
@@ -145,6 +156,8 @@ bool compare_indices(const std::vector<int>& a, const std::vector<int>& b);
 double pbc_wrap(double x, double& box);
 
 double angle_between(const vec& u1, const vec& u2);
+
+vec pbc_diff_masked(const vec& a, const vec& b, const std::vector<double>& box, const std::array<bool,3>& periodic);
 
 //------------------------------------------------------------------------------
 // MoleculeConnection class declaration

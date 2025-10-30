@@ -25,8 +25,11 @@ enum class ParticleType {
 class NeighborList {
 public:
     // Constructors.
-    NeighborList(double cutoff_radius, const std::vector<double>& box, double threshold);
+    NeighborList(double cutoff_radius, const std::vector<double>& box, double threshold,
+                 const std::array<bool,3>& periodic_axes);
     NeighborList();
+
+    void set_periodic_axes(const std::array<bool,3>& periodic_axes);
 
     // Initialize the neighbor list with positions for actin and myosin.
     void initialize(const std::vector<double>& actin_x, const std::vector<double>& actin_y, const std::vector<double>& actin_z,
@@ -73,6 +76,7 @@ private:
     double cutoff_radius_;
     double threshold_;
     std::vector<double> box_;
+    std::array<bool,3> periodic_axes_{ {true, true, true} };
     int num_cells_x_, num_cells_y_, num_cells_z_;
     double cell_size_x_, cell_size_y_, cell_size_z_;
     std::vector<std::tuple<int, int, int>> neighboring_cells;

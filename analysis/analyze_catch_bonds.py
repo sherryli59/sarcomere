@@ -61,6 +61,7 @@ def plot_breakage_events(h5file: str, dt: float = 1.0, prefix: str = "analysis")
         myo_speeds: list[float] = []
         tensionless_myo_tensions: list[float] = []
         prev_crosslink_ratios: list[float] = []
+        prev_partial_binding_ratios: list[float] = []
         if data.size:
             for row in data:
                 step_idx = int(row[2])
@@ -118,12 +119,15 @@ def plot_breakage_events(h5file: str, dt: float = 1.0, prefix: str = "analysis")
                     prev_idx = max(step_idx - 1, 0)
                     prev_idx = min(prev_idx, crosslink_ds.shape[0] - 1)
                     prev_cross = crosslink_ds[prev_idx]
+                    prev_partial = fh["/actin/partial_binding_ratio"][prev_idx]
                     if prev_cross.ndim > 1:
                         prev_cross = prev_cross[:, 0]
                     if row[7] == 0:
                         prev_crosslink_ratios.append(float(prev_cross[i]))
+                        prev_partial_binding_ratios.append(float(prev_partial[i]))
                     if row[8] == 0:
                         prev_crosslink_ratios.append(float(prev_cross[j]))
+                        prev_partial_binding_ratios.append(float(prev_partial[j]))
 
     if data.size == 0:
         print("No catch-bond breakage events recorded")
@@ -211,6 +215,27 @@ def plot_breakage_events(h5file: str, dt: float = 1.0, prefix: str = "analysis")
         plt.tight_layout()
         plt.savefig(
             f"{prefix}_cb_break_prev_crosslink_ratio_distribution.png", dpi=300
+        )
+        plt.close()
+    
+    if prev_partial_binding_ratios:
+        plt.figure()
+        plt.hist(prev_partial_binding_ratios, bins=50, density=True)
+        plt.xlabel("Actin partial binding ratio one frame before break (zero-ratio events)")
+        plt.ylabel("Probability density")
+        plt.tight_layout()
+        plt.savefig(
+            f"{prefix}_cb_break_prev_partial_binding_ratio_distribution.png", dpi=300
+        )
+        plt.close()
+        plt.figure()
+        #scatter plot of prev_partial_binding_ratios vs prev_crosslink_ratios
+        plt.scatter(prev_partial_binding_ratios, prev_crosslink_ratios, s=10, alpha=0.7)
+        plt.xlabel("Actin partial binding ratio one frame before break (zero-ratio events)")
+        plt.ylabel("Actin crosslink ratio one frame before break (zero-ratio events)")
+        plt.tight_layout()
+        plt.savefig(
+            f"{prefix}_cb_break_prev_partial_vs_crosslink_ratio.png", dpi=300
         )
         plt.close()
 

@@ -4,6 +4,9 @@
 #include "components.h"
 #include "cxxopts.hpp"  // if needed, though not used in benchmark
 #include <vector>
+#include <algorithm>
+#include <limits>
+#include <cmath>
 #include <gsl/gsl_rng.h>
 #include <gsl/gsl_randist.h>
 
@@ -37,14 +40,19 @@ public:
         Lz = 3.5;
         actin_length = 1;
         myosin_length = 1.5;
-        myosin_radius = 0.2;
-        myosin_radius_ratio = 0.75;
-        crosslinker_length = 0.06;
+        myosin_radius = 0.015;
+        am_cutoff = 0.05;
+        am_optimal = 0.03;
+        aa_cutoff = 0.05;
+        aa_optimal = 0.03;
         resume = false;
         directional = true;
         n_fixed_myosins = 0;
         filename = "traj.h5";
         init_struc = "random"; // or "sarcomere", "partial", etc.
+        double tau_rec = 0.0;
+        double titin_k = 0.0;
+        double titin_rest_length = 0.5 * myosin_length + (2.0 / 3.0) * actin_length;
 
         // Create the simulation box.
         std::vector<double> box = {Lx, Ly, Lz};
@@ -55,16 +63,37 @@ public:
 
         // Create the Sarcomere model.
         double diff_coeff_ratio = actin_diff_coeff_trans/myosin_diff_coeff_trans;
+        double max_actin_displacement = 0.01;
+        double max_myosin_displacement = 0.01;
+        auto compute_max_force = [&](double max_disp, double D_coeff) {
+            if (max_disp <= 0.0 || D_coeff <= 0.0 || !std::isfinite(beta) || !std::isfinite(dt)) {
+                return std::numeric_limits<double>::infinity();
+            }
+            double val = max_disp / (beta * D_coeff * dt);
+            if (!(val > 0.0)) {
+                return std::numeric_limits<double>::infinity();
+            }
+            return val;
+        };
+        double max_actin_force = compute_max_force(max_actin_displacement, actin_diff_coeff_trans);
+        double max_myosin_force = compute_max_force(max_myosin_displacement, myosin_diff_coeff_trans);
         model = new Sarcomere(n_actins, n_myosins, box, actin_length, myosin_length,
-            myosin_radius, myosin_radius_ratio, crosslinker_length, k_on, k_off,
+            myosin_radius, am_cutoff, am_optimal, aa_cutoff, aa_optimal,
+            k_on, k_off,
             base_lifetime, lifetime_coeff, diff_coeff_ratio,
               k_aa, kappa_aa, k_am, kappa_am, v_am,
-            filename,rng, seed, n_fixed_myosins, dt, directional, 5);
+            filename,rng, seed, n_fixed_myosins, dt, tau_rec,
+            titin_k, titin_rest_length, directional, 5, max_actin_force, max_myosin_force,
+            std::numeric_limits<double>::infinity(), std::numeric_limits<double>::infinity());
 
         // Create the Langevin simulation instance.
         bool is3D = true;
+        const double max_actin_rotation = 0.01;
+        const double max_myosin_rotation = 0.01;
         sim = new Langevin(*model, beta, dt, actin_diff_coeff_trans,actin_diff_coeff_rot,
-             myosin_diff_coeff_trans, myosin_diff_coeff_rot, save_every, resume, is3D);
+             myosin_diff_coeff_trans, myosin_diff_coeff_rot, save_every, resume, is3D,
+             max_actin_displacement, max_myosin_displacement,
+             max_actin_rotation, max_myosin_rotation, -1);
 
         // Set up the initial structure.
         if (!resume) {
@@ -92,10 +121,11 @@ protected:
     int nsteps, seed, save_every;
     int n_actins, n_myosins, n_fixed_myosins;
     double dt, beta, actin_diff_coeff_trans, actin_diff_coeff_rot, myosin_diff_coeff_trans,
-              myosin_diff_coeff_rot, myosin_radius_ratio;
+              myosin_diff_coeff_rot;
     double k_on, k_off, base_lifetime, lifetime_coeff;
     double k_aa, kappa_aa, k_am, kappa_am, v_am;
-    double Lx, Ly, Lz, actin_length, myosin_length, myosin_radius, crosslinker_length;
+    double Lx, Ly, Lz, actin_length, myosin_length, myosin_radius;
+    double am_cutoff, am_optimal, aa_cutoff, aa_optimal;
     bool resume, directional;
     std::string filename, init_struc;
 

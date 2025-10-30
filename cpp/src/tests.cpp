@@ -248,6 +248,21 @@ TEST(SegmentDistanceTest, EdgeCaseParallel) {
     EXPECT_NEAR(interval_length, 1.0, EPS);
 }
 
+TEST(SegmentDistanceTest, PeriodicWrapInteriorContact) {
+    vec A = {-2.645100, -0.023386, 0.0};
+    vec B = {-1.647180, -0.087842, 0.0};
+    vec C = {2.647823, -0.013916, 0.0};
+    vec D = {1.648058, -0.035587, 0.0};
+    std::vector<double> box = {5.0, 5.0, 5.0};
+
+    auto [dist, info] = geometry::segment_segment_distance_w_normal(A, B, C, D, box);
+    EXPECT_NEAR(dist, 0.0031198407, 1e-8);
+
+    vec normal = info["normal"];
+    EXPECT_NEAR(normal.norm(), dist, 1e-8);
+    EXPECT_NEAR((info["start"] - info["end"]).norm(), dist, 1e-8);
+}
+
 
 
 

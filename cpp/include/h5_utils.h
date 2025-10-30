@@ -62,7 +62,7 @@ std::vector<double> load_from_dataset(H5::Group& group, const std::string& datas
                                       std::vector<hsize_t>& dims);
 
 // Load actin and myosin data (and energy, if needed) from the file.
-void load_from_file(std::string& filename, Filament& actin, Myosin& myosin,
-    std::vector<std::vector<int>>& actin_actin_bonds, int& n_frames);
+int load_from_file(std::string& filename, Filament& actin, Myosin& myosin,
+    std::vector<std::vector<int>>& actin_actin_bonds, int& n_frames, int frame_index = -1);
 
 #endif // H5_UTILS_H

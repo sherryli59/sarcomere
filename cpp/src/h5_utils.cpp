@@ -1,7 +1,9 @@
 #include "h5_utils.h"
 #include <stdexcept>
 #include <cmath>
+#include <algorithm>
 #include "omp.h"
+#include "geometry.h"
 
 //---------------------------------------------------------------------
 // Function Definitions
@@ -259,6 +261,14 @@ void create_file(std::string& filename, Filament& actin, Myosin& myosin,
     chunkDims   = {10, max_n_actin_bonds, 2};
     create_empty_dataset(file, "/actin", "bonds", initialDims, maxDims, chunkDims);
 
+    initialDims = {0, max_n_actin_bonds, 1};
+    maxDims     = {H5S_UNLIMITED, max_n_actin_bonds, 1};
+    chunkDims   = {10, max_n_actin_bonds, 1};
+    create_empty_dataset(file, "/actin", "bond_pair_load", initialDims, maxDims, chunkDims);
+
+    // Each catch-bonded actin pair (i, j) gets an entry containing their current distance.
+    create_empty_dataset(file, "/actin", "cb_distance", initialDims, maxDims, chunkDims);
+
     hsize_t max_n_myosin_bonds = n_myosins * 4;
     initialDims = {0, max_n_myosin_bonds, 2};
     maxDims     = {H5S_UNLIMITED, max_n_myosin_bonds, 2};
@@ -270,6 +280,11 @@ void create_file(std::string& filename, Filament& actin, Myosin& myosin,
     maxDims     = {H5S_UNLIMITED, max_n_am_bonds, 2};
     chunkDims   = {10, max_n_am_bonds, 2};
     create_empty_dataset(file, "/actin_myo", "bonds", initialDims, maxDims, chunkDims);
+
+    initialDims = {0, max_n_am_bonds, 1};
+    maxDims     = {H5S_UNLIMITED, max_n_am_bonds, 1};
+    chunkDims   = {10, max_n_am_bonds, 1};
+    create_empty_dataset(file, "/actin_myo", "distance", initialDims, maxDims, chunkDims);
 
     // Dataset to record catch-bond breakage events:
     // columns: i, j, step, distance, cos_angle,
@@ -289,6 +304,13 @@ void create_file(std::string& filename, Filament& actin, Myosin& myosin,
     maxDims     = {H5S_UNLIMITED, limit_width};
     chunkDims   = {10, limit_width};
     create_empty_dataset(file, "/catch_bond", "limit_removal", initialDims, maxDims, chunkDims);
+
+    // Dataset to record completed lifetimes for detached actin–actin bonds (seconds)
+    // 1D array where each entry is a single completed lifetime value
+    initialDims = {0};
+    maxDims     = {H5S_UNLIMITED};
+    chunkDims   = {100};
+    create_empty_dataset(file, "/catch_bond", "completed_lifetimes", initialDims, maxDims, chunkDims);
 }
 
 
@@ -350,6 +372,65 @@ void append_to_file(std::string& filename, Filament& actin, Myosin& myosin,
         append_to_dataset(group_myosin, feature.first, feature.second, {1, n_myosins, 1});
     }
 
+    // Compute derived metrics before padding.
+    const std::vector<double>* actin_f_load_cb = nullptr;
+    auto cb_feature_it = actin.custom_features.find("f_load_cb");
+    if (cb_feature_it != actin.custom_features.end()) {
+        actin_f_load_cb = &cb_feature_it->second;
+    }
+
+    std::vector<double> actin_pair_loads;
+    std::vector<double> actin_cb_distances;
+    actin_pair_loads.reserve(flatActinBonds.size() / 2);
+    actin_cb_distances.reserve(flatActinBonds.size() / 2);
+    for (size_t idx = 0; idx + 1 < flatActinBonds.size(); idx += 2) {
+        int a = static_cast<int>(flatActinBonds[idx]);
+        int b = static_cast<int>(flatActinBonds[idx + 1]);
+        if (a < 0 || b < 0) {
+            actin_pair_loads.push_back(-1.0);
+            actin_cb_distances.push_back(-1.0);
+            continue;
+        }
+        vec dir_a = actin.direction[a];
+        vec dir_b = actin.direction[b];
+        double norm_a = dir_a.norm();
+        double norm_b = dir_b.norm();
+        if (norm_a > 1e-12) {
+            dir_a = dir_a / norm_a;
+        }
+        if (norm_b > 1e-12) {
+            dir_b = dir_b / norm_b;
+        }
+        double cos_val = dir_a.dot(dir_b);
+        double load_a = actin_f_load_cb ? (*actin_f_load_cb)[a] : actin.f_load[a];
+        double load_b = actin_f_load_cb ? (*actin_f_load_cb)[b] : actin.f_load[b];
+        double pair_load = (cos_val < 0.0)
+            ? std::abs(cos_val) * std::min(load_a, load_b)
+            : 0.0;
+        actin_pair_loads.push_back(pair_load);
+        double aa_dist = geometry::segment_segment_distance(
+            actin.left_end[a], actin.right_end[a],
+            actin.left_end[b], actin.right_end[b],
+            actin.box);
+        actin_cb_distances.push_back(aa_dist);
+    }
+
+    std::vector<double> actin_myo_distances;
+    actin_myo_distances.reserve(flatActinMyosinBonds.size() / 2);
+    for (size_t idx = 0; idx + 1 < flatActinMyosinBonds.size(); idx += 2) {
+        int a = static_cast<int>(flatActinMyosinBonds[idx]);
+        int m = static_cast<int>(flatActinMyosinBonds[idx + 1]);
+        if (a < 0 || m < 0) {
+            actin_myo_distances.push_back(-1.0);
+            continue;
+        }
+        double dist = geometry::segment_segment_distance(
+            actin.left_end[a], actin.right_end[a],
+            myosin.left_end[m], myosin.right_end[m],
+            actin.box);
+        actin_myo_distances.push_back(dist);
+    }
+
     // Compute maximum possible bonds per frame.
     int max_n_actin_bonds = actin.n * 5;
     int max_n_myosin_bonds = myosin.n * 4;
@@ -366,6 +447,8 @@ void append_to_file(std::string& filename, Filament& actin, Myosin& myosin,
         for (int i = 0; i < padRows; i++) {
             flatActinBonds.push_back(-1);
             flatActinBonds.push_back(-1);
+            actin_pair_loads.push_back(-1.0);
+            actin_cb_distances.push_back(-1.0);
         }
     }
     // Pad flatMyosinBonds if needed.
@@ -382,6 +465,7 @@ void append_to_file(std::string& filename, Filament& actin, Myosin& myosin,
         for (int i = 0; i < padRows; i++) {
             flatActinMyosinBonds.push_back(-1);
             flatActinMyosinBonds.push_back(-1);
+            actin_myo_distances.push_back(-1.0);
         }
     }
 
@@ -392,8 +476,11 @@ void append_to_file(std::string& filename, Filament& actin, Myosin& myosin,
     hsize_t newAmDims[3] = {1, static_cast<hsize_t>(max_n_am_bonds), 2};
 
     append_to_dataset(group_actin, "bonds", flatActinBonds, { newActinDims[0], newActinDims[1], newActinDims[2] });
+    append_to_dataset(group_actin, "bond_pair_load", actin_pair_loads, {1, static_cast<hsize_t>(max_n_actin_bonds), 1});
+    append_to_dataset(group_actin, "cb_distance", actin_cb_distances, {1, static_cast<hsize_t>(max_n_actin_bonds), 1});
     append_to_dataset(group_myosin, "bonds", flatMyosinBonds, { newMyosinDims[0], newMyosinDims[1], newMyosinDims[2] });
     append_to_dataset(group_am, "bonds", flatActinMyosinBonds, { newAmDims[0], newAmDims[1], newAmDims[2] });
+    append_to_dataset(group_am, "distance", actin_myo_distances, {1, static_cast<hsize_t>(max_n_am_bonds), 1});
     // int max_bonds = 10;
     // // Serialize actinIndicesPerActin.
     // auto serialized_indices = serializeActinIndicesPerActin(actinIndicesPerActin, actin.n, max_bonds);
@@ -435,8 +522,8 @@ std::vector<double> load_from_dataset(H5::Group& group, const std::string& datas
     return data;
 }
 
-void load_from_file(std::string& filename, Filament& actin, Myosin& myosin,
-                    std::vector<std::vector<int>>& actin_actin_bonds, int& n_frames)
+int load_from_file(std::string& filename, Filament& actin, Myosin& myosin,
+                    std::vector<std::vector<int>>& actin_actin_bonds, int& n_frames, int frame_index)
 {
     H5::H5File file(filename, H5F_ACC_RDONLY);
     H5::Group group_actin(file.openGroup("/actin"));
@@ -446,31 +533,78 @@ void load_from_file(std::string& filename, Filament& actin, Myosin& myosin,
     hsize_t n_myosins = static_cast<hsize_t>(myosin.n);
 
     std::vector<hsize_t> dims;
-    std::vector<double> actin_center = load_from_dataset(group_actin, "center", dims);
+    std::vector<double> actin_center_all = load_from_dataset(group_actin, "center", dims);
     n_frames = static_cast<int>(dims[0]);
+    if (n_frames <= 0) {
+        throw std::runtime_error("No frames available in actin center dataset for resume.");
+    }
+    int target_frame = frame_index;
+    if (target_frame < 0 || target_frame >= n_frames) {
+        target_frame = n_frames - 1;
+    }
 
-    // Extract the most recent actin center data.
-    actin_center = std::vector<double>(actin_center.end() - 3 * n_actins, actin_center.end());
+    size_t actin_frame_stride = static_cast<size_t>(n_actins) * 3;
+    size_t actin_start = static_cast<size_t>(target_frame) * actin_frame_stride;
+    std::vector<double> actin_center(
+        actin_center_all.begin() + actin_start,
+        actin_center_all.begin() + actin_start + actin_frame_stride
+    );
     for (int i = 0; i < actin.n; i++) {
         actin.center[i].x = actin_center[3 * i];
         actin.center[i].y = actin_center[3 * i + 1];
         actin.center[i].z = actin_center[3 * i + 2];
     }
-    std::vector<double> actin_direction = load_from_dataset(group_actin, "direction", dims);
-    actin_direction = std::vector<double>(actin_direction.end() - 3 * n_actins, actin_direction.end());
+    std::vector<double> actin_direction_all = load_from_dataset(group_actin, "direction", dims);
+    std::vector<double> actin_direction(
+        actin_direction_all.begin() + actin_start,
+        actin_direction_all.begin() + actin_start + actin_frame_stride
+    );
     for (int i = 0; i < actin.n; i++) {
         actin.direction[i].x = actin_direction[3 * i];
         actin.direction[i].y = actin_direction[3 * i + 1];
         actin.direction[i].z = actin_direction[3 * i + 2];
     }
+
+    // Optional per-actin load arrays
+    try {
+        std::vector<double> actin_f_load_all = load_from_dataset(group_actin, "f_load", dims);
+        size_t load_stride = static_cast<size_t>(n_actins);
+        size_t load_start = static_cast<size_t>(target_frame) * load_stride;
+        for (int i = 0; i < actin.n; ++i) {
+            actin.f_load[i] = actin_f_load_all[load_start + i];
+        }
+    } catch (const H5::Exception&) {
+        for (int i = 0; i < actin.n; ++i) {
+            actin.f_load[i] = 0.0;
+        }
+    }
+    auto feature_cb_it = actin.custom_features.find("f_load_cb");
+    if (feature_cb_it != actin.custom_features.end()) {
+        try {
+            std::vector<double> actin_f_load_cb_all = load_from_dataset(group_actin, "f_load_cb", dims);
+            size_t load_stride = static_cast<size_t>(n_actins);
+            size_t load_start = static_cast<size_t>(target_frame) * load_stride;
+            for (int i = 0; i < actin.n; ++i) {
+                feature_cb_it->second[i] = actin_f_load_cb_all[load_start + i];
+            }
+        } catch (const H5::Exception&) {
+            std::fill(feature_cb_it->second.begin(), feature_cb_it->second.end(), 0.0);
+        }
+    }
     actin.update_endpoints();
+    for (auto& row : actin_actin_bonds) {
+        std::fill(row.begin(), row.end(), 0);
+    }
 
     // The bonds dataset is assumed to have dimensions: (n_frames, max_n_actin_bonds, 2)
-    std::vector<double> flatActinBonds = load_from_dataset(group_actin, "bonds", dims);
+    std::vector<double> flatActinBondsAll = load_from_dataset(group_actin, "bonds", dims);
     // dims[0] is n_frames, dims[1] is max_n_actin_bonds, dims[2] should be 2.
-    // Extract the most recent frame:
     size_t bonds_per_frame = dims[1] * dims[2];
-    flatActinBonds = std::vector<double>(flatActinBonds.end() - bonds_per_frame, flatActinBonds.end());
+    size_t bonds_start = static_cast<size_t>(target_frame) * bonds_per_frame;
+    std::vector<double> flatActinBonds(
+        flatActinBondsAll.begin() + bonds_start,
+        flatActinBondsAll.begin() + bonds_start + bonds_per_frame
+    );
     // For each bonded pair in the flat array, update the matrix.
     for (size_t i = 0; i < flatActinBonds.size(); i += 2) {
         int a = static_cast<int>(flatActinBonds[i]);
@@ -481,19 +615,28 @@ void load_from_file(std::string& filename, Filament& actin, Myosin& myosin,
         }
     }
     
-    std::vector<double> myosin_center = load_from_dataset(group_myosin, "center", dims);
-    myosin_center = std::vector<double>(myosin_center.end() - 3 * n_myosins, myosin_center.end());
+    std::vector<double> myosin_center_all = load_from_dataset(group_myosin, "center", dims);
+    size_t myosin_frame_stride = static_cast<size_t>(n_myosins) * 3;
+    size_t myosin_start = static_cast<size_t>(target_frame) * myosin_frame_stride;
+    std::vector<double> myosin_center(
+        myosin_center_all.begin() + myosin_start,
+        myosin_center_all.begin() + myosin_start + myosin_frame_stride
+    );
     for (int i = 0; i < myosin.n; i++) {
         myosin.center[i].x = myosin_center[3 * i];
         myosin.center[i].y = myosin_center[3 * i + 1];
         myosin.center[i].z = myosin_center[3 * i + 2];
     }
-    std::vector<double> myosin_direction = load_from_dataset(group_myosin, "direction", dims);
-    myosin_direction = std::vector<double>(myosin_direction.end() - 3 * n_myosins, myosin_direction.end());
+    std::vector<double> myosin_direction_all = load_from_dataset(group_myosin, "direction", dims);
+    std::vector<double> myosin_direction(
+        myosin_direction_all.begin() + myosin_start,
+        myosin_direction_all.begin() + myosin_start + myosin_frame_stride
+    );
     for (int i = 0; i < myosin.n; i++) {
         myosin.direction[i].x = myosin_direction[3 * i];
         myosin.direction[i].y = myosin_direction[3 * i + 1];
         myosin.direction[i].z = myosin_direction[3 * i + 2];
     }
     myosin.update_endpoints();
+    return target_frame;
 }

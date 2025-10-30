@@ -1,14 +1,26 @@
 #include "sarcomere.h"
 #include <algorithm>
+#include <cmath>
+#include <limits>
 
 // Constructor
-Sarcomere::Sarcomere() : max_myosin_bonds(2), max_strong_actin_bonds(1) {}
+Sarcomere::Sarcomere() : max_myosin_bonds(2), max_strong_actin_bonds(1),
+    max_actin_force(std::numeric_limits<double>::infinity()),
+    max_myosin_force(std::numeric_limits<double>::infinity()),
+    max_actin_torque(std::numeric_limits<double>::infinity()),
+    max_myosin_torque(std::numeric_limits<double>::infinity()) {
+    am_cutoff = 0.0;
+    am_optimal = 0.0;
+    aa_cutoff = 0.0;
+    aa_optimal = 0.0;
+}
 
 // Parameterized Constructor
 Sarcomere::Sarcomere(int& n_actins, int& n_myosins, std::vector<double> box0, double& actin_length, double& myosin_length,
-              double& myosin_radius, double& myosin_radius_ratio, double& crosslinker_length, double& k_on,
+              double& myosin_radius, double& myosin_radius_ratio, double& aa_cutoff, double& aa_optimal,
+              double& crosslinker_length, double& k_on,
               double& base_lifetime, double& lifetime_coeff, double& diff_coeff_ratio, double& k_aa, double& kappa_aa, double& k_am, double& kappa_am, double& v_am,
-              std::string& filename, gsl_rng* rng, int& seed, int& fix_myosin, double& dt, bool& directional, std::string& boundary_condition, int max_myosin_bonds, int max_strong_actin_bonds) :
+              std::string& filename, gsl_rng* rng, int& seed, int& fix_myosin, double& dt, bool& directional, std::string& boundary_condition, int max_myosin_bonds, int max_strong_actin_bonds, double max_actin_force_param, double max_myosin_force_param, double max_actin_torque_param, double max_myosin_torque_param) :
             pbc_mask(utils::parse_pbc_mask(boundary_condition)),
             actin(n_actins, actin_length, box0, pbc_mask, rng),
             myosin(n_myosins, myosin_length, myosin_radius, box0, pbc_mask, rng),
@@ -26,14 +38,31 @@ Sarcomere::Sarcomere(int& n_actins, int& n_myosins, std::vector<double> box0, do
             actin_angular_forces_temp(omp_get_max_threads(), std::vector<double>(n_actins, 0)),
             myosin_angular_forces_temp(omp_get_max_threads(), std::vector<double>(n_myosins, 0)),
             actin_cb_strengths_temp(omp_get_max_threads(), std::vector<double>(n_actins, 0)),
-            myosin_f_load_temp(omp_get_max_threads(), std::vector<double>(n_myosins, 0)),
+            myosin_f_load_temp(omp_get_max_threads(), std::vector<std::array<double, 2>>(n_myosins, {0.0, 0.0})),
+            myosin_f_load(n_myosins, {0.0, 0.0}),
             actinIndicesPerMyosin_temp(omp_get_max_threads(), utils::MoleculeConnection(n_myosins)),
-            rng_engines(omp_get_max_threads(), nullptr)
+            rng_engines(omp_get_max_threads(), nullptr),
+            max_actin_force(max_actin_force_param),
+            max_myosin_force(max_myosin_force_param),
+            max_actin_torque(max_actin_torque_param),
+            max_myosin_torque(max_myosin_torque_param)
 
             {
             box.resize(2);
             box[0] = box0[0];
             box[1] = box0[1];
+            if (!(max_actin_force > 0.0)) {
+                max_actin_force = std::numeric_limits<double>::infinity();
+            }
+            if (!(max_myosin_force > 0.0)) {
+                max_myosin_force = std::numeric_limits<double>::infinity();
+            }
+            if (!(max_actin_torque > 0.0)) {
+                max_actin_torque = std::numeric_limits<double>::infinity();
+            }
+            if (!(max_myosin_torque > 0.0)) {
+                max_myosin_torque = std::numeric_limits<double>::infinity();
+            }
             this->k_aa = k_aa;
             this->kappa_aa = kappa_aa;
             this->k_on = k_on;
@@ -41,6 +70,8 @@ Sarcomere::Sarcomere(int& n_actins, int& n_myosins, std::vector<double> box0, do
             this->kappa_am = kappa_am;
             this->v_am = v_am;
             this->crosslinker_length = crosslinker_length;
+            this->aa_cutoff = aa_cutoff;
+            this->aa_optimal = aa_optimal;
             this->skin_distance = skin_distance;
             this->filename = filename;
             this->rng = rng;
@@ -54,8 +85,8 @@ Sarcomere::Sarcomere(int& n_actins, int& n_myosins, std::vector<double> box0, do
             this->max_myosin_bonds = max_myosin_bonds;
             this->max_strong_actin_bonds = max_strong_actin_bonds;
             cb_mult_factor = 1000;
-            cutoff_radius = std::max(actin_length, myosin_length) +
-                            std::max(2 * myosin_radius, crosslinker_length);
+            double neighbor_cutoff = std::max(std::max(2 * myosin_radius, crosslinker_length), aa_cutoff);
+            cutoff_radius = std::max(actin_length, myosin_length) + neighbor_cutoff;
             double skin_distance = 0.15 * cutoff_radius;
             neighbor_list = NeighborList(cutoff_radius + skin_distance, box, skin_distance / 2);
             neighbor_list.initialize(actin.center_x, actin.center_y, actin.center_z,
@@ -72,9 +103,14 @@ Sarcomere::Sarcomere(int& n_actins, int& n_myosins, std::vector<double> box0, do
             for (int i = 0; i < n_actins; i++) {
                 am_interaction[i].resize(n_myosins);
             }
+            actin.register_feature("f_load_cb");
+            actin_f_load_cb = &actin["f_load_cb"];
             actin.register_feature("myosin_binding_ratio");
             actin.register_feature("crosslink_ratio");
             actin.register_feature("partial_binding_ratio");
+            if (actin_f_load_cb) {
+                actin_f_load_cb->assign(n_actins, 0.0);
+            }
             // Initialize thread-local RNGs
             for (int t = 0; t < omp_get_max_threads(); ++t) {
                 rng_engines[t] = gsl_rng_alloc(gsl_rng_mt19937); 
@@ -281,7 +317,7 @@ void Sarcomere::sarcomeric_structure(){
 // }
 
 void Sarcomere::update_system() {
-    std::vector<double> myosin_max_load(myosin.n, 0);
+    std::vector<std::array<double, 2>> myosin_max_load(myosin.n, {0.0, 0.0});
     _update_neighbors();
     #pragma omp parallel
     {   
@@ -344,24 +380,55 @@ void Sarcomere::update_system() {
         utils::reduce_array(myosin_velocities_temp, myosin.velocity);
         utils::reduce_array(myosin_angular_forces_temp, myosin.angular_force);
         #pragma omp barrier
+        #pragma omp for
+        for (int i = 0; i < actin.n; ++i) {
+            double cap = max_actin_torque;
+            if (std::isfinite(cap) && cap > 0.0) {
+                double mag = std::abs(actin.angular_force[i]);
+                if (mag > cap && mag > 0.0) {
+                    actin.angular_force[i] = (actin.angular_force[i] > 0 ? cap : -cap);
+                }
+            }
+        }
+
+        #pragma omp for
+        for (int i = 0; i < myosin.n; ++i) {
+            double cap = max_myosin_torque;
+            if (std::isfinite(cap) && cap > 0.0) {
+                double mag = std::abs(myosin.angular_force[i]);
+                if (mag > cap && mag > 0.0) {
+                    myosin.angular_force[i] = (myosin.angular_force[i] > 0 ? cap : -cap);
+                }
+            }
+        }
         //set max velocity for myosin
 
         // Parallelize over myosins
         #pragma omp for
         for (int myosin_idx = 0; myosin_idx < myosin.n; ++myosin_idx) {
-            double max_load = myosin_f_load_temp[0][myosin_idx];
+            std::array<double, 2> max_load = myosin_f_load_temp[0][myosin_idx];
             // Find max across threads
             for (int thread_idx = 1; thread_idx < omp_get_max_threads(); ++thread_idx) {
-                max_load = std::max(max_load, myosin_f_load_temp[thread_idx][myosin_idx]);
+                const auto& thread_load = myosin_f_load_temp[thread_idx][myosin_idx];
+                max_load[0] = std::max(max_load[0], thread_load[0]);
+                max_load[1] = std::max(max_load[1], thread_load[1]);
             }
             myosin_max_load[myosin_idx] = max_load;
         }
 
         #pragma omp for
         for (int i = 0; i < myosin.n; i++){
-            double v_max = v_am/ (diff_coeff_ratio + 1) * (1 - myosin_max_load[i]);
+            double dot = myosin.velocity[i].dot(myosin.direction[i]);
+            size_t dir_idx;
+            if (std::abs(dot) < EPS) {
+                dir_idx = (myosin_max_load[i][0] >= myosin_max_load[i][1]) ? 0 : 1;
+            } else {
+                dir_idx = (dot >= 0.0) ? 0 : 1;
+            }
+            double load = myosin_max_load[i][dir_idx];
+            double v_max = v_am/ (diff_coeff_ratio + 1) * (1 - load);
             double v = myosin.velocity[i].norm();
-            if (v>v_max){
+            if (v>v_max && v > EPS){
                 myosin.velocity[i] = myosin.velocity[i]/v*v_max;
             }
         }
@@ -383,6 +450,27 @@ void Sarcomere::update_system_sterics_only() {
         // Step 8: Reduce myosin forces, velocities, and angular forces
         utils::reduce_array(myosin_forces_temp, myosin.force);
         utils::reduce_array(myosin_angular_forces_temp, myosin.angular_force);
+        #pragma omp barrier
+        #pragma omp for
+        for (int i = 0; i < actin.n; ++i) {
+            double cap = max_actin_torque;
+            if (std::isfinite(cap) && cap > 0.0) {
+                double mag = std::abs(actin.angular_force[i]);
+                if (mag > cap && mag > 0.0) {
+                    actin.angular_force[i] = (actin.angular_force[i] > 0 ? cap : -cap);
+                }
+            }
+        }
+        #pragma omp for
+        for (int i = 0; i < myosin.n; ++i) {
+            double cap = max_myosin_torque;
+            if (std::isfinite(cap) && cap > 0.0) {
+                double mag = std::abs(myosin.angular_force[i]);
+                if (mag > cap && mag > 0.0) {
+                    myosin.angular_force[i] = (myosin.angular_force[i] > 0 ? cap : -cap);
+                }
+            }
+        }
     }
 }
 
@@ -417,7 +505,7 @@ void Sarcomere::_set_to_zero() {
             myosin_forces_temp[t][i] = {0, 0};
             myosin_velocities_temp[t][i] = {0, 0};
             myosin_angular_forces_temp[t][i] = 0;
-            myosin_f_load_temp[t][i] = 0;
+            myosin_f_load_temp[t][i] = {0.0, 0.0};
             actinIndicesPerMyosin_temp[t].deleteAllConnections(i);
         }
     }
@@ -429,6 +517,9 @@ void Sarcomere::_set_to_zero() {
         actin.angular_force[i] = 0;
         actin.velocity[i] = {0, 0};
         actin.f_load[i] = 0;
+        if (actin_f_load_cb) {
+            (*actin_f_load_cb)[i] = 0;
+        }
         actin.cb_strength[i] = 0;
         actin_basic_tension[i] = 0;
         actin_n_bonds[i] = 0;
@@ -459,6 +550,7 @@ void Sarcomere::_set_to_zero() {
         myosin.angular_force[i] = 0;
         myosin.velocity[i] = {0, 0};
         actinIndicesPerMyosin.deleteAllConnections(i);
+        myosin_f_load[i] = {0.0, 0.0};
     }
     #pragma omp for
     for (size_t i = 0; i < actin.center.size(); i++) {
@@ -633,13 +725,22 @@ void Sarcomere::_calc_am_force_velocity(int& i) {
         local_actin_angular_forces[i] += force_vec[2];
         local_myosin_angular_forces[j] += force_vec[3];
         double f_load = actin.f_load[i]*(actin.cb_strength[i]>1/cb_mult_factor)*(partial_binding_ratio>EPS);
-        if (f_load>local_myosin_f_load[j]){
-            local_myosin_f_load[j] = f_load;
-        }
         velocity = velocity * (1-f_load);
+        vec delta_direction = -velocity;
+        double dot = delta_direction.dot(myosin.direction[j]);
+        size_t dir_idx;
+        if (std::abs(dot) < EPS) {
+            dir_idx = 0;
+        } else {
+            dir_idx = (dot >= 0.0) ? 0 : 1;
+        }
+        if (f_load > local_myosin_f_load[j][dir_idx]){
+            local_myosin_f_load[j][dir_idx] = f_load;
+        }
         if (actin.cb_strength[i]>1/cb_mult_factor){
             actin.velocity[i] = velocity*diff_coeff_ratio/(diff_coeff_ratio+1);
-            local_myosin_velocities[j] -= velocity/(diff_coeff_ratio+1);
+            vec delta_velocity = delta_direction/(diff_coeff_ratio+1);
+            local_myosin_velocities[j] += delta_velocity;
         }
         else{
             actin.velocity[i] = velocity;
@@ -833,7 +934,8 @@ double Sarcomere::_get_cb_strength(int& i, int& j){
 
 void Sarcomere::_get_f_load(int& i){
     // i is the actin index
-    actin.f_load[i] = 0;
+    double load_velocity = 0.0;
+    double load_cb = 0.0;
     std::vector<int> myosin_indices = myosinIndicesPerActin.getConnections(i);
     for (int index = 0; index < myosin_indices.size(); index++){
         int j = myosin_indices[index];
@@ -846,11 +948,18 @@ void Sarcomere::_get_f_load(int& i){
         }
         binding_ratio_adjusted = 1-std::exp(-4*binding_ratio_adjusted);
         double abs_cos_angle = std::abs(std::cos(actin.theta[i] - myosin.theta[j]));
-        actin.f_load[i] += binding_ratio_adjusted * abs_cos_angle;
-        if (actin.f_load[i] > 1.) {
-            actin.f_load[i] = 1.;
-            break;
+        load_velocity += binding_ratio_adjusted;
+        load_cb += binding_ratio_adjusted * abs_cos_angle;
+        if (load_velocity > 1.) {
+            load_velocity = 1.;
         }
+        if (load_cb > 1.) {
+            load_cb = 1.;
+        }
+    }
+    actin.f_load[i] = std::min(load_velocity, 1.0);
+    if (actin_f_load_cb) {
+        (*actin_f_load_cb)[i] = std::min(load_cb, 1.0);
     }
 }
 
@@ -875,7 +984,9 @@ void Sarcomere::_set_cb(int& i, int& j, double& normalized_strength, bool& add_c
     force_vec.resize(4);
     double rand = gsl_rng_uniform(rng_engines[thread_id]);
     double abs_cos_angle = std::abs(std::cos(actin.theta[i] - actin.theta[j]));
-    double f_load = std::min(actin.f_load[i],actin.f_load[j]);
+    double f_load_i = actin_f_load_cb ? (*actin_f_load_cb)[i] : actin.f_load[i];
+    double f_load_j = actin_f_load_cb ? (*actin_f_load_cb)[j] : actin.f_load[j];
+    double f_load = std::min(f_load_i, f_load_j);
     if (actin_actin_bonds_prev[i][j] == 1) {
         double k_off_adjusted = dt * abs_cos_angle/(base_lifetime+lifetime_coeff*f_load);
         if (rand < k_off_adjusted){ //k_off is actually k_off * dt
@@ -889,7 +1000,7 @@ void Sarcomere::_set_cb(int& i, int& j, double& normalized_strength, bool& add_c
             return;
         }
     }
-    force_vec = compute_aa_force_and_energy(actin,i, j, box, pbc_mask, k_aa, kappa_aa); 
+    force_vec = compute_aa_force_and_energy(actin, i, j, box, pbc_mask, k_aa, kappa_aa, aa_cutoff, aa_optimal); 
     //check if the force is too large
     if (force_vec[0]>3 || force_vec[1]>3){
         printf("aa force too large: %f %f\n", force_vec[0], force_vec[1]);
@@ -929,6 +1040,7 @@ void Sarcomere::_set_cb(int& i, std::vector<int> indices, std::vector<double> cb
 std::tuple<std::vector<double>, std::vector<double>, std::vector<double>>
     Sarcomere::_extract_bonded_pairs(
     const std::vector<std::vector<int>>& actin_actin_bonds,
+    const std::vector<std::vector<int>>& actin_actin_status,
     const utils::MoleculeConnection& myosinIndicesPerActin)
 {
     // First, flatten the actin-actin bonds matrix (upper-triangle only)
@@ -936,7 +1048,7 @@ std::tuple<std::vector<double>, std::vector<double>, std::vector<double>>
     std::vector<double> flatActinBonds;
     for (int i = 0; i < actin.n; ++i) {
         for (int j = i + 1; j < actin.n; ++j) {
-            if (actin_actin_bonds[i][j] == 1) {
+            if (actin_actin_bonds[i][j] == 1 && actin_actin_status[i][j] == 2) {
                 flatActinBonds.push_back(static_cast<double>(i));
                 flatActinBonds.push_back(static_cast<double>(j));
             }
@@ -957,18 +1069,17 @@ std::tuple<std::vector<double>, std::vector<double>, std::vector<double>>
         if (connections_i.empty() || connections_j.empty())
             continue;
 
-        int myosin_i = connections_i[0]; // Use the first connection.
-        int myosin_j = connections_j[0]; // Use the first connection.
-
-        // Skip if both actins attach to the same myosin.
-        if (myosin_i == myosin_j)
-            continue;
-
-        // Order the pair so that the smaller index comes first.
-        if (myosin_i > myosin_j)
-            std::swap(myosin_i, myosin_j);
-
-        uniqueMyosinBonds.insert(std::make_pair(myosin_i, myosin_j));
+        for (int myosin_i_raw : connections_i) {
+            for (int myosin_j_raw : connections_j) {
+                if (myosin_i_raw == myosin_j_raw)
+                    continue;
+                int myosin_a = myosin_i_raw;
+                int myosin_b = myosin_j_raw;
+                if (myosin_a > myosin_b)
+                    std::swap(myosin_a, myosin_b);
+                uniqueMyosinBonds.insert(std::make_pair(myosin_a, myosin_b));
+            }
+        }
     }
 
     // Flatten the set of unique myosin bonds into a vector<double>.
@@ -1030,7 +1141,7 @@ void Sarcomere::new_file(){
 
 void Sarcomere::save_state(){
     auto bondData =
-    _extract_bonded_pairs(actin_actin_bonds, myosinIndicesPerActin);
+    _extract_bonded_pairs(actin_actin_bonds, actin_actin_status, myosinIndicesPerActin);
     std::vector<double> flatActinBonds = std::get<0>(bondData);
     std::vector<double> flatMyosinBonds = std::get<1>(bondData);
     std::vector<double> flatActinMyosinBonds = std::get<2>(bondData);
@@ -1038,8 +1149,8 @@ void Sarcomere::save_state(){
                    flatMyosinBonds, flatActinMyosinBonds, max_myosin_bonds);
 }
 
-void Sarcomere::load_state(int& n_frames){
-    load_from_file(filename, actin, myosin, actin_actin_bonds, n_frames);
+int Sarcomere::load_state(int& n_frames, int frame_index){
+    int target_frame = load_from_file(filename, actin, myosin, actin_actin_bonds, n_frames, frame_index);
     update_system();
+    return target_frame;
 }
-
