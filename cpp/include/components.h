@@ -56,6 +56,20 @@ public:
         double dot(const vec& other) const {
             return x * other.x + y * other.y + z * other.z;
         }
+        vec cross(const VecRef& other) const {
+            return {
+                y * other.z - z * other.y,
+                z * other.x - x * other.z,
+                x * other.y - y * other.x
+            };
+        }
+        vec cross(const vec& other) const {
+            return {
+                y * other.z - z * other.y,
+                z * other.x - x * other.z,
+                x * other.y - y * other.x
+            };
+        }
         double norm() const { return std::sqrt(x * x + y * y + z * z); }
     };
 
@@ -94,6 +108,7 @@ public:
     void update_endpoints(int& i);
     void update_endpoints();
     void update_center(std::vector<vec> new_center);
+    void initialize_within_box(gsl_rng* rng);
 
     // Register a new 1D feature of length n.
     void register_feature(const std::string& name);

@@ -2,6 +2,7 @@
 #include <cstdio>
 #include <cmath>
 #include <vector>
+#include <algorithm>
 
 using vec = utils::vec;
 // Define the global mutex.
@@ -127,6 +128,94 @@ void Langevin::sample_step(double& dt, gsl_rng* rng, int& fix_myosin) {
         acc_rand[i] = gsl_rng_uniform(rng);
     }
 
+    const double wall_eps = 1e-9;
+    auto reflect_segment = [&](Filament& filament, int idx, vec& delta_pos, vec& delta_dir) {
+        if (model.is_periodic[0] && model.is_periodic[1] && model.is_periodic[2]) {
+            return;
+        }
+        int guard = 0;
+        while (guard < 6) {
+            vec center_current = filament.center[idx];
+            vec direction_current = filament.direction[idx];
+            vec center_prop = center_current + delta_pos;
+            vec direction_prop = utils::rodrigues_rotate(direction_current, delta_dir);
+            if (!is3D) {
+                direction_prop.z = 0.0;
+                direction_prop.normalize();
+            }
+            vec dir_norm = direction_prop;
+            dir_norm.normalize();
+            vec left_prop = center_prop - 0.5 * filament.length * dir_norm;
+            vec right_prop = center_prop + 0.5 * filament.length * dir_norm;
+            bool reflected = false;
+            for (int axis = 0; axis < 3; ++axis) {
+                if (model.is_periodic[axis]) {
+                    continue;
+                }
+                if (axis >= static_cast<int>(model.box.size()) || model.box[axis] <= 0.0) {
+                    continue;
+                }
+                double half = 0.5 * model.box[axis];
+                double lower = -half;
+                double upper = half;
+                auto component = [&](const vec& v) -> double {
+                    return axis == 0 ? v.x : (axis == 1 ? v.y : v.z);
+                };
+                double left_c = component(left_prop);
+                double right_c = component(right_prop);
+                if (left_c < lower - wall_eps || right_c < lower - wall_eps ||
+                    left_c > upper + wall_eps || right_c > upper + wall_eps) {
+                    if (axis == 0) {
+                        delta_pos.x *= -1.0;
+                        delta_dir.x *= -1.0;
+                    } else if (axis == 1) {
+                        delta_pos.y *= -1.0;
+                        delta_dir.y *= -1.0;
+                    } else {
+                        delta_pos.z *= -1.0;
+                        delta_dir.z *= -1.0;
+                    }
+                    reflected = true;
+                }
+            }
+            if (!reflected) {
+                break;
+            }
+            ++guard;
+        }
+    };
+
+    auto clamp_center = [&](Filament& filament, int idx) {
+        if (model.is_periodic[0] && model.is_periodic[1] && model.is_periodic[2]) {
+            return;
+        }
+        vec center = filament.center[idx];
+        vec dir = filament.direction[idx];
+        for (int axis = 0; axis < 3; ++axis) {
+            if (model.is_periodic[axis]) {
+                continue;
+            }
+            if (axis >= static_cast<int>(model.box.size()) || model.box[axis] <= 0.0) {
+                continue;
+            }
+            double half = 0.5 * model.box[axis];
+            double lower = -half;
+            double upper = half;
+            double dir_component = axis == 0 ? dir.x : (axis == 1 ? dir.y : dir.z);
+            double half_span = 0.5 * filament.length * std::abs(dir_component);
+            double min_center = lower + half_span + wall_eps;
+            double max_center = upper - half_span - wall_eps;
+            double* center_component = (axis == 0) ? &center.x : (axis == 1 ? &center.y : &center.z);
+            if (min_center > max_center) {
+                *center_component = std::clamp(*center_component, lower + wall_eps, upper - wall_eps);
+            } else {
+                *center_component = std::clamp(*center_component, min_center, max_center);
+            }
+        }
+        filament.center[idx] = center;
+        filament.update_endpoints(idx);
+    };
+
     int offset = model.myosin.n * 6;
     double D = D_myosin_trans;
     double D_rot = D_myosin_rot;
@@ -138,38 +227,58 @@ void Langevin::sample_step(double& dt, gsl_rng* rng, int& fix_myosin) {
             model.myosin.velocity[i].z = 0;
             model.myosin.torque[i].z = 0;
         }
-        double dx = model.myosin.force[i].x * beta * D * dt +
-                    model.myosin.velocity[i].x * dt +
-                    std::sqrt(2 * D * dt) * noise[i * 6];
-        double dy = model.myosin.force[i].y * beta * D * dt +
-                    model.myosin.velocity[i].y * dt +
-                    std::sqrt(2 * D * dt) * noise[i * 6 + 1];
-        double dz = is3D ? (model.myosin.force[i].z * beta * D * dt +
+        vec delta_pos{
+            model.myosin.force[i].x * beta * D * dt +
+                model.myosin.velocity[i].x * dt +
+                std::sqrt(2 * D * dt) * noise[i * 6],
+            model.myosin.force[i].y * beta * D * dt +
+                model.myosin.velocity[i].y * dt +
+                std::sqrt(2 * D * dt) * noise[i * 6 + 1],
+            is3D ? (model.myosin.force[i].z * beta * D * dt +
                     model.myosin.velocity[i].z * dt +
-                    std::sqrt(2 * D * dt) * noise[i * 6 + 2]) : 0.0;
-        double disp_sq = dx * dx + dy * dy + (is3D ? dz * dz : 0.0);
+                    std::sqrt(2 * D * dt) * noise[i * 6 + 2]) : 0.0
+        };
+        double disp_sq = delta_pos.x * delta_pos.x + delta_pos.y * delta_pos.y +
+                         (is3D ? delta_pos.z * delta_pos.z : 0.0);
         double disp_limit = max_myosin_displacement;
         if (disp_limit > 0.0 && std::isfinite(disp_limit)) {
             double disp_mag = std::sqrt(disp_sq);
             double allowed = displacement_slack * disp_limit;
         }
-        model.myosin.displace(i, dx, dy, dz);
         vec rot_noise={noise[i * 6 + 3], noise[i * 6 + 4], is3D ? noise[i * 6 + 5] : 0.0};
         vec delta_u = std::sqrt(2 * D_rot * dt) * rot_noise + dt * model.myosin.torque[i] * D_rot * beta;
         if (!is3D) {
-            delta_u.z = 0;
+            delta_pos.z = 0.0;
+            delta_u.z = 0.0;
         }
         double rot_limit = max_myosin_rotation;
         // if (rot_limit > 0.0 && std::isfinite(rot_limit)) {
         //     double rot_mag = delta_u.norm();
         //     double allowed = displacement_slack * rot_limit;
         // }
+        reflect_segment(model.myosin, i, delta_pos, delta_u);
 
-        model.myosin.direction[i] += delta_u;
-        if (!is3D) {
-            model.myosin.direction[i].z = 0;
+        if (i < static_cast<int>(model.myosin_last_delta_pos.size())) {
+            model.myosin_last_delta_pos[i] = delta_pos;
         }
-        model.myosin.direction[i].normalize();
+        if (i < static_cast<int>(model.myosin_last_delta_rot.size())) {
+            model.myosin_last_delta_rot[i] = delta_u;
+        }
+
+        double dx = delta_pos.x;
+        double dy = delta_pos.y;
+        double dz = delta_pos.z;
+        model.myosin.displace(i, dx, dy, dz);
+        vec new_dir = utils::rodrigues_rotate(model.myosin.direction[i], delta_u);
+        if (!is3D) {
+            new_dir.z = 0.0;
+            new_dir.normalize();
+        } else {
+            new_dir.normalize();
+        }
+        model.myosin.direction[i] = new_dir;
+        model.myosin.update_endpoints(i);
+        clamp_center(model.myosin, i);
     }
     // Update actin particles.
     for (int i = 0; i < model.actin.n; i++) {
@@ -186,26 +295,29 @@ void Langevin::sample_step(double& dt, gsl_rng* rng, int& fix_myosin) {
             model.actin.velocity[i].z = 0;
             model.actin.torque[i].z = 0;
         }
-        double dx = model.actin.force[i].x * beta * D * dt +
-                    model.actin.velocity[i].x * dt +
-                    std::sqrt(2 * D * dt) * noise[offset + i * 6];
-        double dy = model.actin.force[i].y * beta * D * dt +
-                    model.actin.velocity[i].y * dt +
-                    std::sqrt(2 * D * dt) * noise[offset + i * 6 + 1];
-        double dz = is3D ? (model.actin.force[i].z * beta * D * dt +
+        vec delta_pos{
+            model.actin.force[i].x * beta * D * dt +
+                model.actin.velocity[i].x * dt +
+                std::sqrt(2 * D * dt) * noise[offset + i * 6],
+            model.actin.force[i].y * beta * D * dt +
+                model.actin.velocity[i].y * dt +
+                std::sqrt(2 * D * dt) * noise[offset + i * 6 + 1],
+            is3D ? (model.actin.force[i].z * beta * D * dt +
                     model.actin.velocity[i].z * dt +
-                    std::sqrt(2 * D * dt) * noise[offset + i * 6 + 2]) : 0.0;
-        double disp_sq = dx * dx + dy * dy + (is3D ? dz * dz : 0.0);
+                    std::sqrt(2 * D * dt) * noise[offset + i * 6 + 2]) : 0.0
+        };
+        double disp_sq = delta_pos.x * delta_pos.x + delta_pos.y * delta_pos.y +
+                         (is3D ? delta_pos.z * delta_pos.z : 0.0);
         double disp_limit = max_actin_displacement;
         if (disp_limit > 0.0 && std::isfinite(disp_limit)) {
             double disp_mag = std::sqrt(disp_sq);
             double allowed = displacement_slack * disp_limit;
         }
-        model.actin.displace(i, dx, dy, dz);
         vec rot_noise={noise[offset + i * 6 + 3], noise[offset + i * 6 + 4], is3D ? noise[offset + i * 6 + 5] : 0.0};
         vec delta_u = std::sqrt(2 * D_rot * dt) * rot_noise + dt * model.actin.torque[i] * D_rot * beta;
         if (!is3D) {
-            delta_u.z = 0;
+            delta_pos.z = 0.0;
+            delta_u.z = 0.0;
         }
         double rot_limit = max_actin_rotation;
         if (rot_limit > 0.0 && std::isfinite(rot_limit)) {
@@ -215,10 +327,28 @@ void Langevin::sample_step(double& dt, gsl_rng* rng, int& fix_myosin) {
                 double noise_mag = (rot_noise).norm();
             }
         }
-        model.actin.direction[i] += delta_u;
-        if (!is3D) {
-            model.actin.direction[i].z = 0;
+        reflect_segment(model.actin, i, delta_pos, delta_u);
+
+        if (i < static_cast<int>(model.actin_last_delta_pos.size())) {
+            model.actin_last_delta_pos[i] = delta_pos;
         }
-        model.actin.direction[i].normalize();
+        if (i < static_cast<int>(model.actin_last_delta_rot.size())) {
+            model.actin_last_delta_rot[i] = delta_u;
+        }
+
+        double dx = delta_pos.x;
+        double dy = delta_pos.y;
+        double dz = delta_pos.z;
+        model.actin.displace(i, dx, dy, dz);
+        vec new_dir_act = utils::rodrigues_rotate(model.actin.direction[i], delta_u);
+        if (!is3D) {
+            new_dir_act.z = 0.0;
+            new_dir_act.normalize();
+        } else {
+            new_dir_act.normalize();
+        }
+        model.actin.direction[i] = new_dir_act;
+        model.actin.update_endpoints(i);
+        clamp_center(model.actin, i);
     }
 }

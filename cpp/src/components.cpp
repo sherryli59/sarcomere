@@ -1,11 +1,83 @@
 #include "components.h"
 #include <cstdio>
 #include <stdexcept>
+#include <algorithm>
 #include <cmath>
 #include <cassert>
 #include <gsl/gsl_rng.h>
 #include <gsl/gsl_randist.h>
 #include <omp.h>
+
+namespace {
+
+constexpr double ZERO_TOL = 1e-8;
+
+inline double get_component(const vec& v, int axis) {
+    return (axis == 0) ? v.x : (axis == 1 ? v.y : v.z);
+}
+
+inline void set_component(vec& v, int axis, double value) {
+    if (axis == 0) {
+        v.x = value;
+    } else if (axis == 1) {
+        v.y = value;
+    } else {
+        v.z = value;
+    }
+}
+
+// New: sample a unit direction with per-axis asymmetric bounds
+// u_min[u] <= u[u] <= u_max[u] for u in {x,y,z}
+vec sample_direction_with_asym_limits(const std::array<double,3>& u_min,
+                                      const std::array<double,3>& u_max,
+                                      gsl_rng* rng)
+{
+    // Fast rejection sampler on S^2
+    const int max_attempts = 5000;
+    for (int attempt = 0; attempt < max_attempts; ++attempt) {
+        double x = gsl_ran_gaussian(rng, 1.0);
+        double y = gsl_ran_gaussian(rng, 1.0);
+        double z = gsl_ran_gaussian(rng, 1.0);
+        double n = std::sqrt(x*x + y*y + z*z);
+        if (n <= 1e-15) continue;
+        x /= n; y /= n; z /= n;
+        if (x >= u_min[0] && x <= u_max[0] &&
+            y >= u_min[1] && y <= u_max[1] &&
+            z >= u_min[2] && z <= u_max[2]) {
+            return {x,y,z};
+        }
+    }
+
+    // Fallback: set the tightest axis first, sample the rest, renormalize
+    std::array<int,3> order{0,1,2};
+    std::sort(order.begin(), order.end(), [&](int a,int b){
+        return (u_max[a]-u_min[a]) < (u_max[b]-u_min[b]);
+    });
+
+    // Fix the tightest axis component uniformly within its range
+    double comp[3]{0,0,0};
+    int k = order[0];
+    comp[k] = gsl_ran_flat(rng, u_min[k], u_max[k]);
+
+    // Sample the remaining two from a circle of radius sqrt(1-comp[k]^2)
+    double R = std::sqrt(std::max(0.0, 1.0 - comp[k]*comp[k]));
+    double theta = gsl_ran_flat(rng, 0.0, 2.0*M_PI);
+    int a = order[1], b = order[2];
+    comp[a] = R * std::cos(theta);
+    comp[b] = R * std::sin(theta);
+
+    // If any component is outside its bounds, clamp and renormalize a couple times
+    for (int it = 0; it < 3; ++it) {
+        for (int ax = 0; ax < 3; ++ax) {
+            comp[ax] = std::min(std::max(comp[ax], u_min[ax]), u_max[ax]);
+        }
+        double nn = std::sqrt(comp[0]*comp[0]+comp[1]*comp[1]+comp[2]*comp[2]);
+        if (nn > 1e-15) { comp[0]/=nn; comp[1]/=nn; comp[2]/=nn; }
+    }
+    return {comp[0],comp[1],comp[2]};
+}
+
+} // namespace
 
 //===================
 // Filament Methods
@@ -166,6 +238,54 @@ void Filament::set_periodic_axes(const std::array<bool,3>& periodic) {
         center_z[i] = wrapped.z;
     }
     update_endpoints();
+}
+
+void Filament::initialize_within_box(gsl_rng* rng) {
+    if (box.size() < 3) box.resize(3, 0.0);
+    const double H[3] = {0.5*box[0], 0.5*box[1], 0.5*box[2]};
+
+    for (int i = 0; i < n; ++i) {
+        // (A) sample any center uniformly inside the box on each axis
+        vec c{
+            (H[0] > 0 ? gsl_ran_flat(rng, -H[0], H[0]) : 0.0),
+            (H[1] > 0 ? gsl_ran_flat(rng, -H[1], H[1]) : 0.0),
+            (H[2] > 0 ? gsl_ran_flat(rng, -H[2], H[2]) : 0.0)
+        };
+
+        // (B) compute per-axis asymmetric bounds for u: [u_min, u_max]
+        // Non-periodic: 
+        //   u_max =  2*(H - c)/L  (upper wall)
+        //   u_min = -2*(H + c)/L  (lower wall)
+        // Periodic: [-1, 1]
+        std::array<double,3> umin{-1.0,-1.0,-1.0}, umax{1.0,1.0,1.0};
+        for (int ax = 0; ax < 3; ++ax) {
+            if (!periodic_axes[ax]) {
+                const double ca = (ax==0? c.x : ax==1? c.y : c.z);
+                double u_min_ax = -2.0 * (H[ax] + ca) / std::max(length, ZERO_TOL);
+                double u_max_ax =  2.0 * (H[ax] - ca) / std::max(length, ZERO_TOL);
+                // clamp to unit-vector range
+                umin[ax] = std::max(u_min_ax, -1.0);
+                umax[ax] = std::min(u_max_ax,  1.0);
+                // ensure non-empty interval
+                if (umin[ax] > umax[ax]) std::swap(umin[ax], umax[ax]);
+            }
+        }
+
+        // (C) sample a unit orientation respecting those asymmetric bounds
+        vec u = sample_direction_with_asym_limits(umin, umax, rng);
+
+        // (D) write state
+        center_x[i] = c.x; center_y[i] = c.y; center_z[i] = c.z;
+        direction_x[i] = u.x; direction_y[i] = u.y; direction_z[i] = u.z;
+
+        update_endpoints(i);
+
+        // zero aux
+        force_x[i] = force_y[i] = force_z[i] = 0.0;
+        torque_x[i] = torque_y[i] = torque_z[i] = 0.0;
+        velocity_x[i] = velocity_y[i] = velocity_z[i] = 0.0;
+        f_load[i] = 0.0; cb_status[i] = 0;
+    }
 }
 
 // Reduce thread-local vec arrays into a VecArray target

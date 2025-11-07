@@ -41,7 +41,8 @@ real am_energy1(const ArrayXreal& center1, const double& length1, const ArrayXre
     }
     else {
         real offset = dist - optimal;
-        return 0.5 * k_am * strength * offset * offset + angle_energy;
+        real rel = (optimal != 0.0) ? offset / optimal : offset;
+        return 0.5 * k_am * strength * rel * rel + angle_energy;
     }
 }
 
@@ -85,6 +86,7 @@ real aa_energy(const ArrayXreal& center1, const double& length1,
         return angle_energy;
     }
     real dist = raw_dist - optimal;
+    real rel = (optimal != 0.0) ? dist / optimal : dist;
 
     // ===== Axial-gap soft wall between barbed ends a (filament1) and c (filament2) =====
     // Compute minimum-image displacement c - a
@@ -110,7 +112,7 @@ real aa_energy(const ArrayXreal& center1, const double& length1,
     if (ds < 0.0) {
         U_ax = 0.5 * k_aa * ds * ds;
     }    
-    return 0.5 * (k_aa * dist * dist) + angle_energy + U_ax;
+    return 0.5 * (k_aa * rel * rel) + angle_energy + U_ax;
 }
 
 
@@ -119,6 +121,76 @@ std::vector<double> compute_aa_force_and_energy(Filament& actin,
                                                 const std::vector<double>& box,
                                                 const double k_aa, const double kappa_aa,
                                                 const double cutoff, const double optimal)
+{
+    const double EPS = 1e-12;
+    std::vector<double> forces(9, 0.0);
+
+    vec left1 = actin.left_end[actin1_index];
+    vec right1 = actin.right_end[actin1_index];
+    vec left2 = actin.left_end[actin2_index];
+    vec right2 = actin.right_end[actin2_index];
+
+    vec dir1 = actin.direction[actin1_index];
+    vec dir2 = actin.direction[actin2_index];
+    dir1.normalize();
+    dir2.normalize();
+
+    auto geom = geometry::segment_segment_distance_w_normal(
+        left1, right1, left2, right2, box, actin.periodic_axes);
+
+    double distance = geom.first;
+    bool within_cutoff = (cutoff <= 0.0) || (distance <= cutoff);
+    if (!within_cutoff) {
+        return forces;}
+
+    vec shortest = {0.0, 0.0, 0.0};
+    auto normal_it = geom.second.find("normal");
+    if (normal_it != geom.second.end()) {
+        shortest = normal_it->second;
+    }
+
+    double dist_norm = shortest.norm();
+    vec unit = {0.0, 0.0, 0.0};
+    if (dist_norm <= EPS) {
+        vec cross_dir = dir1.cross(dir2);
+        double cross_norm = cross_dir.norm();
+        if (cross_norm > EPS) {
+            unit = cross_dir / cross_norm;
+        } else {
+            unit = utils::pbc_diff_masked(actin.center[actin1_index],
+                                              actin.center[actin2_index],
+                                              box,
+                                              actin.periodic_axes);
+            unit = unit / unit.norm();
+        }
+    }
+    else {
+        unit = shortest / dist_norm;
+    }
+    double delta = dist_norm - optimal;
+    double relative_extension = (optimal != 0.0) ? delta / optimal : delta;
+    vec force_vec = -k_aa * relative_extension * unit;
+    double dot = std::clamp(dir1.dot(dir2), -1.0, 1.0);
+    vec cross12 = dir1.cross(dir2);
+    vec torque1 = kappa_aa * dot * cross12;
+    vec torque2 = -torque1;
+    forces[0] = force_vec.x;
+    forces[1] = force_vec.y;
+    forces[2] = force_vec.z;
+    forces[3] = torque1.x;
+    forces[4] = torque1.y;
+    forces[5] = torque1.z;
+    forces[6] = torque2.x;
+    forces[7] = torque2.y;
+    forces[8] = torque2.z;
+    return forces;
+}
+
+std::vector<double> compute_aa_force_and_energy_autodiff(Filament& actin,
+                                                         int& actin1_index, int& actin2_index,
+                                                         const std::vector<double>& box,
+                                                         const double k_aa, const double kappa_aa,
+                                                         const double cutoff, const double optimal)
 {
     // Construct 3D centers.
     ArrayXreal center1(3);
@@ -135,13 +207,12 @@ std::vector<double> compute_aa_force_and_energy(Filament& actin,
     std::vector<double> forces;
     // Compute the gradient of aa_energy with respect to center1, theta1, phi1, theta2, and phi2.
     VectorXd forces_2 = -gradient(aa_energy, wrt(center1, dir1, dir2),
-                                    at(center1, actin.length, dir1,
-                                       center2, actin.length, dir2, box, actin.periodic_axes,
-                                       k_aa, kappa_aa, cutoff, optimal), u);
+                                  at(center1, actin.length, dir1,
+                                     center2, actin.length, dir2, box, actin.periodic_axes,
+                                     k_aa, kappa_aa, cutoff, optimal), u);
     forces.resize(forces_2.size());
     VectorXd::Map(&forces[0], forces_2.size()) = forces_2;
     return forces;
-
 }
 
 std::vector<double> compute_am_force_and_energy(Filament& actin, Myosin& myosin,
@@ -149,6 +220,94 @@ std::vector<double> compute_am_force_and_energy(Filament& actin, Myosin& myosin,
                                                 const std::vector<double>& box,
                                                 const double k_am, const double kappa_am,
                                                 const double cutoff, const double optimal)
+{
+    const double EPS = 1e-12;
+    std::vector<double> forces(9, 0.0);
+
+    vec act_left = actin.left_end[actin_index];
+    vec act_right = actin.right_end[actin_index];
+    vec myo_left = myosin.left_end[myosin_index];
+    vec myo_right = myosin.right_end[myosin_index];
+
+    vec act_dir = actin.direction[actin_index];
+    vec myo_dir = myosin.direction[myosin_index];
+    act_dir.normalize();
+    myo_dir.normalize();
+    if (k_am > EPS){
+        auto geom = geometry::segment_segment_distance_w_normal(
+            act_left, act_right, myo_left, myo_right, box, actin.periodic_axes);
+
+        double distance = geom.first;
+        bool within_cutoff = (cutoff <= 0.0) || (distance <= cutoff);
+        if (!within_cutoff) {
+            return forces;
+        }
+        vec shortest = {0.0, 0.0, 0.0};
+        auto normal_it = geom.second.find("normal");
+        if (normal_it != geom.second.end()) {
+            shortest = normal_it->second;
+        }
+        double dist_norm = shortest.norm();
+        vec unit = {0.0, 0.0, 0.0};
+        if (dist_norm <= EPS) {
+            vec cross_dir = act_dir.cross(myo_dir);
+            double cross_norm = cross_dir.norm();
+            if (cross_norm > EPS) {
+                unit = cross_dir / cross_norm;
+            } else {
+                unit = utils::pbc_diff_masked(actin.center[actin_index],
+                                                myosin.center[myosin_index],
+                                                box,
+                                                actin.periodic_axes);
+                unit = unit / unit.norm();
+            }
+        }
+        else {
+            unit = shortest / dist_norm;
+        }
+        double delta = distance - optimal;
+        double relative_extension = (optimal != 0.0) ? delta / optimal : delta;
+        vec force_vec = -k_am * relative_extension * unit;    
+        forces[0] = force_vec.x;
+        forces[1] = force_vec.y;
+        forces[2] = force_vec.z;
+        // Apply end-stop forces near myosin termini, preserving previous behaviour.
+        vec endstop_force = {0.0, 0.0, 0.0};
+        double am_dot = act_dir.dot(myo_dir);
+        vec myosin_end = (am_dot > 0.0) ? myosin.left_end[myosin_index]
+                                        : myosin.right_end[myosin_index];
+        vec actin_tip = actin.right_end[actin_index];
+        vec tip_disp = actin_tip - myosin_end;
+        tip_disp.pbc_wrap(box, actin.periodic_axes);
+        double s = std::fabs(tip_disp.dot(myo_dir));
+        double Lm = 0.4 * myosin.length;
+        if (s >= Lm) {
+            double dist_to_end = s - Lm;
+            double mag_mid = k_am * dist_to_end;
+            endstop_force = -mag_mid * act_dir;
+            forces[0] += endstop_force.x;
+            forces[1] += endstop_force.y;
+            forces[2] += endstop_force.z;
+        }
+    }
+    double dot = std::clamp(act_dir.dot(myo_dir), -1.0, 1.0);
+    vec cross_am = act_dir.cross(myo_dir);
+    vec torque_act = kappa_am * dot * cross_am;
+    vec torque_myo = -torque_act;
+    forces[3] = torque_act.x;
+    forces[4] = torque_act.y;
+    forces[5] = torque_act.z;
+    forces[6] = torque_myo.x;
+    forces[7] = torque_myo.y;
+    forces[8] = torque_myo.z;
+    return forces;
+}
+
+std::vector<double> compute_am_force_and_energy_autodiff(Filament& actin, Myosin& myosin,
+                                                         int& actin_index, int& myosin_index,
+                                                         const std::vector<double>& box,
+                                                         const double k_am, const double kappa_am,
+                                                         const double cutoff, const double optimal)
 {
     // Define 3D center positions
     ArrayXreal center1(3);
@@ -172,13 +331,12 @@ std::vector<double> compute_am_force_and_energy(Filament& actin, Myosin& myosin,
     VectorXd forces_3; // 3D version of force vector
     if (k_am > 1e-6) {
         forces_3 = -gradient(am_energy1, wrt(center1, dir1, dir2),
-                                at(center1, actin.length, dir1,
-                                   center2, myosin.length, dir2, box, actin.periodic_axes,
-                                   k_am, kappa_am, cutoff, optimal), u);
+                             at(center1, actin.length, dir1,
+                                center2, myosin.length, dir2, box, actin.periodic_axes,
+                                k_am, kappa_am, cutoff, optimal), u);
         forces.resize(forces_3.size());
         VectorXd::Map(&forces[0], forces_3.size()) = forces_3;
-        // Now add in the myosin centerstop forces        
-        // Signed axial coordinate of the actin *right* tip relative to myosin center
+        // Now add in the myosin centerstop forces
         vec actin_dir = actin.direction[actin_index];
         double am_dot = actin.direction[actin_index].dot(myosin.direction[myosin_index]);
         vec myosin_end;
@@ -192,10 +350,10 @@ std::vector<double> compute_am_force_and_energy(Filament& actin, Myosin& myosin,
         vec tip_disp = actin_tip - myosin_end;
         tip_disp.pbc_wrap(box, actin.periodic_axes);
         double s = std::fabs(tip_disp.dot(myosin.direction[myosin_index]));  // +s toward "right" tip, −s toward "left"
-        double Lm = 0.5 * myosin.length;                     // half-length of myosin
+        double Lm = 0.4 * myosin.length;                     // half-length of myosin
         vec endstop_force = {0.0, 0.0, 0.0};
         if (s >= Lm) {
-            double dist_to_end = s - Lm;   
+            double dist_to_end = s - Lm;
             double mag_mid = k_am * dist_to_end;         // increase toward center
             // choose outward sign; for s==0 pick +1 by convention
             endstop_force = - mag_mid * actin_dir;         // pushes toward the nearer end
@@ -206,7 +364,7 @@ std::vector<double> compute_am_force_and_energy(Filament& actin, Myosin& myosin,
     }
     else {
         forces_3 = -gradient(am_energy, wrt(dir1, dir2),
-                                at(dir1, dir2, kappa_am), u);
+                             at(dir1, dir2, kappa_am), u);
         // Prepend three zeros for the force vector (x, y, z)
         forces.resize(forces_3.size() + 3);
         forces[0] = 0;
@@ -244,7 +402,7 @@ RepulsionResult compute_myosin_repulsion(const Filament& actin,
     auto geom = geometry::segment_segment_distance_w_normal(
         myosin.left_end[i], myosin.right_end[i],
         myosin.left_end[j], myosin.right_end[j],
-        box);
+        box, myosin.periodic_axes);
 
     const double distance = geom.first;
     if (distance >= cutoff) {
@@ -346,7 +504,7 @@ RepulsionResult compute_actin_repulsion(const Filament& actin,
     auto geom = geometry::segment_segment_distance_w_normal(
         actin.left_end[i], actin.right_end[i],
         actin.left_end[j], actin.right_end[j],
-        box);
+        box, actin.periodic_axes);
 
     const double distance = geom.first;
     if (distance >= crosslinker_length) {
@@ -361,7 +519,12 @@ RepulsionResult compute_actin_repulsion(const Filament& actin,
     vec normal_vector = normal_it->second;
     double norm = normal_vector.norm();
     if (norm <= EPS) {
-        normal_vector = center_displacement / center_distance;
+        normal_vector = actin.direction[i].cross(actin.direction[j]);
+        double fallback_norm = normal_vector.norm();
+        if (fallback_norm <= EPS) {
+            return result;
+        }
+        normal_vector = normal_vector / fallback_norm;
     } else {
         normal_vector = normal_vector / norm;
     }
@@ -379,9 +542,20 @@ RepulsionResult compute_actin_repulsion(const Filament& actin,
     //     force_mag = max_force_limit;
     // }
     vec force_vec = force_mag * normal_vector;
-    result.applied = true;
-    result.force_on_first += force_vec;
-    result.force_on_second -= force_vec;
+
+    const int status_i = actin.cb_status[i];
+    const int status_j = actin.cb_status[j];
+    const bool both_status_two = (status_i == 2 && status_j == 2);
+    const bool apply_first = (status_i < 2) || both_status_two;
+    const bool apply_second = (status_j < 2) || both_status_two;
+
+    if (apply_first) {
+        result.force_on_first += force_vec;
+    }
+    if (apply_second) {
+        result.force_on_second -= force_vec;
+    }
+    result.applied = apply_first || apply_second;
     return result;
 }
 
@@ -402,7 +576,7 @@ vec compute_actin_myosin_repulsion(const Filament& actin,
     auto geom = geometry::segment_segment_distance_w_normal(
         actin.left_end[act_idx], actin.right_end[act_idx],
         myosin.left_end[myo_idx], myosin.right_end[myo_idx],
-        box);
+        box, actin.periodic_axes);
 
     const double distance = geom.first;
     if (distance >= radius) {
@@ -442,12 +616,14 @@ vec compute_actin_myosin_repulsion(const Filament& actin,
     if (std::fabs(s) <= Lm) {
         double dist_to_end = Lm - std::fabs(s);       // ∈ [0, Lm]
         double mag_mid = stiffness * dist_to_end;         // increase toward center
-        endstop_force = mag_mid * actin.direction[act_idx]; // pushes outward along actin direction
-        printf("actin-myosin (%d, %d) repulsion force magnitude: %f\n", act_idx, myo_idx,
-            endstop_force.norm());
+        vec direction = (s >= 0) ? u : -u; // +s toward "right" tip, −s toward "left"
+        endstop_force = - mag_mid * direction; // pushes outward along myosin direction
+        // printf("actin-myosin (%d, %d) repulsion force magnitude: %f\n", act_idx, myo_idx,
+        //     endstop_force.norm());
     }
-    return endstop_force; //force on actin
+    return endstop_force; //force on myosin
 }
+
 
 bool apply_myosin_repulsion(const Filament& actin,
                             const Myosin& myosin,
@@ -529,7 +705,6 @@ bool apply_actin_myosin_repulsion(const Filament& actin,
     if (repulsive_force.norm() <= EPS_FORCE) {
         return false;
     }
-    force_on_actin += repulsive_force;
-    force_on_myosin -= repulsive_force;
+    force_on_myosin += repulsive_force;
     return true;
 }

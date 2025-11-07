@@ -137,7 +137,8 @@ real aa_energy(const ArrayXreal& center1, const double& length1, const real& the
         return 0.5 * kappa_aa * angle * angle;
     }
     dist = dist - optimal;
-    return 0.5 * (k_aa * dist * dist + kappa_aa * angle * angle);
+    real rel = (optimal != 0.0) ? dist / optimal : dist;
+    return 0.5 * (k_aa * rel * rel + kappa_aa * angle * angle);
 }
 
 real am_energy1(const ArrayXreal& center1, const double& length1, const real& theta1,

@@ -86,6 +86,11 @@ struct vec {
         z = wrap_axis(z, Lz, periodic[2]);
     }
 
+    void pbc_wrap(const std::vector<double>& box) {
+        static constexpr std::array<bool,3> default_mask{true, true, true};
+        pbc_wrap(box, default_mask);
+    }
+
     // Euclidean distance (no periodic boundaries).
     double distance(const vec& p) const {
         return std::sqrt((x - p.x) * (x - p.x) +
@@ -103,10 +108,18 @@ struct vec {
         double dz = wrap_axis(z - p.z, Lz, periodic[2]);
         return dx * dx + dy * dy + dz * dz;
     }
+    double distance_squared(const vec& p, const std::vector<double>& box) const {
+        static constexpr std::array<bool,3> default_mask{true, true, true};
+        return distance_squared(p, box, default_mask);
+    }
     
     // Distance computed with periodic boundary conditions.
     double distance(const vec& p, const std::vector<double>& box, const std::array<bool,3>& periodic) const {
         return std::sqrt(distance_squared(p, box, periodic));
+    }
+    double distance(const vec& p, const std::vector<double>& box) const {
+        static constexpr std::array<bool,3> default_mask{true, true, true};
+        return distance(p, box, default_mask);
     }
 
     // Dot product.
@@ -131,6 +144,11 @@ struct vec {
             x = 1.0; y = 0.0; z = 0.0;
         }
     }
+    vec normalized() const {
+        vec v = *this;
+        v.normalize();
+        return v;
+    }
 
     vec cross(const vec& p) const {
         return vec {
@@ -141,6 +159,21 @@ struct vec {
     }  
     
 };
+
+inline vec rodrigues_rotate(const vec& x, const vec& rotvec) {
+    double theta = rotvec.norm();
+    if (theta < 1e-12) {
+        vec wx = rotvec.cross(x);
+        vec wwx = rotvec.cross(wx);
+        return x + wx + 0.5 * wwx;
+    }
+    vec axis = rotvec / theta;
+    vec axx = axis.cross(x);
+    double c = std::cos(theta);
+    double s = std::sin(theta);
+    double axis_dot = axis.dot(x);
+    return x * c + axx * s + axis * (axis_dot * (1.0 - c));
+}
 
 //------------------------------------------------------------------------------
 // Free function declarations (definitions are provided in utils.cpp)

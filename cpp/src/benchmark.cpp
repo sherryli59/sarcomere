@@ -45,6 +45,7 @@ public:
         am_optimal = 0.03;
         aa_cutoff = 0.05;
         aa_optimal = 0.03;
+        double k_mm = 0.0;
         resume = false;
         directional = true;
         n_fixed_myosins = 0;
@@ -81,7 +82,7 @@ public:
             myosin_radius, am_cutoff, am_optimal, aa_cutoff, aa_optimal,
             k_on, k_off,
             base_lifetime, lifetime_coeff, diff_coeff_ratio,
-              k_aa, kappa_aa, k_am, kappa_am, v_am,
+              k_aa, kappa_aa, k_am, kappa_am, k_mm, v_am,
             filename,rng, seed, n_fixed_myosins, dt, tau_rec,
             titin_k, titin_rest_length, directional, 5, max_actin_force, max_myosin_force,
             std::numeric_limits<double>::infinity(), std::numeric_limits<double>::infinity());

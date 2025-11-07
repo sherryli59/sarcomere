@@ -411,7 +411,7 @@ void append_to_file(std::string& filename, Filament& actin, Myosin& myosin,
         double aa_dist = geometry::segment_segment_distance(
             actin.left_end[a], actin.right_end[a],
             actin.left_end[b], actin.right_end[b],
-            actin.box);
+            actin.box, actin.periodic_axes);
         actin_cb_distances.push_back(aa_dist);
     }
 
@@ -427,7 +427,7 @@ void append_to_file(std::string& filename, Filament& actin, Myosin& myosin,
         double dist = geometry::segment_segment_distance(
             actin.left_end[a], actin.right_end[a],
             myosin.left_end[m], myosin.right_end[m],
-            actin.box);
+            actin.box, actin.periodic_axes);
         actin_myo_distances.push_back(dist);
     }
 

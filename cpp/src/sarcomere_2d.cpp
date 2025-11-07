@@ -20,7 +20,9 @@ Sarcomere::Sarcomere(int& n_actins, int& n_myosins, std::vector<double> box0, do
               double& myosin_radius, double& myosin_radius_ratio, double& aa_cutoff, double& aa_optimal,
               double& crosslinker_length, double& k_on,
               double& base_lifetime, double& lifetime_coeff, double& diff_coeff_ratio, double& k_aa, double& kappa_aa, double& k_am, double& kappa_am, double& v_am,
-              std::string& filename, gsl_rng* rng, int& seed, int& fix_myosin, double& dt, bool& directional, std::string& boundary_condition, int max_myosin_bonds, int max_strong_actin_bonds, double max_actin_force_param, double max_myosin_force_param, double max_actin_torque_param, double max_myosin_torque_param) :
+              std::string& filename, gsl_rng* rng, int& seed, int& fix_myosin, double& dt, bool& directional, std::string& boundary_condition, int max_myosin_bonds, int max_strong_actin_bonds, double max_actin_force_param, double max_myosin_force_param, double max_actin_torque_param, double max_myosin_torque_param,
+              const std::array<bool,3>& periodic_axes,
+              bool use_autodiff) :
             pbc_mask(utils::parse_pbc_mask(boundary_condition)),
             actin(n_actins, actin_length, box0, pbc_mask, rng),
             myosin(n_myosins, myosin_length, myosin_radius, box0, pbc_mask, rng),
@@ -48,9 +50,11 @@ Sarcomere::Sarcomere(int& n_actins, int& n_myosins, std::vector<double> box0, do
             max_myosin_torque(max_myosin_torque_param)
 
             {
+            use_autodiff_forces = use_autodiff;
             box.resize(2);
             box[0] = box0[0];
             box[1] = box0[1];
+            is_periodic = periodic_axes;
             if (!(max_actin_force > 0.0)) {
                 max_actin_force = std::numeric_limits<double>::infinity();
             }
@@ -95,6 +99,10 @@ Sarcomere::Sarcomere(int& n_actins, int& n_myosins, std::vector<double> box0, do
             actin_actin_lifetime_prev = actin_actin_lifetime;
             am_bonds_prev = am_bonds;
             actin_basic_tension.resize(n_actins);
+            actin_last_delta_pos.assign(n_actins, vec{0.0, 0.0, 0.0});
+            actin_last_delta_rot.assign(n_actins, vec{0.0, 0.0, 0.0});
+            myosin_last_delta_pos.assign(n_myosins, vec{0.0, 0.0, 0.0});
+            myosin_last_delta_rot.assign(n_myosins, vec{0.0, 0.0, 0.0});
             actin_crosslink_ratio.resize(n_actins);
             actin_n_bonds.resize(n_actins);
             actin_strong_cb_count.resize(n_actins);
@@ -324,7 +332,7 @@ void Sarcomere::update_system() {
         _set_to_zero();  
         #pragma omp barrier  
         // Step 2: Compute actin-myosin binding
-        #pragma omp for schedule(dynamic)
+        #pragma omp for schedule(runtime)
         for (int i = 0; i < actin.n; i++) {
             _process_actin_myosin_binding(i);
         }
@@ -332,7 +340,7 @@ void Sarcomere::update_system() {
         #pragma omp barrier  
 
         // Step 3: Compute catch bonds
-        #pragma omp for schedule(dynamic)
+        #pragma omp for schedule(runtime)
         for (int i = 0; i < actin.n; i++) {
             _process_catch_bonds(i);
         }
@@ -360,7 +368,7 @@ void Sarcomere::update_system() {
         #pragma omp barrier  
 
         // Step 6: Compute actin-myosin forces
-        #pragma omp for schedule(dynamic)
+        #pragma omp for schedule(runtime)
         for (int i = 0; i < actin.n; i++) {
             _calc_am_force_velocity(i);
         }
@@ -750,7 +758,7 @@ void Sarcomere::_calc_am_force_velocity(int& i) {
 }
 
 void Sarcomere::_volume_exclusion(){
-    #pragma omp for schedule(dynamic)
+    #pragma omp for schedule(runtime)
     for (int i = 0; i<myosin.n; i++){
         auto result = neighbor_list.get_neighbors_by_type(i+actin.n);
         std::vector <int> myosin_indices = result.second;
@@ -761,7 +769,7 @@ void Sarcomere::_volume_exclusion(){
         }
     }
 
-    #pragma omp for schedule(dynamic)
+    #pragma omp for schedule(runtime)
     for (int i = 0; i < actin.n; i++){
         auto result = neighbor_list.get_neighbors_by_type(i);
         std::vector <int> actin_indices = result.first;
@@ -774,7 +782,7 @@ void Sarcomere::_volume_exclusion(){
 }
 
 void Sarcomere::_myosin_exclusion(){
-    #pragma omp for schedule(dynamic)
+    #pragma omp for schedule(runtime)
     for (int i = 0; i<myosin.n; i++){
         auto result = neighbor_list.get_neighbors_by_type(i+actin.n);
         std::vector <int> myosin_indices = result.second;

@@ -27,6 +27,7 @@ public:
     // Constructors.
     NeighborList(double cutoff_radius, const std::vector<double>& box, double threshold,
                  const std::array<bool,3>& periodic_axes);
+    NeighborList(double cutoff_radius, const std::vector<double>& box, double threshold);
     NeighborList();
 
     void set_periodic_axes(const std::array<bool,3>& periodic_axes);

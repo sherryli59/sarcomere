@@ -172,7 +172,13 @@ T segment_segment_distance(const T* A, const T* B,
     return sqrt(best_dist2);
 }
 
-
+template<typename T>
+inline T segment_segment_distance(const T* A, const T* B,
+                                  const T* C, const T* D,
+                                  const std::vector<double>& box) {
+    static constexpr std::array<bool,3> all_periodic{true, true, true};
+    return segment_segment_distance(A, B, C, D, box, all_periodic);
+}
 
 //---------------------------------------------------------------------
 // Declarations of Non-Template Functions
@@ -203,6 +209,12 @@ std::vector<double> compute_aa_force_and_energy(Filament& actin,
                                                 const double k_aa, const double kappa_aa,
                                                 const double cutoff, const double optimal);
 
+std::vector<double> compute_aa_force_and_energy_autodiff(Filament& actin,
+                                                         int& actin1_index, int& actin2_index,
+                                                         const std::vector<double>& box,
+                                                         const double k_aa, const double kappa_aa,
+                                                         const double cutoff, const double optimal);
+
 
 // Compute forces and energy for actin–myosin interaction in 3D.
 std::vector<double> compute_am_force_and_energy(Filament& actin, Myosin& myosin,
@@ -210,6 +222,12 @@ std::vector<double> compute_am_force_and_energy(Filament& actin, Myosin& myosin,
                                                 const std::vector<double>& box,
                                                 const double k_am, const double kappa_am,
                                                 const double cutoff, const double optimal);
+
+std::vector<double> compute_am_force_and_energy_autodiff(Filament& actin, Myosin& myosin,
+                                                         int& actin_index, int& myosin_index,
+                                                         const std::vector<double>& box,
+                                                         const double k_am, const double kappa_am,
+                                                         const double cutoff, const double optimal);
 
 // Result container for pairwise repulsion calculations.
 struct RepulsionResult {

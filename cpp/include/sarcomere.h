@@ -52,10 +52,17 @@ public:
            skin_distance, cutoff_radius, dt, base_lifetime, lifetime_coeff, diff_coeff_ratio;
     double am_cutoff, am_optimal;
     double aa_cutoff, aa_optimal;
+    double k_mm = 0.0;
+    double myomesin_optimal = 0.0;
+    double myomesin_cutoff = 0.0;
     double titin_k, titin_rest_length;
     double max_actin_force, max_myosin_force, max_actin_torque, max_myosin_torque;
+    double wall_k = 0.0;
+    double wall_cutoff = 0.0;
+    double wall_exponent = 2.0;
     size_t bond_recovery_steps;
     bool directional;
+    bool use_autodiff_forces = false;
     int fix_myosin;
     int max_myosin_bonds;
     int max_strong_actin_bonds;
@@ -66,6 +73,12 @@ public:
     std::vector<int> n_myosins_per_actin;
     std::vector<std::pair<std::vector<int>, std::vector<int>>> actin_neighbors_by_species;
     vector actin_basic_tension;
+    std::vector<std::vector<std::pair<size_t, double>>> actin_tension_history;
+    std::vector<vec> actin_last_delta_pos;
+    std::vector<vec> actin_last_delta_rot;
+    std::vector<vec> myosin_last_delta_pos;
+    std::vector<vec> myosin_last_delta_rot;
+    std::vector<int> debug_force_actins;
     std::vector<bool> actin_f_load_computed;
     std::vector<double>* actin_f_load_cb;
     std::vector<std::mutex> actin_f_load_mutex;
@@ -103,15 +116,19 @@ public:
         double& k_am, double& kappa_am, double& v_am, std::string& filename, gsl_rng* rng, int& seed,
         int& fix_myosin, double& dt, bool& directional, std::string& boundary_condition,
         int max_myosin_bonds, int max_strong_actin_bonds, double max_actin_force_param,
-        double max_myosin_force_param, double max_actin_torque_param, double max_myosin_torque_param);
+        double max_myosin_force_param, double max_actin_torque_param, double max_myosin_torque_param,
+        const std::array<bool,3>& periodic_axes = std::array<bool,3>{true, true, true},
+        bool use_autodiff_forces = false);
     Sarcomere(int& n_actins, int& n_myosins, vector box0, double& actin_length, double& myosin_length,
         double& myosin_radius, double& am_cutoff, double& am_optimal, double& aa_cutoff, double& aa_optimal,
          double& k_on, double& k_off,
-        double& base_lifetime, double& lifetime_coeff, double& diff_coeff_ratio, double& k_aa, double& kappa_aa, double& k_am, double& kappa_am, double& v_am,
+        double& base_lifetime, double& lifetime_coeff, double& diff_coeff_ratio, double& k_aa, double& kappa_aa, double& k_am, double& kappa_am, double& k_mm, double& v_am,
         std::string& filename, gsl_rng* rng, int& seed, int& fix_myosin, double& dt, double tau_rec,
         double titin_k, double titin_rest_length, bool& directional, int max_myosin_bonds,
         double max_actin_force_param, double max_myosin_force_param,
-        double max_actin_torque_param, double max_myosin_torque_param);
+        double max_actin_torque_param, double max_myosin_torque_param,
+        const std::array<bool,3>& periodic_axes = std::array<bool,3>{true, true, true},
+        bool use_autodiff_forces = false);
     ~Sarcomere();
 
     // Public Methods
@@ -127,6 +144,7 @@ public:
     void update_system();
     void update_system_sterics_only();
     void set_periodicity(const std::array<bool,3>& periodic_axes);
+    void set_wall_parameters(double strength, double cutoff, double exponent);
     void new_file();
     void save_state();
     int load_state(int& n_frames, int frame_index = -1);
@@ -143,8 +161,10 @@ private:
     void _apply_titin_forces(int& i);
     void _volume_exclusion();
     void _myosin_exclusion();
+    void _apply_myomesin_spring(int i, int j, std::vector<vec>& local_myosin_forces);
     void _myosin_repulsion(int& i, int& j);
     void _actin_repulsion(int& i, int& j);
+    void _apply_wall_forces();
     int determine_cb_status(int& i, int& j);
     bool _cb_decide(int& i, int& j, int status);
     void compute_actin_f_load(int& i);

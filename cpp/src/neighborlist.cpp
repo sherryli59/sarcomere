@@ -46,6 +46,9 @@ NeighborList::NeighborList(double cutoff_radius, const std::vector<double>& box,
     }
 }
 
+NeighborList::NeighborList(double cutoff_radius, const std::vector<double>& box, double threshold)
+    : NeighborList(cutoff_radius, box, threshold, std::array<bool,3>{true, true, true}) {}
+
 // Default constructor.
 NeighborList::NeighborList() {}
 
@@ -129,7 +132,7 @@ void NeighborList::computeNeighbors(std::vector<std::vector<std::pair<size_t, si
     {
         int thread_id = omp_get_thread_num();
         auto &local_pairs = tls[thread_id];
-        #pragma omp for schedule(dynamic)
+        #pragma omp for schedule(runtime)
         for (size_t i = 0; i < all_x_.size(); ++i) {
             auto cell = get_cell_index(all_x_[i], all_y_[i], all_z_[i]);
 
@@ -256,7 +259,7 @@ void NeighborList::rebuild_neighbor_list() {
 //     #pragma omp parallel
 //     {
 //         int thread_id = omp_get_thread_num();
-//         #pragma omp for schedule(dynamic)
+//         #pragma omp for schedule(runtime)
 //         for (size_t i = 0; i < all_positions_.size(); ++i) {
 //             vec position = all_positions_[i];
 //             auto cell = get_cell_index(position);
@@ -286,7 +289,7 @@ void NeighborList::rebuild_neighbor_list() {
 //     }
 
 //     // Merge thread-local neighbor lists into the main neighbor list.
-//     #pragma omp parallel for schedule(dynamic)
+//     #pragma omp parallel for schedule(runtime)
 //     for (size_t i = 0; i < all_positions_.size(); ++i) {
 //         for (const auto& local_list : thread_local_neighbor_list) {
 //             neighbor_list_[i].insert(
