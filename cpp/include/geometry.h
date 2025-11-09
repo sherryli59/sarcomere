@@ -9,6 +9,7 @@
 #include <utility>
 #include <tuple>
 #include <string>
+#include <array>
 
 #include "utils.h"  // This header must define utils::vec
 using vec = utils::vec;
@@ -30,10 +31,12 @@ namespace geometry {
     // Compute the orientation of three points (without PBC).
     int orientation(const vec& p, const vec& q, const vec& r);
 
-    // Compute the shortest distance between two segments ab and cd (with PBC).
+    // Compute the shortest distance between two segments ab and cd.
+    double segment_segment_distance(const vec& a, const vec& b, const vec& c, const vec& d, const std::vector<double>& box);
     double segment_segment_distance(const vec& a, const vec& b, const vec& c, const vec& d, const std::vector<double>& box, const std::array<bool,3>& periodic);
 
     // Compute the shortest distance between two segments and return a map containing a normal vector and associated information.
+    std::pair<double, std::map<std::string, vec>> segment_segment_distance_w_normal(const vec& a, const vec& b, const vec& c, const vec& d, const std::vector<double>& box);
     std::pair<double, std::map<std::string, vec>> segment_segment_distance_w_normal(const vec& a, const vec& b, const vec& c, const vec& d, const std::vector<double>& box, const std::array<bool,3>& periodic);
 
 
@@ -49,6 +52,8 @@ namespace geometry {
     };
 
     // Apply periodic boundary conditions to align four endpoints.
+    void apply_pbc(vec& actin_left, vec& actin_right,
+                   vec& myosin_left, vec& myosin_right, std::vector<double> box);
     void apply_pbc(vec& actin_left, vec& actin_right,
                    vec& myosin_left, vec& myosin_right, std::vector<double> box, const std::array<bool,3>& periodic);
 
@@ -72,7 +77,11 @@ namespace geometry {
 
     // Analyze actin–myosin interaction geometry and return an interaction struct.
     am_interaction analyze_am(vec actin_left, vec actin_right,
-                              vec myosin_left, vec myosin_right, double d, std::vector<double> box, const std::array<bool,3>& periodic);
+                              vec myosin_left, vec myosin_right, double d,
+                              std::vector<double> box);
+    am_interaction analyze_am(vec actin_left, vec actin_right,
+                              vec myosin_left, vec myosin_right, double d,
+                              std::vector<double> box, const std::array<bool,3>& periodic);
 }
 
 #endif // GEOMETRY_H

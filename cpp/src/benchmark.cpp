@@ -32,6 +32,7 @@ public:
         kappa_aa = 50;
         k_am = 50;
         kappa_am = 50;
+        k_mm = 0;
         v_am = 5;
         n_actins = 800;
         n_myosins = 400;
@@ -81,7 +82,7 @@ public:
             myosin_radius, am_cutoff, am_optimal, aa_cutoff, aa_optimal,
             k_on, k_off,
             base_lifetime, lifetime_coeff, diff_coeff_ratio,
-              k_aa, kappa_aa, k_am, kappa_am, v_am,
+              k_aa, kappa_aa, k_am, kappa_am, k_mm, v_am,
             filename,rng, seed, n_fixed_myosins, dt, tau_rec,
             titin_k, titin_rest_length, directional, 5, max_actin_force, max_myosin_force,
             std::numeric_limits<double>::infinity(), std::numeric_limits<double>::infinity());
@@ -123,7 +124,7 @@ protected:
     double dt, beta, actin_diff_coeff_trans, actin_diff_coeff_rot, myosin_diff_coeff_trans,
               myosin_diff_coeff_rot;
     double k_on, k_off, base_lifetime, lifetime_coeff;
-    double k_aa, kappa_aa, k_am, kappa_am, v_am;
+    double k_aa, kappa_aa, k_am, kappa_am, k_mm, v_am;
     double Lx, Ly, Lz, actin_length, myosin_length, myosin_radius;
     double am_cutoff, am_optimal, aa_cutoff, aa_optimal;
     bool resume, directional;

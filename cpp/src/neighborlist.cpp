@@ -129,7 +129,7 @@ void NeighborList::computeNeighbors(std::vector<std::vector<std::pair<size_t, si
     {
         int thread_id = omp_get_thread_num();
         auto &local_pairs = tls[thread_id];
-        #pragma omp for schedule(dynamic)
+        #pragma omp for schedule(runtime)
         for (size_t i = 0; i < all_x_.size(); ++i) {
             auto cell = get_cell_index(all_x_[i], all_y_[i], all_z_[i]);
 

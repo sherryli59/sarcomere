@@ -443,8 +443,8 @@ vec compute_actin_myosin_repulsion(const Filament& actin,
         double dist_to_end = Lm - std::fabs(s);       // ∈ [0, Lm]
         double mag_mid = stiffness * dist_to_end;         // increase toward center
         endstop_force = mag_mid * actin.direction[act_idx]; // pushes outward along actin direction
-        printf("actin-myosin (%d, %d) repulsion force magnitude: %f\n", act_idx, myo_idx,
-            endstop_force.norm());
+        // printf("actin-myosin (%d, %d) repulsion force magnitude: %f\n", act_idx, myo_idx,
+        //     endstop_force.norm());
     }
     return endstop_force; //force on actin
 }

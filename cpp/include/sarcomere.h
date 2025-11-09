@@ -52,6 +52,9 @@ public:
            skin_distance, cutoff_radius, dt, base_lifetime, lifetime_coeff, diff_coeff_ratio;
     double am_cutoff, am_optimal;
     double aa_cutoff, aa_optimal;
+    double k_mm = 0.0;
+    double myomesin_optimal = 0.0;
+    double myomesin_cutoff = 0.0;
     double titin_k, titin_rest_length;
     double max_actin_force, max_myosin_force, max_actin_torque, max_myosin_torque;
     size_t bond_recovery_steps;
@@ -100,14 +103,14 @@ public:
         double& myosin_radius, double& myosin_radius_ratio, double& aa_cutoff, double& aa_optimal,
         double& k_on,
         double& base_lifetime, double& lifetime_coeff, double& diff_coeff_ratio, double& k_aa, double& kappa_aa,
-        double& k_am, double& kappa_am, double& v_am, std::string& filename, gsl_rng* rng, int& seed,
+        double& k_am, double& kappa_am, double& k_mm, double& v_am, std::string& filename, gsl_rng* rng, int& seed,
         int& fix_myosin, double& dt, bool& directional, std::string& boundary_condition,
         int max_myosin_bonds, int max_strong_actin_bonds, double max_actin_force_param,
         double max_myosin_force_param, double max_actin_torque_param, double max_myosin_torque_param);
     Sarcomere(int& n_actins, int& n_myosins, vector box0, double& actin_length, double& myosin_length,
         double& myosin_radius, double& am_cutoff, double& am_optimal, double& aa_cutoff, double& aa_optimal,
          double& k_on, double& k_off,
-        double& base_lifetime, double& lifetime_coeff, double& diff_coeff_ratio, double& k_aa, double& kappa_aa, double& k_am, double& kappa_am, double& v_am,
+        double& base_lifetime, double& lifetime_coeff, double& diff_coeff_ratio, double& k_aa, double& kappa_aa, double& k_am, double& kappa_am, double& k_mm, double& v_am,
         std::string& filename, gsl_rng* rng, int& seed, int& fix_myosin, double& dt, double tau_rec,
         double titin_k, double titin_rest_length, bool& directional, int max_myosin_bonds,
         double max_actin_force_param, double max_myosin_force_param,
@@ -141,6 +144,7 @@ private:
     void _process_catch_bonds(int& i);
     void _calc_am_force_velocity(int& i);
     void _apply_titin_forces(int& i);
+    void _apply_myomesin_spring(int i, int j, std::vector<vec>& local_myosin_forces);
     void _volume_exclusion();
     void _myosin_exclusion();
     void _myosin_repulsion(int& i, int& j);

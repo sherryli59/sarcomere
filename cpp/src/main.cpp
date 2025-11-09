@@ -2,12 +2,15 @@
 #include "sarcomere.h"
 #include "components.h"
 #include "cxxopts.hpp"
+#include <array>
 #include <vector>
 #include <algorithm>
 #include <cmath>
 #include <limits>
+#include <stdexcept>
 #include <gsl/gsl_rng.h>
 #include <gsl/gsl_randist.h>
+#include <omp.h>
 
 int main(int argc, char* argv[]){
     int nsteps;
@@ -31,6 +34,7 @@ int main(int argc, char* argv[]){
     double k_aa;
     double kappa_aa;
     double k_am;
+    double k_mm;
     double kappa_am;
     double v_am;
     int n_actins;
@@ -50,9 +54,29 @@ int main(int argc, char* argv[]){
     bool resume;
     int resume_frame;
     bool directional;
+    bool deterministic;
     int n_fixed_myosins;
     int max_myosin_bonds;
     int dimension;
+    std::array<bool,3> periodic_axes{true, true, true};
+
+    auto parse_pbc_mask = [](const std::string& mask) -> std::array<bool,3> {
+        if (mask.size() != 3) {
+            throw std::invalid_argument("pbc_mask must include exactly three characters (e.g., 110).");
+        }
+        std::array<bool,3> axes{};
+        for (size_t idx = 0; idx < 3; ++idx) {
+            char c = mask[idx];
+            if (c == '1' || c == 'T' || c == 't' || c == 'y' || c == 'Y') {
+                axes[idx] = true;
+            } else if (c == '0' || c == 'F' || c == 'f' || c == 'n' || c == 'N') {
+                axes[idx] = false;
+            } else {
+                throw std::invalid_argument("Invalid character in pbc_mask. Use only 0/1 (or T/F).");
+            }
+        }
+        return axes;
+    };
 
     std::string filename;
     std::string init_struc;
@@ -84,6 +108,7 @@ int main(int argc, char* argv[]){
             ("k_aa", "k_aa", cxxopts::value<double>(k_aa)->default_value("300"))
             ("kappa_aa", "kappa_aa", cxxopts::value<double>(kappa_aa)->default_value("100"))
             ("k_am", "k_am", cxxopts::value<double>(k_am)->default_value("300"))
+            ("k_mm", "k_mm", cxxopts::value<double>(k_mm)->default_value("100"))
             ("kappa_am", "kappa_am", cxxopts::value<double>(kappa_am)->default_value("100"))
             ("v_am", "v_am", cxxopts::value<double>(v_am)->default_value("5"))
             ("n_actins", "Number of actins", cxxopts::value<int>(n_actins)->default_value("50"))
@@ -91,6 +116,10 @@ int main(int argc, char* argv[]){
             ("Lx", "Lx", cxxopts::value<double>(Lx)->default_value("10"))
             ("Ly", "Ly", cxxopts::value<double>(Ly)->default_value("10"))
             ("Lz", "Lz", cxxopts::value<double>(Lz)->default_value("10"))
+            ("pbc_mask", "Periodicity mask as three digits (e.g., 110 => periodic in x,y)",
+             cxxopts::value<std::string>()->default_value("111"))
+            ("periodic_mask", "Deprecated alias for --pbc_mask",
+             cxxopts::value<std::string>())
             ("actin_length", "Actin length", cxxopts::value<double>(actin_length)->default_value("1"))
             ("myosin_length", "Myosin length", cxxopts::value<double>(myosin_length)->default_value("1.5"))
             ("myosin_radius", "Myosin radius", cxxopts::value<double>(myosin_radius)->default_value("0.025"))
@@ -104,6 +133,7 @@ int main(int argc, char* argv[]){
             ("resume_frame", "Frame index to load when resuming (0-based; default loads latest)",
              cxxopts::value<int>(resume_frame)->default_value("-1"))
             ("directional", "Directional", cxxopts::value<bool>(directional)->default_value("true"))
+            ("deterministic", "Force deterministic single-threaded execution", cxxopts::value<bool>(deterministic)->default_value("false")->implicit_value("true"))
             ("n_fixed_myosins", "Number of fixed myosins", cxxopts::value<int>(n_fixed_myosins)->default_value("0"))
             ("filename", "Filename", cxxopts::value<std::string>(filename)->default_value("data/traj.h5"))
             ("initial_structure", "Type of initial structure", cxxopts::value<std::string>(init_struc)->default_value("random"))
@@ -117,6 +147,21 @@ int main(int argc, char* argv[]){
         if (result.count("help")) {
             std::cout << options.help() << std::endl;
             return 0;
+        }
+
+        std::string mask_value = result["pbc_mask"].as<std::string>();
+        if (result.count("periodic_mask")) {
+            mask_value = result["periodic_mask"].as<std::string>();
+        }
+        periodic_axes = parse_pbc_mask(mask_value);
+
+        if (deterministic) {
+            omp_set_dynamic(0);
+            omp_set_num_threads(1);
+            omp_set_schedule(omp_sched_static, 0);
+            std::cout << "Deterministic mode enabled: forcing single-threaded static scheduling.\n";
+        } else {
+            omp_set_schedule(omp_sched_dynamic, 1);
         }
     } catch (const std::exception& e)
 	  {
@@ -190,11 +235,12 @@ int main(int argc, char* argv[]){
                         myosin_radius, am_cutoff, am_optimal, aa_cutoff, aa_optimal,
                         k_on, k_off,
                         base_lifetime, lifetime_coeff, diff_coeff_ratio,
-                          k_aa, kappa_aa, k_am, kappa_am, v_am,
+                          k_aa, kappa_aa, k_am, kappa_am, k_mm, v_am,
                         filename,rng, seed, n_fixed_myosins, dt, tau_rec,
                         titin_k, titin_rest_length,
                         directional, max_myosin_bonds, max_actin_force, max_myosin_force,
                         max_actin_torque, max_myosin_torque);
+    model.set_periodicity(periodic_axes);
     if (!is3D) {
         for (int i = 0; i < n_actins; ++i) {
             model.actin.center[i].z = 0;
