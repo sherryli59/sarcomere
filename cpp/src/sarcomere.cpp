@@ -694,7 +694,7 @@ void Sarcomere::_process_actin_myosin_binding(int& i) {
         int j = myosin_neighbors[index];
         am_interaction[i][j] = geometry::analyze_am(
             actin.left_end[i], actin.right_end[i], myosin.left_end[j], myosin.right_end[j],
-            am_cutoff, box);
+            am_cutoff, box, is_periodic);
         if (am_interaction[i][j].myosin_binding_ratio > 0) {
             double partial_ratio = am_interaction[i][j].partial_binding_ratio;
             double binding_ratio = am_interaction[i][j].myosin_binding_ratio;
@@ -932,7 +932,7 @@ void Sarcomere::_apply_titin_forces(int& i) {
                 }
                 vec myo_center = myosin.center[m];
                 vec diff = myo_center - anchor;
-                diff.pbc_wrap(box);
+                diff.pbc_wrap(box, is_periodic);
                 double dist = diff.norm();
                 if (dist < EPS) {
                     continue;
@@ -1059,7 +1059,7 @@ int Sarcomere::determine_cb_status(int& i, int& j){
 
     // Compute geometric metrics using the first binding-zone points as endpoints
     double distance = geometry::segment_segment_distance(
-        actin.left_end[i], crosslink_point_i, actin.left_end[j], crosslink_point_j, box);
+        actin.left_end[i], crosslink_point_i, actin.left_end[j], crosslink_point_j, box, is_periodic);
     double cos_angle = actin.direction[i].dot(actin.direction[j]);
 
     bool was_strong = (actin_actin_status_prev[i][j] == 2);

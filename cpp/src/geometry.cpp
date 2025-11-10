@@ -15,10 +15,16 @@ const double EPS = 1e-9;
 
 
 // Helper function to compute the difference between two vectors using PBC
-vec pbc_diff(const vec& a, const vec& b, const std::vector<double>& box) {
+vec pbc_diff(const vec& a, const vec& b, const std::vector<double>& box,
+             const std::array<bool,3>& periodic) {
     vec diff = a - b;
-    diff.pbc_wrap(box); // Adjusts diff.x, diff.y, and diff.z using the minimal image convention
+    diff.pbc_wrap(box, periodic); // Adjusts diff.x, diff.y, and diff.z using the minimal image convention
     return diff;
+}
+
+vec pbc_diff(const vec& a, const vec& b, const std::vector<double>& box) {
+    static const std::array<bool,3> default_periodic{true, true, true};
+    return pbc_diff(a, b, box, default_periodic);
 }
 
 
@@ -29,9 +35,10 @@ double clamp(double x, double lo, double hi) {
 
 // This function computes the shortest distance between segments AB and CD by solving
 // the constrained optimization problem: minimize || (A+t*(B-A)) - (C+s*(D-C)) ||^2 subject to t,s in [0,1].
-double segment_segment_distance(const vec& A, const vec& B, 
-        const vec& C, const vec& D, 
-        const std::vector<double>& box)
+double segment_segment_distance(const vec& A, const vec& B,
+        const vec& C, const vec& D,
+        const std::vector<double>& box,
+        const std::array<bool,3>& periodic)
     {
         // Make local copies of the first segment's endpoints.
         vec A_adj = A;
@@ -41,14 +48,28 @@ double segment_segment_distance(const vec& A, const vec& B,
         vec actin_mid = (A + B) / 2;
         vec myosin_mid = (C + D) / 2;
         
+        auto axis_length = [&](int axis) -> double {
+            if (axis >= static_cast<int>(box.size())) {
+                return 0.0;
+            }
+            return box[axis];
+        };
+        auto compute_shift = [&](double disp, int axis) -> double {
+            double L = axis_length(axis);
+            if (!periodic[axis] || L <= 0.0) {
+                return 0.0;
+            }
+            return -L * std::round(disp / L);
+        };
+        
         // Compute the displacement between midpoints.
         vec displacement = actin_mid - myosin_mid;
         
-        // Compute the shift vector using the box dimensions.
+        // Compute the shift vector using the box dimensions and periodic mask.
         vec shift;
-        shift.x = -box[0] * round(displacement.x / box[0]);
-        shift.y = -box[1] * round(displacement.y / box[1]);
-        shift.z = -box[2] * round(displacement.z / box[2]);
+        shift.x = compute_shift(displacement.x, 0);
+        shift.y = compute_shift(displacement.y, 1);
+        shift.z = compute_shift(displacement.z, 2);
         
         // Shift the first segment's endpoints so that they are in the minimum image.
         A_adj = A_adj + shift;
@@ -113,7 +134,15 @@ double segment_segment_distance(const vec& A, const vec& B,
         
         return std::sqrt(best_dist2);
         
-    }    
+    }
+
+double segment_segment_distance(const vec& A, const vec& B,
+        const vec& C, const vec& D,
+        const std::vector<double>& box)
+{
+    static const std::array<bool,3> default_periodic{true, true, true};
+    return segment_segment_distance(A, B, C, D, box, default_periodic);
+}
 
 
 // Compute the shortest distance between two line segments by solving
@@ -122,7 +151,8 @@ double segment_segment_distance(const vec& A, const vec& B,
 std::pair<double, std::map<std::string, vec>> segment_segment_distance_w_normal(
     const vec& A, const vec& B, 
     const vec& C, const vec& D, 
-    const std::vector<double>& box)
+    const std::vector<double>& box,
+    const std::array<bool,3>& periodic)
 {
     // Make local copies of the first segment's endpoints.
     vec A_adj = A;
@@ -132,14 +162,28 @@ std::pair<double, std::map<std::string, vec>> segment_segment_distance_w_normal(
     vec actin_mid = (A + B) / 2;
     vec myosin_mid = (C + D) / 2;
     
+    auto axis_length = [&](int axis) -> double {
+        if (axis >= static_cast<int>(box.size())) {
+            return 0.0;
+        }
+        return box[axis];
+    };
+    auto compute_shift = [&](double disp, int axis) -> double {
+        double L = axis_length(axis);
+        if (!periodic[axis] || L <= 0.0) {
+            return 0.0;
+        }
+        return -L * std::round(disp / L);
+    };
+    
     // Compute the displacement between midpoints.
     vec displacement = actin_mid - myosin_mid;
     
     // Compute the shift vector using the box dimensions.
     vec shift;
-    shift.x = -box[0] * round(displacement.x / box[0]);
-    shift.y = -box[1] * round(displacement.y / box[1]);
-    shift.z = -box[2] * round(displacement.z / box[2]);
+    shift.x = compute_shift(displacement.x, 0);
+    shift.y = compute_shift(displacement.y, 1);
+    shift.z = compute_shift(displacement.z, 2);
     
     // Shift the first segment's endpoints so that they are in the minimum image.
     A_adj = A_adj + shift;
@@ -209,7 +253,7 @@ std::pair<double, std::map<std::string, vec>> segment_segment_distance_w_normal(
     vec Q = C + v * best_s;      // Closest point on segment CD.
     
     // Compute the normal vector from Q to P (using pbc_diff if further adjustment is needed).
-    vec normal = pbc_diff(P, Q, box);
+    vec normal = pbc_diff(P, Q, box, periodic);
     
     std::map<std::string, vec> info;
     info["start"] = P;
@@ -219,23 +263,50 @@ std::pair<double, std::map<std::string, vec>> segment_segment_distance_w_normal(
     return std::make_pair(distance, info);
 }
 
+std::pair<double, std::map<std::string, vec>> segment_segment_distance_w_normal(
+    const vec& A, const vec& B, 
+    const vec& C, const vec& D, 
+    const std::vector<double>& box)
+{
+    static const std::array<bool,3> default_periodic{true, true, true};
+    return segment_segment_distance_w_normal(A, B, C, D, box, default_periodic);
+}
 
 
-void apply_pbc(vec& actin_left, vec& actin_right, 
-                        vec& myosin_left, vec& myosin_right, std::vector<double> box){
+void apply_pbc(vec& actin_left, vec& actin_right,
+                        vec& myosin_left, vec& myosin_right,
+                        std::vector<double> box, const std::array<bool,3>& periodic){
 
     vec actin_mid = (actin_left + actin_right) / 2;
     vec myosin_mid = (myosin_left + myosin_right) / 2;
     vec displacement = actin_mid - myosin_mid;
+    auto axis_length = [&](int axis) -> double {
+        if (axis >= static_cast<int>(box.size())) {
+            return 0.0;
+        }
+        return box[axis];
+    };
+    auto compute_shift = [&](double disp, int axis) -> double {
+        double L = axis_length(axis);
+        if (!periodic[axis] || L <= 0.0) {
+            return 0.0;
+        }
+        return -L * std::round(disp / L);
+    };
     vec shift;
-    shift.x =  -box[0]*round(displacement.x/box[0]);
-    shift.y =  - box[1]*round(displacement.y/box[1]);
-    shift.z =  - box[2]*round(displacement.z/box[2]);
+    shift.x =  compute_shift(displacement.x, 0);
+    shift.y =  compute_shift(displacement.y, 1);
+    shift.z =  compute_shift(displacement.z, 2);
     actin_left = actin_left + shift;
     actin_right = actin_right + shift;
 }
 
-
+void apply_pbc(vec& actin_left, vec& actin_right,
+                        vec& myosin_left, vec& myosin_right,
+                        std::vector<double> box){
+    static const std::array<bool,3> default_periodic{true, true, true};
+    apply_pbc(actin_left, actin_right, myosin_left, myosin_right, box, default_periodic);
+}
 
 
 // Filter roots within the interval [t_start, t_end]
@@ -496,13 +567,22 @@ std::tuple<double,vec,vec> subsegment_within_distance(vec A, vec B, vec C, vec D
     }
 }
 
+std::tuple<double, vec, vec> subsegment_within_distance(vec A, vec B, vec C, vec D,
+                                                        double d, std::vector<double> box,
+                                                        const std::array<bool,3>& periodic) {
+    apply_pbc(A, B, C, D, box, periodic);
+    return subsegment_within_distance(A, B, C, D, d);
+}
+
 // Function to calculate the points on segment 1 that are distance d away from segment 2
-am_interaction analyze_am(vec actin_left, vec actin_right, 
-                        vec myosin_left, vec myosin_right, double d, std::vector<double> box) {
-    apply_pbc(actin_left, actin_right, myosin_left, myosin_right, box);
+am_interaction analyze_am(vec actin_left, vec actin_right,
+                        vec myosin_left, vec myosin_right, double d,
+                        std::vector<double> box, const std::array<bool,3>& periodic) {
+    apply_pbc(actin_left, actin_right, myosin_left, myosin_right, box, periodic);
     vec actin_mid = 0.5 * (actin_left + actin_right);
     vec myosin_mid = 0.5 * (myosin_left + myosin_right);
-    std::tuple<double, vec, vec> result = subsegment_within_distance(actin_left, actin_right, myosin_left, myosin_right, d);
+    std::tuple<double, vec, vec> result = subsegment_within_distance(
+        actin_left, actin_right, myosin_left, myosin_right, d, box, periodic);
     am_interaction interaction;
     interaction.myosin_binding_ratio = std::get<0>(result);
     interaction.myosin_binding_start = std::get<1>(result);
@@ -525,7 +605,8 @@ am_interaction analyze_am(vec actin_left, vec actin_right,
     //crosslinkable
     interaction.crosslinkable_start = actin_left;
     interaction.crosslinkable_end = interaction.myosin_binding_start;
-    interaction.crosslinkable_ratio = (interaction.crosslinkable_end-actin_left).norm()/actin_right.distance(actin_left,box);
+    interaction.crosslinkable_ratio = (interaction.crosslinkable_end-actin_left).norm()
+        / actin_right.distance(actin_left, box, periodic);
     double dot = (actin_mid-actin_left).dot(myosin_mid-myosin_left);
     vec partial_start, partial_end;
     if (dot>0){
@@ -538,17 +619,11 @@ am_interaction analyze_am(vec actin_left, vec actin_right,
     }
     // printf("partial_start: %f %f\n",partial_start.x,partial_start.y);
     // printf("partial_end: %f %f\n",partial_end.x,partial_end.y);
-    std::tuple<double, vec, vec> result2 = subsegment_within_distance(actin_left, actin_right, partial_start, partial_end, d);
+    std::tuple<double, vec, vec> result2 = subsegment_within_distance(
+        actin_left, actin_right, partial_start, partial_end, d, box, periodic);
     interaction.partial_binding_ratio = std::get<0>(result2);
     return interaction;   
 }
 
 } // namespace geometry
-
-
-
-
-
-
-
 

@@ -1,6 +1,7 @@
 #include "utils.h"
 #include <algorithm>  // For std::find
 #include <cmath>      // For std::sqrt, std::round, and M_PI
+#include <cctype>
 
 namespace utils {
 
@@ -8,6 +9,31 @@ namespace utils {
 // Definitions of free functions
 //------------------------------------------------------------------------------
 
+namespace {
+
+bool decode_mask_char(char c) {
+    switch (c) {
+        case '1': case 'T': case 't': case 'Y': case 'y':
+            return true;
+        case '0': case 'F': case 'f': case 'N': case 'n':
+            return false;
+        default:
+            throw std::invalid_argument("Invalid character in pbc_mask. Use 0/1 or T/F.");
+    }
+}
+
+} // namespace
+
+PBCMask parse_pbc_mask(const std::string& mask) {
+    if (mask.size() != 3) {
+        throw std::invalid_argument("pbc_mask must contain exactly three characters (e.g., 110).");
+    }
+    PBCMask result;
+    result.x = decode_mask_char(mask[0]);
+    result.y = decode_mask_char(mask[1]);
+    result.z = decode_mask_char(mask[2]);
+    return result;
+}
 
 bool compare_indices(const std::vector<int>& a, const std::vector<int>& b) {
     if (a.size() != b.size()) {

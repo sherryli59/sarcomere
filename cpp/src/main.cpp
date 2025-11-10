@@ -1,7 +1,9 @@
 #include "langevin.h"
 #include "sarcomere.h"
 #include "components.h"
+#include "utils.h"
 #include "cxxopts.hpp"
+#include <array>
 #include <vector>
 #include <algorithm>
 #include <cmath>
@@ -56,6 +58,8 @@ int main(int argc, char* argv[]){
 
     std::string filename;
     std::string init_struc;
+    std::string pbc_mask_value;
+    cxxopts::ParseResult result;
     try {
         cxxopts::Options options("sarcomere", "simulate sarcomere assembly using Monte Carlo");
 
@@ -110,9 +114,12 @@ int main(int argc, char* argv[]){
             ("max_myosin_bonds", "Maximum actin bonds per myosin",cxxopts::value<int>(max_myosin_bonds)->default_value("10"))
             ("dimension", "Simulation dimensionality (2 or 3)",
              cxxopts::value<int>(dimension)->default_value("3"))
+            ("pbc_mask", "Periodicity mask as three digits (e.g., 110 => periodic in x,y)",
+             cxxopts::value<std::string>(pbc_mask_value)->default_value("111"))
+            ("periodic_mask", "Deprecated alias for --pbc_mask", cxxopts::value<std::string>())
             ("h, help", "Print usage");
 
-        auto result = options.parse(argc, argv);
+        result = options.parse(argc, argv);
 
         if (result.count("help")) {
             std::cout << options.help() << std::endl;
@@ -124,6 +131,13 @@ int main(int argc, char* argv[]){
 		    return 1;
 	  }
 
+
+    std::string mask_value = pbc_mask_value;
+    if (result.count("periodic_mask")) {
+        mask_value = result["periodic_mask"].as<std::string>();
+    }
+    utils::PBCMask mask = utils::parse_pbc_mask(mask_value);
+    std::array<bool,3> periodic_axes = utils::mask_to_array(mask);
 
     if (dimension != 2 && dimension != 3) {
         std::cerr << "dimension must be 2 or 3" << std::endl;
@@ -196,6 +210,7 @@ int main(int argc, char* argv[]){
                         directional, max_myosin_bonds, max_actin_force, max_myosin_force,
                         max_actin_torque, max_myosin_torque);
     if (!is3D) {
+        periodic_axes[2] = false;
         for (int i = 0; i < n_actins; ++i) {
             model.actin.center[i].z = 0;
             model.actin.direction[i].z = 0;
@@ -213,6 +228,7 @@ int main(int argc, char* argv[]){
         model.actin.update_endpoints();
         model.myosin.update_endpoints();
     }
+    model.set_periodicity(periodic_axes);
 
     Langevin sim(model, beta, dt, actin_diff_coeff_trans,actin_diff_coeff_rot, myosin_diff_coeff_trans, myosin_diff_coeff_rot, save_every, resume, is3D,
                     max_actin_displacement, max_myosin_displacement,

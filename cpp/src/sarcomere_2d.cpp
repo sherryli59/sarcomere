@@ -789,7 +789,7 @@ void Sarcomere::_myosin_exclusion(){
 void Sarcomere::_myosin_repulsion(int& i, int& j){
     int thread_id = omp_get_thread_num();
     vec center_displacement = myosin.center[i] - myosin.center[j];
-    center_displacement.pbc_wrap(box);
+    center_displacement.pbc_wrap(box, myosin.periodic_axes);
     double center_distance = center_displacement.norm();
     double cutoff = 2*myosin.radius*myosin_radius_ratio;
     if (center_distance<=cutoff+myosin.length){
@@ -851,7 +851,7 @@ void Sarcomere::_myosin_repulsion(int& i, int& j){
 void Sarcomere::_actin_repulsion(int& i, int& j){
     int thread_id = omp_get_thread_num();
     vec center_displacement = actin.center[i] - actin.center[j];
-    center_displacement.pbc_wrap(box);
+    center_displacement.pbc_wrap(box, actin.periodic_axes);
     double center_distance = center_displacement.norm();
     if (center_distance<=crosslinker_length+actin.length){
         double angle_diff = fabs(actin.theta[i] - actin.theta[j]);

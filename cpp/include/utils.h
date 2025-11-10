@@ -8,12 +8,24 @@
 #include <algorithm>
 #include <numeric>
 #include <utility>
+#include <string>
 #include <omp.h>
 #include <iostream>
 #include <stdexcept>
 
 
 namespace utils {
+
+struct PBCMask {
+    bool x{true};
+    bool y{true};
+    bool z{true};
+};
+
+PBCMask parse_pbc_mask(const std::string& mask);
+inline std::array<bool,3> mask_to_array(const PBCMask& mask) {
+    return {mask.x, mask.y, mask.z};
+}
 
 inline double wrap_axis(double x, double L, bool periodic) {
     if (!periodic || L == 0.0) {

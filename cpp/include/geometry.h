@@ -30,11 +30,22 @@ namespace geometry {
     // Compute the orientation of three points (without PBC).
     int orientation(const vec& p, const vec& q, const vec& r);
 
-    // Compute the shortest distance between two segments ab and cd (with PBC).
-    double segment_segment_distance(const vec& a, const vec& b, const vec& c, const vec& d, const std::vector<double>& box, const std::array<bool,3>& periodic);
+    // Compute the shortest distance between two segments ab and cd.
+    double segment_segment_distance(const vec& a, const vec& b,
+                                    const vec& c, const vec& d,
+                                    const std::vector<double>& box);
+    double segment_segment_distance(const vec& a, const vec& b,
+                                    const vec& c, const vec& d,
+                                    const std::vector<double>& box,
+                                    const std::array<bool,3>& periodic);
 
     // Compute the shortest distance between two segments and return a map containing a normal vector and associated information.
-    std::pair<double, std::map<std::string, vec>> segment_segment_distance_w_normal(const vec& a, const vec& b, const vec& c, const vec& d, const std::vector<double>& box, const std::array<bool,3>& periodic);
+    std::pair<double, std::map<std::string, vec>> segment_segment_distance_w_normal(
+        const vec& a, const vec& b, const vec& c, const vec& d,
+        const std::vector<double>& box);
+    std::pair<double, std::map<std::string, vec>> segment_segment_distance_w_normal(
+        const vec& a, const vec& b, const vec& c, const vec& d,
+        const std::vector<double>& box, const std::array<bool,3>& periodic);
 
 
     // Structure to store actin–myosin interaction information.
@@ -49,6 +60,8 @@ namespace geometry {
     };
 
     // Apply periodic boundary conditions to align four endpoints.
+    void apply_pbc(vec& actin_left, vec& actin_right,
+                   vec& myosin_left, vec& myosin_right, std::vector<double> box);
     void apply_pbc(vec& actin_left, vec& actin_right,
                    vec& myosin_left, vec& myosin_right, std::vector<double> box, const std::array<bool,3>& periodic);
 
@@ -73,6 +86,32 @@ namespace geometry {
     // Analyze actin–myosin interaction geometry and return an interaction struct.
     am_interaction analyze_am(vec actin_left, vec actin_right,
                               vec myosin_left, vec myosin_right, double d, std::vector<double> box, const std::array<bool,3>& periodic);
+
+    // Convenience overloads for utils::PBCMask
+    inline double segment_segment_distance(const vec& a, const vec& b,
+                                           const vec& c, const vec& d,
+                                           const std::vector<double>& box,
+                                           const utils::PBCMask& mask) {
+        return segment_segment_distance(a, b, c, d, box, utils::mask_to_array(mask));
+    }
+
+    inline std::pair<double, std::map<std::string, vec>> segment_segment_distance_w_normal(
+        const vec& a, const vec& b, const vec& c, const vec& d,
+        const std::vector<double>& box, const utils::PBCMask& mask) {
+        return segment_segment_distance_w_normal(a, b, c, d, box, utils::mask_to_array(mask));
+    }
+
+    inline std::tuple<double, vec, vec> subsegment_within_distance(vec A, vec B, vec C, vec D,
+                                                                   double d, std::vector<double> box,
+                                                                   const utils::PBCMask& mask) {
+        return subsegment_within_distance(A, B, C, D, d, box, utils::mask_to_array(mask));
+    }
+
+    inline am_interaction analyze_am(vec actin_left, vec actin_right,
+                                     vec myosin_left, vec myosin_right, double d,
+                                     std::vector<double> box, const utils::PBCMask& mask) {
+        return analyze_am(actin_left, actin_right, myosin_left, myosin_right, d, box, utils::mask_to_array(mask));
+    }
 }
 
 #endif // GEOMETRY_H
