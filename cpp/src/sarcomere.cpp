@@ -912,23 +912,23 @@ void Sarcomere::_calc_am_force_velocity(int& i) {
             printf("Warning: Actin %d has catch bond status but no myosin bound\n", i);
         }
         actin.velocity[i] = (1 - actin.f_load[i]) * velocity;
-        for (int j : myosin_neighbors) {
-            double abs_cos_angle = std::abs(actin.direction[i].dot(myosin.direction[j]));
-            if (am_bonds[i][j] == 1 | abs_cos_angle < 0.95) {
-                continue;
-            }
-            apply_actin_myosin_repulsion(
-                actin,
-                myosin,
-                i,
-                j,
-                box,
-                am_cutoff*1.1,
-                k_aa,
-                max_myosin_force,
-                local_actin_forces[i],
-                local_myosin_forces[j]);
-        }
+        // for (int j : myosin_neighbors) {
+        //     double abs_cos_angle = std::abs(actin.direction[i].dot(myosin.direction[j]));
+        //     if (am_bonds[i][j] == 1 | abs_cos_angle < 0.95) {
+        //         continue;
+        //     }
+        //     apply_actin_myosin_repulsion(
+        //         actin,
+        //         myosin,
+        //         i,
+        //         j,
+        //         box,
+        //         am_cutoff*1.1,
+        //         k_aa,
+        //         max_myosin_force,
+        //         local_actin_forces[i],
+        //         local_myosin_forces[j]);
+        // }
     } else {
         if (myosin_indices.size() == 0) {
             actin.velocity[i] = {0, 0, 0};

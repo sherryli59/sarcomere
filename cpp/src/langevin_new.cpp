@@ -4,9 +4,6 @@
 #include <vector>
 
 using vec = utils::vec;
-using utils::pbc_wrap_centered;
-using utils::clamp_orientation_for_box_centered;
-using utils::no_flux_slide_capsule_centered;
 // Define the global mutex.
 std::mutex save_mutex;
 
@@ -112,126 +109,138 @@ void Langevin::volume_exclusion(int nsteps, gsl_rng* rng, int& fix_myosin) {
     start_step = end_step;
 }
 
-void Langevin::sample_step(double& dt, gsl_rng* rng, int& fix_myosin)
-{
-    // ====== noise ======
+//---------------------------------------------------------------------
+// sample_step: Performs a single Langevin dynamics step by updating the 
+// system, generating noise, and displacing myosin and actin particles.
+//---------------------------------------------------------------------
+void Langevin::sample_step(double& dt, gsl_rng* rng, int& fix_myosin) {
+    // Generate noise for both myosin and actin particles.
     int n_randns = (model.myosin.n + model.actin.n) * 6;
     std::vector<double> noise(n_randns);
-    for (int i = 0; i < n_randns; i++) noise[i] = gsl_ran_gaussian(rng, 1.0);
+    for (int i = 0; i < n_randns; i++) {
+        noise[i] = gsl_ran_gaussian(rng, 1.0);
+    }
 
     int n_acc_randns = model.myosin.n + model.actin.n;
     std::vector<double> acc_rand(n_acc_randns);
-    for (int i = 0; i < n_acc_randns; i++) acc_rand[i] = gsl_rng_uniform(rng);
+    for (int i = 0; i < n_acc_randns; i++) {
+        acc_rand[i] = gsl_rng_uniform(rng);
+    }
 
-    const std::array<bool,3>& periodic = model.is_periodic;
-
-    // ====== Myosin ======
     int offset = model.myosin.n * 6;
     double D = D_myosin_trans;
     double D_rot = D_myosin_rot;
-
+    // Update myosin particles.
     const double displacement_slack = 1.3;
-
-    for (int i = fix_myosin; i < model.myosin.n; ++i) {
+    const std::array<bool,3>& periodic = model.is_periodic;
+    for (int i = fix_myosin; i < model.myosin.n; i++) {
         if (!is3D) {
             model.myosin.force[i].z = 0;
             model.myosin.velocity[i].z = 0;
             model.myosin.torque[i].z = 0;
         }
-
-        // translational increment
         vec delta_pos{
-            model.myosin.force[i].x * beta * D * dt + model.myosin.velocity[i].x * dt + std::sqrt(2 * D * dt) * noise[i * 6 + 0],
-            model.myosin.force[i].y * beta * D * dt + model.myosin.velocity[i].y * dt + std::sqrt(2 * D * dt) * noise[i * 6 + 1],
-            is3D ? (model.myosin.force[i].z * beta * D * dt + model.myosin.velocity[i].z * dt + std::sqrt(2 * D * dt) * noise[i * 6 + 2]) : 0.0
+            model.myosin.force[i].x * beta * D * dt +
+                model.myosin.velocity[i].x * dt +
+                std::sqrt(2 * D * dt) * noise[i * 6],
+            model.myosin.force[i].y * beta * D * dt +
+                model.myosin.velocity[i].y * dt +
+                std::sqrt(2 * D * dt) * noise[i * 6 + 1],
+            is3D ? (model.myosin.force[i].z * beta * D * dt +
+                    model.myosin.velocity[i].z * dt +
+                    std::sqrt(2 * D * dt) * noise[i * 6 + 2]) : 0.0
         };
-
-        // (optional) displacement cap (you already compute disp_limit; keep if you use it)
-        // ...
-
-        // rotational increment (your additive orientation scheme)
-        vec rot_noise{ noise[i * 6 + 3], noise[i * 6 + 4], is3D ? noise[i * 6 + 5] : 0.0 };
+        double disp_sq = delta_pos.x * delta_pos.x + delta_pos.y * delta_pos.y +
+                         (is3D ? delta_pos.z * delta_pos.z : 0.0);
+        double disp_limit = max_myosin_displacement;
+        if (disp_limit > 0.0 && std::isfinite(disp_limit)) {
+            double disp_mag = std::sqrt(disp_sq);
+            double allowed = displacement_slack * disp_limit;
+        }
+        vec rot_noise={noise[i * 6 + 3], noise[i * 6 + 4], is3D ? noise[i * 6 + 5] : 0.0};
         vec delta_u = std::sqrt(2 * D_rot * dt) * rot_noise + dt * model.myosin.torque[i] * D_rot * beta;
-        if (!is3D) { delta_pos.z = 0.0; delta_u.z = 0.0; }
-
-        // --- Trial translation, then clamp (using current orientation) ---
-        vec c_trial = model.myosin.center[i];
-        c_trial += delta_pos;
-        vec u_curr  = model.myosin.direction[i]; // current orientation (unit)
-        vec v_curr  = model.myosin.velocity[i];  // drift/velocity we’ll zero along clamped normals
-
-        const double h = 0.5 * model.myosin.length;       // adjust to your field
-        const double r = model.myosin.radius;             // adjust to your field/param
-
-        no_flux_slide_capsule_centered(c_trial, v_curr, u_curr, h, r, model.box, periodic);
-
-        // --- Trial rotation, then (optionally) make it feasible in a very thin slab ---
-        vec u_trial = u_curr + delta_u;
-        if (!is3D) u_trial.z = 0.0;
-        u_trial.normalize();
-
-        // Optional but recommended if some L_k are very small on non-PBC axes:
-        clamp_orientation_for_box_centered(u_trial, h, r, model.box, periodic);
-
-        // --- Clamp again with the *post-rotation* orientation (guarantees endpoints inside) ---
-        no_flux_slide_capsule_centered(c_trial, v_curr, u_trial, h, r, model.box, periodic);
-
-        // --- Commit ---
-        pbc_wrap_centered(c_trial, model.box, periodic);
-
-        model.myosin.center[i]    = c_trial;
-        model.myosin.direction[i] = u_trial;
-        model.myosin.velocity[i]  = v_curr;
-
+        if (!is3D) {
+            delta_pos.z = 0.0;
+            delta_u.z = 0.0;
+        }
+        double rot_limit = max_myosin_rotation;
+        // if (rot_limit > 0.0 && std::isfinite(rot_limit)) {
+        //     double rot_mag = delta_u.norm();
+        //     double allowed = displacement_slack * rot_limit;
+        // }
+        double dx = delta_pos.x;
+        double dy = delta_pos.y;
+        double dz = delta_pos.z;
+        model.myosin.displace(i, dx, dy, dz);
+        vec wrapped_center_myo = model.myosin.center[i];
+        wrapped_center_myo.pbc_wrap(model.box, periodic);
+        model.myosin.center[i] = wrapped_center_myo;
+        model.myosin.direction[i] += delta_u;
+        if (!is3D) {
+            model.myosin.direction[i].z = 0.0;
+        }
+        model.myosin.direction[i].normalize();
         model.myosin.update_endpoints(i);
     }
-
-    // ====== Actin ======
-    for (int i = 0; i < model.actin.n; ++i) {
-        // choose diffusivities based on cb_status as you had
-        if (model.actin.cb_status[i] > 1) { D = D_myosin_trans; D_rot = D_myosin_rot; }
-        else                               { D = D_actin_trans;  D_rot = D_actin_rot; }
-
+    // Update actin particles.
+    for (int i = 0; i < model.actin.n; i++) {
+        if (model.actin.cb_status[i] > 1){
+            D = D_myosin_trans;
+            D_rot = D_myosin_rot;
+        }
+        else{
+            D = D_actin_trans;
+            D_rot = D_actin_rot;
+        }
         if (!is3D) {
             model.actin.force[i].z = 0;
             model.actin.velocity[i].z = 0;
             model.actin.torque[i].z = 0;
         }
-
         vec delta_pos{
-            model.actin.force[i].x * beta * D * dt + model.actin.velocity[i].x * dt + std::sqrt(2 * D * dt) * noise[offset + i * 6 + 0],
-            model.actin.force[i].y * beta * D * dt + model.actin.velocity[i].y * dt + std::sqrt(2 * D * dt) * noise[offset + i * 6 + 1],
-            is3D ? (model.actin.force[i].z * beta * D * dt + model.actin.velocity[i].z * dt + std::sqrt(2 * D * dt) * noise[offset + i * 6 + 2]) : 0.0
+            model.actin.force[i].x * beta * D * dt +
+                model.actin.velocity[i].x * dt +
+                std::sqrt(2 * D * dt) * noise[offset + i * 6],
+            model.actin.force[i].y * beta * D * dt +
+                model.actin.velocity[i].y * dt +
+                std::sqrt(2 * D * dt) * noise[offset + i * 6 + 1],
+            is3D ? (model.actin.force[i].z * beta * D * dt +
+                    model.actin.velocity[i].z * dt +
+                    std::sqrt(2 * D * dt) * noise[offset + i * 6 + 2]) : 0.0
         };
-
-        vec rot_noise{ noise[offset + i * 6 + 3], noise[offset + i * 6 + 4], is3D ? noise[offset + i * 6 + 5] : 0.0 };
+        double disp_sq = delta_pos.x * delta_pos.x + delta_pos.y * delta_pos.y +
+                         (is3D ? delta_pos.z * delta_pos.z : 0.0);
+        double disp_limit = max_actin_displacement;
+        if (disp_limit > 0.0 && std::isfinite(disp_limit)) {
+            double disp_mag = std::sqrt(disp_sq);
+            double allowed = displacement_slack * disp_limit;
+        }
+        vec rot_noise={noise[offset + i * 6 + 3], noise[offset + i * 6 + 4], is3D ? noise[offset + i * 6 + 5] : 0.0};
         vec delta_u = std::sqrt(2 * D_rot * dt) * rot_noise + dt * model.actin.torque[i] * D_rot * beta;
-        if (!is3D) { delta_pos.z = 0.0; delta_u.z = 0.0; }
-
-        vec c_trial = model.actin.center[i];
-        c_trial += delta_pos;
-        vec u_curr  = model.actin.direction[i];
-        vec v_curr  = model.actin.velocity[i];
-
-        const double h = 0.5 * model.actin.length;  // adjust to your field
-        const double r = 0.0;        // adjust to your field/param
-
-        no_flux_slide_capsule_centered(c_trial, v_curr, u_curr, h, r, model.box, periodic);
-
-        vec u_trial = u_curr + delta_u;
-        if (!is3D) u_trial.z = 0.0;
-        u_trial.normalize();
-
-        clamp_orientation_for_box_centered(u_trial, h, r, model.box, periodic);
-
-        no_flux_slide_capsule_centered(c_trial, v_curr, u_trial, h, r, model.box, periodic);
-
-        pbc_wrap_centered(c_trial, model.box, periodic);
-
-        model.actin.center[i]    = c_trial;
-        model.actin.direction[i] = u_trial;
-        model.actin.velocity[i]  = v_curr;
-
+        if (!is3D) {
+            delta_pos.z = 0.0;
+            delta_u.z = 0.0;
+        }
+        double rot_limit = max_actin_rotation;
+        if (rot_limit > 0.0 && std::isfinite(rot_limit)) {
+            double rot_mag = delta_u.norm();
+            double allowed = displacement_slack * rot_limit;
+            if (rot_mag > allowed) {
+                double noise_mag = (rot_noise).norm();
+            }
+        }
+        double dx = delta_pos.x;
+        double dy = delta_pos.y;
+        double dz = delta_pos.z;
+        model.actin.displace(i, dx, dy, dz);
+        vec wrapped_center_act = model.actin.center[i];
+        wrapped_center_act.pbc_wrap(model.box, periodic);
+        model.actin.center[i] = wrapped_center_act;
+        model.actin.direction[i] += delta_u;
+        if (!is3D) {
+            model.actin.direction[i].z = 0.0;
+        }
+        model.actin.direction[i].normalize();
         model.actin.update_endpoints(i);
     }
 }

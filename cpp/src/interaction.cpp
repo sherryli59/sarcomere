@@ -244,7 +244,7 @@ RepulsionResult compute_myosin_repulsion(const Filament& actin,
     auto geom = geometry::segment_segment_distance_w_normal(
         myosin.left_end[i], myosin.right_end[i],
         myosin.left_end[j], myosin.right_end[j],
-        box);
+        box, myosin.periodic_axes);
 
     const double distance = geom.first;
     if (distance >= cutoff) {
@@ -346,7 +346,7 @@ RepulsionResult compute_actin_repulsion(const Filament& actin,
     auto geom = geometry::segment_segment_distance_w_normal(
         actin.left_end[i], actin.right_end[i],
         actin.left_end[j], actin.right_end[j],
-        box);
+        box, actin.periodic_axes);
 
     const double distance = geom.first;
     if (distance >= crosslinker_length) {
@@ -402,7 +402,7 @@ vec compute_actin_myosin_repulsion(const Filament& actin,
     auto geom = geometry::segment_segment_distance_w_normal(
         actin.left_end[act_idx], actin.right_end[act_idx],
         myosin.left_end[myo_idx], myosin.right_end[myo_idx],
-        box);
+        box, actin.periodic_axes);
 
     const double distance = geom.first;
     if (distance >= radius) {

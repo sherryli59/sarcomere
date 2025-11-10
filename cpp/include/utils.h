@@ -159,6 +159,17 @@ double angle_between(const vec& u1, const vec& u2);
 
 vec pbc_diff_masked(const vec& a, const vec& b, const std::vector<double>& box, const std::array<bool,3>& periodic);
 
+void pbc_wrap_centered(vec& x, const std::vector<double>& box, const std::array<bool,3>& periodic);
+
+void clamp_orientation_for_box_centered(vec& u, double h, double r,
+                                        const std::vector<double>& box,
+                                        const std::array<bool,3>& periodic);
+
+void no_flux_slide_capsule_centered(vec& c, vec& v, const vec& u,
+                                    double h, double r,
+                                    const std::vector<double>& box,
+                                    const std::array<bool,3>& periodic);
+
 //------------------------------------------------------------------------------
 // MoleculeConnection class declaration
 //------------------------------------------------------------------------------
