@@ -94,6 +94,7 @@ public:
     void update_endpoints(int& i);
     void update_endpoints();
     void update_center(std::vector<vec> new_center);
+    void initialize_within_box(gsl_rng* rng);
 
     // Register a new 1D feature of length n.
     void register_feature(const std::string& name);

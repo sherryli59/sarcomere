@@ -12,6 +12,7 @@
 #include <omp.h>
 #include <mutex>
 #include <cstddef>
+#include <cstdint>
 
 #include "components.h"
 #include "utils.h"
@@ -80,9 +81,11 @@ public:
                                     myosin_forces_temp, myosin_velocities_temp, actin_torques_temp, myosin_torques_temp;
     std::vector<std::vector<int>> actin_cb_status_temp;
     std::vector<std::vector<std::array<double, 2>>> myosin_f_load_temp;
+    std::vector<std::vector<uint8_t>> myosin_myomesin_active_temp;
     std::vector<std::vector<double>> cb_breakage_events_temp;
     std::vector<std::vector<double>> aa_completed_lifetimes_temp;
     std::vector<std::array<double, 2>> myosin_f_load;
+    std::vector<uint8_t> myosin_myomesin_active;
     std::vector<utils::MoleculeConnection> actinIndicesPerMyosin_temp;
     std::vector<gsl_rng*> rng_engines;
 
