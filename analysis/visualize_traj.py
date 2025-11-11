@@ -172,31 +172,81 @@ def plot_system(frame, data, myosin_length, actin_length, Lx, Ly, Lz,
     # ------------------------------------------------------------------
     # Myosin filaments
     # ------------------------------------------------------------------
-    if myosin_display == "bonded":
-        bonds = data["/myosin/bonds"][frame]
-        valid_pairs = bonds[bonds[:, 0] >= 0].astype(int)
-        bonded_indices = np.unique(valid_pairs.flatten())
-        myosin_center = data["/myosin/center"][frame][bonded_indices] if bonded_indices.size > 0 else np.empty((0, 3))
-        myosin_direction = data["/myosin/direction"][frame][bonded_indices] if bonded_indices.size > 0 else np.empty((0, 3))
-    else:  # plot all myosins
-        myosin_center = data["/myosin/center"][frame]
-        myosin_direction = data["/myosin/direction"][frame]
+    myosin_centers_frame = data["/myosin/center"][frame]
+    myosin_dirs_frame = data["/myosin/direction"][frame]
+    n_myosins = myosin_centers_frame.shape[0]
+    actin_myo_bonds = data.get("/actin_myo/bonds")
+    highlight_indices = np.array([], dtype=int)
+    if actin_myo_bonds is not None:
+        frame_bonds = actin_myo_bonds[frame]
+        valid_pairs = frame_bonds[frame_bonds[:, 0] >= 0]
+        strong_actins = np.where(cb_status == 2)[0]
+        if valid_pairs.size > 0 and strong_actins.size > 0:
+            valid_pairs = valid_pairs.astype(int)
+            mask_strong = np.isin(valid_pairs[:, 0], strong_actins)
+            if np.any(mask_strong):
+                highlight_indices = np.unique(valid_pairs[mask_strong, 1])
 
-    if myosin_center.size > 0:
-        plot_filaments_3d(
-            center=myosin_center,
-            direction=myosin_direction,
-            radius=myosin_radius,
-            l=myosin_length,
-            Lx=Lx, Ly=Ly, Lz=Lz,
-            plotter=plotter,
-            color='lemon_chiffon',
-        )
+    if myosin_display == "bonded":
+        myo_bonds = data["/myosin/bonds"][frame]
+        valid_pairs = myo_bonds[myo_bonds[:, 0] >= 0].astype(int)
+        bonded_indices = np.unique(valid_pairs.flatten())
+        display_indices = bonded_indices if bonded_indices.size > 0 else np.empty(0, dtype=int)
+    elif myosin_display == "cb_attached":
+        if actin_myo_bonds is None:
+            print("Warning: /actin_myo/bonds dataset not found; displaying all myosins.")
+            display_indices = np.arange(n_myosins)
+        else:
+            frame_bonds = actin_myo_bonds[frame]
+            valid_pairs = frame_bonds[frame_bonds[:, 0] >= 0]
+            cb_indices = np.where(cb_status > 1)[0]
+            if valid_pairs.size == 0 or cb_indices.size == 0:
+                display_indices = np.empty(0, dtype=int)
+            else:
+                valid_pairs = valid_pairs.astype(int)
+                mask_cb_pairs = np.isin(valid_pairs[:, 0], cb_indices)
+                cb_pairs = valid_pairs[mask_cb_pairs]
+                if cb_pairs.size == 0:
+                    display_indices = np.empty(0, dtype=int)
+                else:
+                    display_indices = np.unique(cb_pairs[:, 1])
+    else:  # plot all myosins
+        display_indices = np.arange(n_myosins)
+
+    if display_indices.size > 0:
+        myosin_center = myosin_centers_frame[display_indices]
+        myosin_direction = myosin_dirs_frame[display_indices]
+        highlight_mask = np.isin(display_indices, highlight_indices)
+        base_center = myosin_center[~highlight_mask]
+        base_direction = myosin_direction[~highlight_mask]
+        highlight_center = myosin_center[highlight_mask]
+        highlight_direction = myosin_direction[highlight_mask]
+
+        if base_center.size > 0:
+            plot_filaments_3d(
+                center=base_center,
+                direction=base_direction,
+                radius=myosin_radius,
+                l=myosin_length,
+                Lx=Lx, Ly=Ly, Lz=Lz,
+                plotter=plotter,
+                color='lemon_chiffon',
+            )
+        if highlight_center.size > 0:
+            plot_filaments_3d(
+                center=highlight_center,
+                direction=highlight_direction,
+                radius=myosin_radius,
+                l=myosin_length,
+                Lx=Lx, Ly=Ly, Lz=Lz,
+                plotter=plotter,
+                color='#f5a45b',  # light orange
+            )
 
     plotter.set_background("white")
     plotter.set_scale(xscale=Lx, yscale=Ly, zscale=Lz)
     plotter.set_focus((0, 0, 0))
-    plotter.camera_position = 'xy'
+    plotter.camera_position = 'iso'
 
     return plotter
 
@@ -253,9 +303,9 @@ def parse_args():
                         help="End frame (exclusive); default is the last frame")
     parser.add_argument(
         "--myosin_display",
-        choices=["all", "bonded"],
+        choices=["all", "bonded", "cb_attached"],
         default="all",
-        help="Display all myosins or only those engaged in bonds.",
+        help="Display all myosins, only myosin–myosin bonds, or those attached to catch-bonded actins.",
     )
     return parser.parse_args()
 
@@ -416,6 +466,3 @@ if __name__ == "__main__":
                       myosin_display=myosin_display)
         for i in range(cpu_workers)
     )
-
-
-
