@@ -361,7 +361,14 @@ RepulsionResult compute_actin_repulsion(const Filament& actin,
     vec normal_vector = normal_it->second;
     double norm = normal_vector.norm();
     if (norm <= EPS) {
-        normal_vector = center_displacement / center_distance;
+        const vec dir_i = actin.direction[i];
+        const vec dir_j = actin.direction[j];
+        normal_vector = dir_i.cross(dir_j);
+        double fallback_norm = normal_vector.norm();
+        if (fallback_norm <= EPS) {
+            return result;
+        }
+        normal_vector = normal_vector / fallback_norm;
     } else {
         normal_vector = normal_vector / norm;
     }
@@ -379,9 +386,20 @@ RepulsionResult compute_actin_repulsion(const Filament& actin,
     //     force_mag = max_force_limit;
     // }
     vec force_vec = force_mag * normal_vector;
-    result.applied = true;
-    result.force_on_first += force_vec;
-    result.force_on_second -= force_vec;
+
+    const int status_i = actin.cb_status[i];
+    const int status_j = actin.cb_status[j];
+    const bool both_status_two = (status_i == 2 && status_j == 2);
+    const bool apply_first = (status_i < 2) || both_status_two;
+    const bool apply_second = (status_j < 2) || both_status_two;
+
+    if (apply_first) {
+        result.force_on_first += force_vec;
+    }
+    if (apply_second) {
+        result.force_on_second -= force_vec;
+    }
+    result.applied = apply_first || apply_second;
     return result;
 }
 

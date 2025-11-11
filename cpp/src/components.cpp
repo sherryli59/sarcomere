@@ -340,7 +340,13 @@ Myosin::Myosin() : Filament() {
 Myosin::Myosin(int n0, double length0, double radius0, std::vector<double> box0, gsl_rng* rng)
     : Filament(n0, length0, box0, rng), radius(radius0)
 {
-    // Additional initialization if needed.
+    // // Override the random orientation from the base class so all myosins start along +x.
+    // for (int i = 0; i < n; ++i) {
+    //     direction_x[i] = 1.0;
+    //     direction_y[i] = 0.0;
+    //     direction_z[i] = 0.0;
+    // }
+    update_endpoints();
 }
 
 // Copy constructor.
