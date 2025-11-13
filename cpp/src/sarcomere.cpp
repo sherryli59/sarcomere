@@ -1,4 +1,5 @@
 #include "sarcomere.h"
+#include "debug_logging.h"
 #include <algorithm>
 #include <cmath>
 #include <cctype>
@@ -14,7 +15,7 @@ Sarcomere::Sarcomere(int& n_actins, int& n_myosins, vector box0, double& actin_l
         double& myosin_radius, double& am_cutoff, double& am_optimal, double& aa_cutoff, double& aa_optimal,
         double& k_on, double& k_off,
         double& base_lifetime, double& lifetime_coeff, double& diff_coeff_ratio, double& k_aa, double& kappa_aa, double& k_am, double& kappa_am, double& k_mm, double& v_am,
-        std::string& filename, gsl_rng* rng, int& seed, int& fix_myosin, double& dt, double tau_rec,
+        std::string& filename, gsl_rng* rng, int& seed, double& dt, double tau_rec,
         double titin_k, double titin_rest_length, bool& directional, int max_myosin_bonds,
         double max_actin_force_param, double max_myosin_force_param,
         double max_actin_torque_param, double max_myosin_torque_param,
@@ -84,7 +85,6 @@ Sarcomere::Sarcomere(int& n_actins, int& n_myosins, vector box0, double& actin_l
             this->skin_distance = skin_distance;
             this->filename = filename;
             this->rng = rng;
-            this->fix_myosin = fix_myosin;
             this->dt = dt;
             this->am_cutoff = am_cutoff;
             this->am_optimal = am_optimal;
@@ -181,26 +181,6 @@ Sarcomere::Sarcomere(int& n_actins, int& n_myosins, vector box0, double& actin_l
 // Destructor
 Sarcomere::~Sarcomere() {}
 
-
-void Sarcomere::partial_fix(int& n_fixed){
-    // Now each coordinate has three components: x, y, and z (with z = 0).
-    std::vector<vector> myosin_positions;
-    myosin_positions = {
-        {0, -2, 0}, {0, -1, 0}, {0, 0, 0}, {0, 1, 0}, {0, 2, 0},
-        {0, -2.5, 0}, {0, -1.5, 0}, {0, -0.5, 0}, {0, 0.5, 0}, {0, 1.5, 0}
-    };
-    for (int i = 0; i < n_fixed; i++){
-        myosin.center[i].x = myosin_positions[i][0];
-        myosin.center[i].y = myosin_positions[i][1];
-        myosin.center[i].z = myosin_positions[i][2]; // set z coordinate to 0        
-    }
-    //set all myosin directions to x-axis
-    for (int i = 0; i < myosin.n; i++){
-        myosin.direction[i] = {1, 0, 0};
-    }
-    myosin.update_endpoints();
-    update_system();
-}
 
 void Sarcomere::cb(){
     // For actin, now include a z coordinate equal to 0.
@@ -879,8 +859,7 @@ void Sarcomere::_process_actin_myosin_binding(int& i) {
                             j,
                             box,
                             am_cutoff*1.1,
-                            10*k_aa,
-                            max_myosin_force);
+                            10*k_aa);
                         double force_magnitude = repulsive_force.norm();
                         printf("Warning: Actin %d has zero crosslink ratio due to myosin %d,binding ratio is %f, partial binding ratio is %f, angle is %f, repulsion is %f\n", i, j, am_interaction[i][j].myosin_binding_ratio, 
                             am_interaction[i][j].partial_binding_ratio, angle, force_magnitude);
@@ -1039,9 +1018,9 @@ void Sarcomere::_calc_am_force_velocity(int& i) {
         local_actin_forces[i].x += force_vec[0];
         local_actin_forces[i].y += force_vec[1];
         local_actin_forces[i].z += force_vec[2];
-        local_myosin_forces[j].x -= force_vec[0];
-        local_myosin_forces[j].y -= force_vec[1];
-        local_myosin_forces[j].z -= force_vec[2];
+        vec delta_myosin_force{ -force_vec[0], -force_vec[1], -force_vec[2] };
+        local_myosin_forces[j] += delta_myosin_force;
+        debug_logging::log_myosin_force(j, delta_myosin_force, "actin-myosin binding");
         vec tau_i{force_vec[3], force_vec[4], force_vec[5]};
         vec tau_j{force_vec[6], force_vec[7], force_vec[8]};
         vec dir_i = actin.direction[i];
@@ -1094,7 +1073,6 @@ void Sarcomere::_calc_am_force_velocity(int& i) {
                 box,
                 am_cutoff*1.1,
                 k_aa,
-                max_myosin_force,
                 local_actin_forces[i],
                 local_myosin_forces[j]);
         }
@@ -1138,7 +1116,9 @@ void Sarcomere::_apply_titin_forces(int& i) {
                     continue;
                 }
                 local_actin_forces[act_a] += force;
-                local_myosin_forces[m] -= force;
+                vec delta_myosin_force = -force;
+                local_myosin_forces[m] += delta_myosin_force;
+                debug_logging::log_myosin_force(m, delta_myosin_force, "titin");
                 double dot_prod = actin.direction[act_a].dot(diff)/dist;
                 if (stretch < 0) {
                     dot_prod = -dot_prod;
@@ -1170,25 +1150,13 @@ void Sarcomere::_apply_myomesin_spring(int i, int j, std::vector<vec>& local_myo
     vec unit = diff / dist;
     double stretch = dist - myomesin_optimal;
     double force_scalar = -k_mm * stretch;
-    if (std::isfinite(max_myosin_force) && max_myosin_force > 0.0) {
-        force_scalar = std::clamp(force_scalar, -max_myosin_force, max_myosin_force);
-    }
     vec force_on_i = force_scalar * unit;
     vec force_on_j = -force_on_i;
 
-    if (i < fix_myosin && j < fix_myosin) {
-        return;
-    }
-    if (i < fix_myosin) {
-        local_myosin_forces[j] += 2.0 * force_on_j;
-        return;
-    }
-    if (j < fix_myosin) {
-        local_myosin_forces[i] += 2.0 * force_on_i;
-        return;
-    }
     local_myosin_forces[i] += force_on_i;
+    debug_logging::log_myosin_force(i, force_on_i, "myomesin");
     local_myosin_forces[j] += force_on_j;
+    debug_logging::log_myosin_force(j, force_on_j, "myomesin");
 }
 
 
@@ -1209,10 +1177,8 @@ void Sarcomere::_volume_exclusion(){
                     i,
                     j,
                     box,
-                    fix_myosin,
                     actinIndicesPerMyosin,
-                    10 * k_aa,
-                    max_myosin_force,
+                    100 * k_aa,
                     local_myosin_forces[i],
                     local_myosin_forces[j]);
                 _apply_myomesin_spring(i, j, local_myosin_forces);
@@ -1241,7 +1207,6 @@ void Sarcomere::_volume_exclusion(){
                     box,
                     aa_optimal,
                     10*k_aa,
-                    max_actin_force,
                     local_actin_forces[i],
                     local_actin_forces[j]);
             }
@@ -1261,7 +1226,9 @@ void Sarcomere::_apply_wall_forces() {
                                  std::vector<std::vector<vec>>& force_buffer,
                                  std::vector<std::vector<vec>>& torque_buffer,
                                  bool skip_fixed,
-                                 int fixed_count) {
+                                 int fixed_count,
+                                 const char* source_label,
+                                 bool log_myosin_force) {
         #pragma omp for schedule(static)
         for (int idx = 0; idx < filament.n; ++idx) {
             if (skip_fixed && idx < fixed_count) {
@@ -1338,6 +1305,9 @@ void Sarcomere::_apply_wall_forces() {
                     double magnitude = wall_k * std::pow(ratio, wall_exponent);
                     vec force = magnitude * normal;
                     local_forces[idx] += force;
+                    if (log_myosin_force) {
+                        debug_logging::log_myosin_force(idx, force, source_label);
+                    }
                     vec arm = q - center;
                     local_torques[idx] += arm.cross(force);
                 };
@@ -1348,8 +1318,8 @@ void Sarcomere::_apply_wall_forces() {
         }
     };
 
-    apply_to_filament(myosin, myosin_forces_temp, myosin_torques_temp, true, fix_myosin);
-    apply_to_filament(actin, actin_forces_temp, actin_torques_temp, false, 0);
+    apply_to_filament(myosin, myosin_forces_temp, myosin_torques_temp, false, 0, "wall", true);
+    apply_to_filament(actin, actin_forces_temp, actin_torques_temp, false, 0, nullptr, false);
 }
 
 void Sarcomere::_myosin_exclusion(){
@@ -1369,10 +1339,8 @@ void Sarcomere::_myosin_exclusion(){
                     i,
                     j,
                     box,
-                    fix_myosin,
                     actinIndicesPerMyosin,
-                    2*k_am,
-                    max_myosin_force,
+                    50*k_aa,
                     local_myosin_forces[i],
                     local_myosin_forces[j]);
                 _apply_myomesin_spring(i, j, local_myosin_forces);

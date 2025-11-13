@@ -60,7 +60,6 @@ int main(int argc, char* argv[]){
     bool directional;
     bool deterministic;
     bool use_autodiff_forces;
-    int n_fixed_myosins;
     int max_myosin_bonds;
     int dimension;
 
@@ -91,9 +90,9 @@ int main(int argc, char* argv[]){
             ("k_off", "k_off", cxxopts::value<double>(k_off)->default_value("1"))
             ("base_lifetime", "Base lifetime", cxxopts::value<double>(base_lifetime)->default_value("0.001"))
             ("lifetime_coeff", "Lifetime coefficient", cxxopts::value<double>(lifetime_coeff)->default_value("0.4"))
-            ("k_aa", "k_aa", cxxopts::value<double>(k_aa)->default_value("300"))
+            ("k_aa", "k_aa", cxxopts::value<double>(k_aa)->default_value("30"))
             ("kappa_aa", "kappa_aa", cxxopts::value<double>(kappa_aa)->default_value("100"))
-            ("k_am", "k_am", cxxopts::value<double>(k_am)->default_value("300"))
+            ("k_am", "k_am", cxxopts::value<double>(k_am)->default_value("30"))
             ("kappa_am", "kappa_am", cxxopts::value<double>(kappa_am)->default_value("100"))
             ("k_mm", "Myomesin spring constant", cxxopts::value<double>(k_mm)->default_value("0.0"))
             ("v_am", "v_am", cxxopts::value<double>(v_am)->default_value("5"))
@@ -122,7 +121,6 @@ int main(int argc, char* argv[]){
              cxxopts::value<int>(resume_frame)->default_value("-1"))
             ("directional", "Directional", cxxopts::value<bool>(directional)->default_value("true"))
             ("deterministic", "Enable reproducible deterministic scheduling", cxxopts::value<bool>(deterministic)->default_value("false"))
-            ("n_fixed_myosins", "Number of fixed myosins", cxxopts::value<int>(n_fixed_myosins)->default_value("0"))
             ("filename", "Filename", cxxopts::value<std::string>(filename)->default_value("data/traj.h5"))
             ("initial_structure", "Type of initial structure", cxxopts::value<std::string>(init_struc)->default_value("random"))
             ("max_myosin_bonds", "Maximum actin bonds per myosin",cxxopts::value<int>(max_myosin_bonds)->default_value("6"))
@@ -240,7 +238,7 @@ int main(int argc, char* argv[]){
                         k_on, k_off,
                         base_lifetime, lifetime_coeff, diff_coeff_ratio,
                           k_aa, kappa_aa, k_am, kappa_am, k_mm, v_am,
-                        filename,rng, seed, n_fixed_myosins, dt, tau_rec,
+                        filename,rng, seed, dt, tau_rec,
                         titin_k, titin_rest_length,
                         directional, max_myosin_bonds, max_actin_force, max_myosin_force,
                         max_actin_torque, max_myosin_torque, periodic_axes, use_autodiff_forces);
@@ -270,10 +268,10 @@ int main(int argc, char* argv[]){
                     max_actin_rotation, max_myosin_rotation, resume_frame);
     if (!resume){
         if (init_struc == "sarcomere") {
-        sim.model.sarcomeric_structure_tight();}
-
+            sim.model.sarcomeric_structure_tight();
+        }
         else if (init_struc == "partial"){
-            sim.model.partial_fix(n_fixed_myosins);
+            sim.model.sarcomeric_structure();
         }
         else if (init_struc == "cb"){
             sim.model.cb();
@@ -281,10 +279,10 @@ int main(int argc, char* argv[]){
         else if (init_struc == "cb_off_angle"){
             sim.model.cb_off_angle();
         }
-        int n_volume_exclusion = 0;
-        sim.volume_exclusion(n_volume_exclusion, rng, n_fixed_myosins);
+        int n_volume_exclusion = 500;
+        sim.volume_exclusion(n_volume_exclusion, rng);
     }
-    sim.run_langevin(nsteps, rng, n_fixed_myosins);
+    sim.run_langevin(nsteps, rng);
     gsl_rng_free(rng);
     return 0;
 }

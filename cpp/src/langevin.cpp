@@ -68,7 +68,7 @@ Langevin::~Langevin() {
 // run_langevin: Runs the simulation for nsteps, periodically saving the
 // state and taking sample steps.
 //---------------------------------------------------------------------
-void Langevin::run_langevin(int nsteps, gsl_rng* rng, int& fix_myosin) {
+void Langevin::run_langevin(int nsteps, gsl_rng* rng) {
     double start, end;
     int end_step = start_step + nsteps;
     for (int step = start_step; step < end_step; ++step) {
@@ -80,7 +80,8 @@ void Langevin::run_langevin(int nsteps, gsl_rng* rng, int& fix_myosin) {
             start = omp_get_wtime();
         }
         model.update_system();
-        sample_step(dt, rng, fix_myosin);
+        log_myosin_forces();
+        sample_step(dt, rng);
         if (step % save_every == 0) {
             end = omp_get_wtime();
             printf("Step %d took %f seconds\n", step, end - start);
@@ -90,7 +91,7 @@ void Langevin::run_langevin(int nsteps, gsl_rng* rng, int& fix_myosin) {
     start_step = end_step;
 }
 
-void Langevin::volume_exclusion(int nsteps, gsl_rng* rng, int& fix_myosin) {
+void Langevin::volume_exclusion(int nsteps, gsl_rng* rng) {
     double start, end;
     int end_step = start_step + nsteps;
     for (int step = start_step; step < end_step; ++step) {
@@ -101,7 +102,8 @@ void Langevin::volume_exclusion(int nsteps, gsl_rng* rng, int& fix_myosin) {
             start = omp_get_wtime();
         }
         model.update_system_sterics_only();
-        sample_step(dt, rng, fix_myosin);
+        //log_myosin_forces();
+        sample_step(dt, rng);
         if (step % save_every == 0) {
             end = omp_get_wtime();
             printf("Step %d took %f seconds\n", step, end - start);
@@ -114,7 +116,7 @@ void Langevin::volume_exclusion(int nsteps, gsl_rng* rng, int& fix_myosin) {
 // sample_step: Performs a single Langevin dynamics step by updating the 
 // system, generating noise, and displacing myosin and actin particles.
 //---------------------------------------------------------------------
-void Langevin::sample_step(double& dt, gsl_rng* rng, int& fix_myosin) {
+void Langevin::sample_step(double& dt, gsl_rng* rng) {
     // Generate noise for both myosin and actin particles.
     int n_randns = (model.myosin.n + model.actin.n) * 6;
     std::vector<double> noise(n_randns);
@@ -221,7 +223,7 @@ void Langevin::sample_step(double& dt, gsl_rng* rng, int& fix_myosin) {
     double D_rot = D_myosin_rot;
     // Update myosin particles.
     const double displacement_slack = 1.3;
-    for (int i = fix_myosin; i < model.myosin.n; i++) {
+    for (int i = 0; i < model.myosin.n; i++) {
         if (!is3D) {
             model.myosin.force[i].z = 0;
             model.myosin.velocity[i].z = 0;
@@ -350,5 +352,12 @@ void Langevin::sample_step(double& dt, gsl_rng* rng, int& fix_myosin) {
         model.actin.direction[i] = new_dir_act;
         model.actin.update_endpoints(i);
         clamp_center(model.actin, i);
+    }
+}
+
+void Langevin::log_myosin_forces() const {
+    for (int i = 0; i < model.myosin.n; ++i) {
+        const vec& f = model.myosin.force[i];
+        printf("myosin %d force: %f %f %f\n", i, f.x, f.y, f.z);
     }
 }

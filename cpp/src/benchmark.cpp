@@ -48,7 +48,6 @@ public:
         double k_mm = 0.0;
         resume = false;
         directional = true;
-        n_fixed_myosins = 0;
         filename = "traj.h5";
         init_struc = "random"; // or "sarcomere", "partial", etc.
         double tau_rec = 0.0;
@@ -83,7 +82,7 @@ public:
             k_on, k_off,
             base_lifetime, lifetime_coeff, diff_coeff_ratio,
               k_aa, kappa_aa, k_am, kappa_am, k_mm, v_am,
-            filename,rng, seed, n_fixed_myosins, dt, tau_rec,
+            filename,rng, seed, dt, tau_rec,
             titin_k, titin_rest_length, directional, 5, max_actin_force, max_myosin_force,
             std::numeric_limits<double>::infinity(), std::numeric_limits<double>::infinity());
 
@@ -101,14 +100,14 @@ public:
             if (init_struc == "sarcomere") {
                 sim->model.sarcomeric_structure();
             } else if (init_struc == "partial") {
-                sim->model.partial_fix(n_fixed_myosins);
+                sim->model.sarcomeric_structure();
             } else if (init_struc == "cb") {
                 sim->model.cb();
             }
         }
 
         // Perform volume exclusion as in the simulation.
-        sim->volume_exclusion(1, rng, n_fixed_myosins);
+        sim->volume_exclusion(1, rng);
     }
 
     void TearDown(const ::benchmark::State& state) override {
@@ -120,7 +119,7 @@ public:
 protected:
     // Simulation parameters.
     int nsteps, seed, save_every;
-    int n_actins, n_myosins, n_fixed_myosins;
+    int n_actins, n_myosins;
     double dt, beta, actin_diff_coeff_trans, actin_diff_coeff_rot, myosin_diff_coeff_trans,
               myosin_diff_coeff_rot;
     double k_on, k_off, base_lifetime, lifetime_coeff;
@@ -139,7 +138,7 @@ protected:
 BENCHMARK_DEFINE_F(RunLangevinBenchmark, RunLangevin)(benchmark::State& state) {
     for (auto _ : state) {
         // Time the run_langevin call.
-        sim->run_langevin(nsteps, rng, n_fixed_myosins);
+        sim->run_langevin(nsteps, rng);
     }
     state.SetItemsProcessed(state.iterations());
 }

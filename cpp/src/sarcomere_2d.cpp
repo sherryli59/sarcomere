@@ -20,7 +20,7 @@ Sarcomere::Sarcomere(int& n_actins, int& n_myosins, std::vector<double> box0, do
               double& myosin_radius, double& myosin_radius_ratio, double& aa_cutoff, double& aa_optimal,
               double& crosslinker_length, double& k_on,
               double& base_lifetime, double& lifetime_coeff, double& diff_coeff_ratio, double& k_aa, double& kappa_aa, double& k_am, double& kappa_am, double& v_am,
-              std::string& filename, gsl_rng* rng, int& seed, int& fix_myosin, double& dt, bool& directional, std::string& boundary_condition, int max_myosin_bonds, int max_strong_actin_bonds, double max_actin_force_param, double max_myosin_force_param, double max_actin_torque_param, double max_myosin_torque_param,
+              std::string& filename, gsl_rng* rng, int& seed, double& dt, bool& directional, std::string& boundary_condition, int max_myosin_bonds, int max_strong_actin_bonds, double max_actin_force_param, double max_myosin_force_param, double max_actin_torque_param, double max_myosin_torque_param,
               const std::array<bool,3>& periodic_axes,
               bool use_autodiff) :
             pbc_mask(utils::parse_pbc_mask(boundary_condition)),
@@ -79,7 +79,6 @@ Sarcomere::Sarcomere(int& n_actins, int& n_myosins, std::vector<double> box0, do
             this->skin_distance = skin_distance;
             this->filename = filename;
             this->rng = rng;
-            this->fix_myosin = fix_myosin;
             this->dt = dt;
             this->myosin_radius_ratio = myosin_radius_ratio;
             this->base_lifetime = base_lifetime;
@@ -138,25 +137,6 @@ void Sarcomere::myosin_on_a_lattice() {
         myosin.center[i].y = myosin_positions[i][1];
         myosin.theta[i] = 0;
     }
-    myosin.update_endpoints();
-    update_system();
-}
-
-void Sarcomere::partial_fix(int& n_fixed){
-    std::vector<std::vector<double>> myosin_positions;
-    myosin_positions = {{-1.38,-0.96},{-1.38,0.96}, {1.38,-0.96},{1.38,0.96},
-                        {-1.38, 0}, {1.38,0},
-                        {-1.38,-0.32},{-1.38,0.32}, {1.38,-0.32},{1.38,0.32},
-                        {-1.38,-0.64},{-1.38,0.64}, {1.38,-0.64},{1.38,0.64},
-                        {-1.38,-1.28},{-1.38,1.28}, {1.38,-1.28},{1.38,1.28}};
-    for (int i = 0; i < n_fixed; i++){
-        myosin.center[i].x = myosin_positions[i][0];
-        myosin.center[i].y = myosin_positions[i][1];
-        myosin.theta[i] = 0;
-    }
-    // for (int i = 0; i <myosin.n; i++){
-    //     myosin.theta[i] = 0;
-    // }
     myosin.update_endpoints();
     update_system();
 }
@@ -818,14 +798,6 @@ void Sarcomere::_myosin_repulsion(int& i, int& j){
                 normal_vector = normal_vector/norm;
             }
             // vec normal_vector = center_displacement/center_distance;
-            if (i<fix_myosin){
-                local_myosin_forces[j]-=2*factor*normal_vector;
-                return;
-            }
-            else if (j<fix_myosin){
-                local_myosin_forces[i]+=2*factor*normal_vector;
-                return;
-            }
             //check if any of the myosin is bound to cb-forming actin
             auto actin_indices_i = actinIndicesPerMyosin.getConnections(i);
             double cb_strength_i = 0;

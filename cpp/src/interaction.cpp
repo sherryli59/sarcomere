@@ -1,4 +1,5 @@
 #include "interaction.h"
+#include "debug_logging.h"
 #include "geometry.h"
 #include <cstdio>
 #include <cstdlib>  // For exit()
@@ -34,7 +35,7 @@ real am_energy1(const ArrayXreal& center1, const double& length1, const ArrayXre
     real dot_val = dir1[0]*dir2[0] + dir1[1]*dir2[1] + dir1[2]*dir2[2];
     real strength = abs(dot_val);
     dot_val = std::max(real(-1), std::min(real(1), dot_val));  // clamp
-    real angle_energy = 0.5 * kappa_am * (1.0 - dot_val * dot_val); 
+    real angle_energy = 0.5 * kappa_am * (1.0 - dot_val * dot_val);
     if (dist > cutoff) {
         printf("something's wrong. dist: %f\n", dist.val());
         return angle_energy;
@@ -380,17 +381,12 @@ RepulsionResult compute_myosin_repulsion(const Filament& actin,
                                          int i,
                                          int j,
                                          const std::vector<double>& box,
-                                         int fix_myosin,
                                          const utils::MoleculeConnection& actinIndicesPerMyosin,
-                                         double stiffness,
-                                         double max_force_cap)
+                                         double stiffness)
 {
     RepulsionResult result{};
     const double cutoff = 2.0 * myosin.radius;
     const double EPS = 1e-9;
-    const double max_force_limit = (max_force_cap > 0.0 && std::isfinite(max_force_cap))
-                                       ? max_force_cap
-                                       : std::numeric_limits<double>::infinity();
 
     vec center_displacement = myosin.center[i] - myosin.center[j];
     center_displacement.pbc_wrap(box, myosin.periodic_axes);
@@ -417,16 +413,31 @@ RepulsionResult compute_myosin_repulsion(const Filament& actin,
     vec normal_vector = normal_it->second;
     double norm = normal_vector.norm();
     if (norm <= EPS) {
-        const double denom = std::max(center_distance, EPS);
-        if (denom <= EPS) {
+        vec candidate = center_displacement;
+        double cand_norm = candidate.norm();
+        if (cand_norm <= EPS) {
+            candidate = myosin.direction[i].cross(myosin.direction[j]);
+            cand_norm = candidate.norm();
+        }
+        if (cand_norm <= EPS) {
+            const vec basis_x{1.0, 0.0, 0.0};
+            const vec basis_y{0.0, 1.0, 0.0};
+            candidate = myosin.direction[i].cross(basis_x);
+            cand_norm = candidate.norm();
+            if (cand_norm <= EPS) {
+                candidate = myosin.direction[i].cross(basis_y);
+                cand_norm = candidate.norm();
+            }
+        }
+        if (cand_norm <= EPS) {
             return result;
         }
-        normal_vector = center_displacement / denom;
+        normal_vector = candidate / cand_norm;
     } else {
         normal_vector = normal_vector / norm;
     }
 
-    double overlap = cutoff - distance;
+    double overlap = (cutoff - distance)/cutoff;
     if (overlap <= 0.0) {
         return result;
     }
@@ -440,22 +451,10 @@ RepulsionResult compute_myosin_repulsion(const Filament& actin,
     if (!std::isfinite(force_mag) || force_mag < 0.0) {
         force_mag = 0.0;
     }
-    if (force_mag > max_force_limit) {
-        force_mag = max_force_limit;
-    }
 
     vec force_vec = force_mag * normal_vector;
 
     result.applied = true;
-
-    if (i < fix_myosin) {
-        result.force_on_second -= force_vec * 2.0;
-        return result;
-    }
-    if (j < fix_myosin) {
-        result.force_on_first += force_vec * 2.0;
-        return result;
-    }
 
     int status_i = 0;
     const auto& connections_i = actinIndicesPerMyosin.getConnections(i);
@@ -477,6 +476,9 @@ RepulsionResult compute_myosin_repulsion(const Filament& actin,
         result.force_on_first += force_vec;
         result.force_on_second -= force_vec;
     }
+    if (overlap > 0.1){
+    printf("Myosin-myosin repulsion applied between %d (status %d) and %d (status %d): overlap %.3f\n",
+           i, status_i, j, status_j, overlap);}
     return result;
 }
 
@@ -485,13 +487,9 @@ RepulsionResult compute_actin_repulsion(const Filament& actin,
                                         int j,
                                         const std::vector<double>& box,
                                         double crosslinker_length,
-                                        double stiffness,
-                                        double max_force_cap)
+                                        double stiffness)
 {
     RepulsionResult result{};
-    const double max_force_limit = (max_force_cap > 0.0 && std::isfinite(max_force_cap))
-                                       ? max_force_cap
-                                       : std::numeric_limits<double>::infinity();
     const double EPS = 1e-9;
 
     vec center_displacement = actin.center[i] - actin.center[j];
@@ -519,17 +517,42 @@ RepulsionResult compute_actin_repulsion(const Filament& actin,
     vec normal_vector = normal_it->second;
     double norm = normal_vector.norm();
     if (norm <= EPS) {
-        normal_vector = actin.direction[i].cross(actin.direction[j]);
-        double fallback_norm = normal_vector.norm();
-        if (fallback_norm <= EPS) {
+        vec center_displacement = actin.center[i] - actin.center[j];
+        center_displacement.pbc_wrap(box, actin.periodic_axes);
+        vec dir_i = actin.direction[i];
+        vec dir_j = actin.direction[j];
+        if (dir_i.norm_squared() > EPS) {
+            dir_i.normalize();
+        }
+        if (dir_j.norm_squared() > EPS) {
+            dir_j.normalize();
+        }
+        vec candidate = center_displacement;
+        candidate -= dir_i * candidate.dot(dir_i);  // remove axial component
+        double cand_norm = candidate.norm();
+        if (cand_norm <= EPS) {
+            candidate = dir_i.cross(dir_j);
+            cand_norm = candidate.norm();
+        }
+        if (cand_norm <= EPS) {
+            const vec basis_x{1.0, 0.0, 0.0};
+            const vec basis_y{0.0, 1.0, 0.0};
+            candidate = dir_i.cross(basis_x);
+            cand_norm = candidate.norm();
+            if (cand_norm <= EPS) {
+                candidate = dir_i.cross(basis_y);
+                cand_norm = candidate.norm();
+            }
+        }
+        if (cand_norm <= EPS) {
             return result;
         }
-        normal_vector = normal_vector / fallback_norm;
+        normal_vector = candidate / cand_norm;
     } else {
         normal_vector = normal_vector / norm;
     }
 
-    double overlap = crosslinker_length - distance;
+    double overlap = (crosslinker_length - distance)/crosslinker_length;
     if (overlap <= 0.0) {
         return result;
     }
@@ -565,14 +588,9 @@ vec compute_actin_myosin_repulsion(const Filament& actin,
                                    int myo_idx,
                                    const std::vector<double>& box,
                                    double radius,
-                                   double stiffness,
-                                   double max_force_cap)
+                                   double stiffness)
 {
     // const double EPS = 1e-9;
-    // const double max_force_limit = (max_force_cap > 0.0 && std::isfinite(max_force_cap))
-    //                                    ? max_force_cap
-    //                                    : std::numeric_limits<double>::infinity();
-
     auto geom = geometry::segment_segment_distance_w_normal(
         actin.left_end[act_idx], actin.right_end[act_idx],
         myosin.left_end[myo_idx], myosin.right_end[myo_idx],
@@ -630,10 +648,8 @@ bool apply_myosin_repulsion(const Filament& actin,
                             int i,
                             int j,
                             const std::vector<double>& box,
-                            int fix_myosin,
                             const utils::MoleculeConnection& actinIndicesPerMyosin,
                             double stiffness,
-                            double max_force_cap,
                             vec& force_on_first,
                             vec& force_on_second)
 {
@@ -643,15 +659,15 @@ bool apply_myosin_repulsion(const Filament& actin,
         i,
         j,
         box,
-        fix_myosin,
         actinIndicesPerMyosin,
-        stiffness,
-        max_force_cap);
+        stiffness);
     if (!result.applied) {
         return false;
     }
     force_on_first += result.force_on_first;
+    debug_logging::log_myosin_force(i, result.force_on_first, "myosin_repulsion");
     force_on_second += result.force_on_second;
+    debug_logging::log_myosin_force(j, result.force_on_second, "myosin_repulsion");
     return true;
 }
 
@@ -661,7 +677,6 @@ bool apply_actin_repulsion(const Filament& actin,
                            const std::vector<double>& box,
                            double crosslinker_length,
                            double stiffness,
-                           double max_force_cap,
                            vec& force_on_first,
                            vec& force_on_second)
 {
@@ -671,8 +686,7 @@ bool apply_actin_repulsion(const Filament& actin,
         j,
         box,
         crosslinker_length,
-        stiffness,
-        max_force_cap);
+        stiffness);
     if (!result.applied) {
         return false;
     }
@@ -688,7 +702,6 @@ bool apply_actin_myosin_repulsion(const Filament& actin,
                                   const std::vector<double>& box,
                                   double radius,
                                   double stiffness,
-                                  double max_force_cap,
                                   vec& force_on_actin,
                                   vec& force_on_myosin)
 {
@@ -700,11 +713,11 @@ bool apply_actin_myosin_repulsion(const Filament& actin,
         myo_idx,
         box,
         radius,
-        stiffness,
-        max_force_cap);
+        stiffness);
     if (repulsive_force.norm() <= EPS_FORCE) {
         return false;
     }
     force_on_myosin += repulsive_force;
+    debug_logging::log_myosin_force(myo_idx, repulsive_force, "actin-myosin repulsion");
     return true;
 }

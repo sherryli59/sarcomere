@@ -63,7 +63,6 @@ public:
     size_t bond_recovery_steps;
     bool directional;
     bool use_autodiff_forces = false;
-    int fix_myosin;
     int max_myosin_bonds;
     int max_strong_actin_bonds;
     std::vector<std::vector<interaction>> am_interaction;
@@ -114,16 +113,16 @@ public:
         double& k_on,
         double& base_lifetime, double& lifetime_coeff, double& diff_coeff_ratio, double& k_aa, double& kappa_aa,
         double& k_am, double& kappa_am, double& v_am, std::string& filename, gsl_rng* rng, int& seed,
-        int& fix_myosin, double& dt, bool& directional, std::string& boundary_condition,
+        double& dt, bool& directional, std::string& boundary_condition,
         int max_myosin_bonds, int max_strong_actin_bonds, double max_actin_force_param,
         double max_myosin_force_param, double max_actin_torque_param, double max_myosin_torque_param,
         const std::array<bool,3>& periodic_axes = std::array<bool,3>{true, true, true},
         bool use_autodiff_forces = false);
     Sarcomere(int& n_actins, int& n_myosins, vector box0, double& actin_length, double& myosin_length,
         double& myosin_radius, double& am_cutoff, double& am_optimal, double& aa_cutoff, double& aa_optimal,
-         double& k_on, double& k_off,
+        double& k_on, double& k_off,
         double& base_lifetime, double& lifetime_coeff, double& diff_coeff_ratio, double& k_aa, double& kappa_aa, double& k_am, double& kappa_am, double& k_mm, double& v_am,
-        std::string& filename, gsl_rng* rng, int& seed, int& fix_myosin, double& dt, double tau_rec,
+        std::string& filename, gsl_rng* rng, int& seed, double& dt, double tau_rec,
         double titin_k, double titin_rest_length, bool& directional, int max_myosin_bonds,
         double max_actin_force_param, double max_myosin_force_param,
         double max_actin_torque_param, double max_myosin_torque_param,
@@ -133,7 +132,6 @@ public:
 
     // Public Methods
     void myosin_on_a_lattice();
-    void partial_fix(int& n_fixed_myosins);
     void cb();
     void bad_cb();
     void cb_off_angle();

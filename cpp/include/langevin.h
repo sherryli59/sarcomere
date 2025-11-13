@@ -28,10 +28,10 @@ public:
     ~Langevin();
 
     // Run the Langevin simulation for a given number of steps.
-    void run_langevin(int nsteps, gsl_rng* rng, int& fix_myosin);
-    void volume_exclusion(int nsteps, gsl_rng* rng, int& fix_myosin);
+    void run_langevin(int nsteps, gsl_rng* rng);
+    void volume_exclusion(int nsteps, gsl_rng* rng);
     // Take a single simulation step.
-    void sample_step(double& dt, gsl_rng* rng, int& fix_myosin);
+    void sample_step(double& dt, gsl_rng* rng);
 
     // Data members.
     double dt, beta, D_actin_trans, D_actin_rot, D_myosin_trans, D_myosin_rot;
@@ -40,6 +40,9 @@ public:
     bool is3D;
     int save_every, start_step, loaded_frame_index;
     Sarcomere& model;
+
+private:
+    void log_myosin_forces() const;
 };
 
 #endif // LANGEVIN_H
