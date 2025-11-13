@@ -172,33 +172,171 @@ def plot_system(frame, data, myosin_length, actin_length, Lx, Ly, Lz,
     # ------------------------------------------------------------------
     # Myosin filaments
     # ------------------------------------------------------------------
-    if myosin_display == "bonded":
-        bonds = data["/myosin/bonds"][frame]
-        valid_pairs = bonds[bonds[:, 0] >= 0].astype(int)
-        bonded_indices = np.unique(valid_pairs.flatten())
-        myosin_center = data["/myosin/center"][frame][bonded_indices] if bonded_indices.size > 0 else np.empty((0, 3))
-        myosin_direction = data["/myosin/direction"][frame][bonded_indices] if bonded_indices.size > 0 else np.empty((0, 3))
-    else:  # plot all myosins
-        myosin_center = data["/myosin/center"][frame]
-        myosin_direction = data["/myosin/direction"][frame]
+    myosin_centers_frame = data["/myosin/center"][frame]
+    myosin_dirs_frame = data["/myosin/direction"][frame]
+    n_myosins = myosin_centers_frame.shape[0]
+    actin_myo_bonds = data.get("/actin_myo/bonds")
+    highlight_indices = np.array([], dtype=int)
+    if actin_myo_bonds is not None:
+        frame_bonds = actin_myo_bonds[frame]
+        valid_pairs = frame_bonds[frame_bonds[:, 0] >= 0]
+        strong_actins = np.where(cb_status == 2)[0]
+        if valid_pairs.size > 0 and strong_actins.size > 0:
+            valid_pairs = valid_pairs.astype(int)
+            mask_strong = np.isin(valid_pairs[:, 0], strong_actins)
+            if np.any(mask_strong):
+                highlight_indices = np.unique(valid_pairs[mask_strong, 1])
 
-    if myosin_center.size > 0:
-        plot_filaments_3d(
-            center=myosin_center,
-            direction=myosin_direction,
-            radius=myosin_radius,
-            l=myosin_length,
-            Lx=Lx, Ly=Ly, Lz=Lz,
-            plotter=plotter,
-            color='lemon_chiffon',
-        )
+    if myosin_display == "bonded":
+        myo_bonds = data["/myosin/bonds"][frame]
+        valid_pairs = myo_bonds[myo_bonds[:, 0] >= 0].astype(int)
+        bonded_indices = np.unique(valid_pairs.flatten())
+        display_indices = bonded_indices if bonded_indices.size > 0 else np.empty(0, dtype=int)
+    elif myosin_display == "cb_attached":
+        if actin_myo_bonds is None:
+            print("Warning: /actin_myo/bonds dataset not found; displaying all myosins.")
+            display_indices = np.arange(n_myosins)
+        else:
+            frame_bonds = actin_myo_bonds[frame]
+            valid_pairs = frame_bonds[frame_bonds[:, 0] >= 0]
+            cb_indices = np.where(cb_status > 1)[0]
+            if valid_pairs.size == 0 or cb_indices.size == 0:
+                display_indices = np.empty(0, dtype=int)
+            else:
+                valid_pairs = valid_pairs.astype(int)
+                mask_cb_pairs = np.isin(valid_pairs[:, 0], cb_indices)
+                cb_pairs = valid_pairs[mask_cb_pairs]
+                if cb_pairs.size == 0:
+                    display_indices = np.empty(0, dtype=int)
+                else:
+                    display_indices = np.unique(cb_pairs[:, 1])
+    else:  # plot all myosins
+        display_indices = np.arange(n_myosins)
+
+    if display_indices.size > 0:
+        myosin_center = myosin_centers_frame[display_indices]
+        myosin_direction = myosin_dirs_frame[display_indices]
+        highlight_mask = np.isin(display_indices, highlight_indices)
+        base_center = myosin_center[~highlight_mask]
+        base_direction = myosin_direction[~highlight_mask]
+        highlight_center = myosin_center[highlight_mask]
+        highlight_direction = myosin_direction[highlight_mask]
+
+        if base_center.size > 0:
+            plot_filaments_3d(
+                center=base_center,
+                direction=base_direction,
+                radius=myosin_radius,
+                l=myosin_length,
+                Lx=Lx, Ly=Ly, Lz=Lz,
+                plotter=plotter,
+                color='lemon_chiffon',
+            )
+        if highlight_center.size > 0:
+            plot_filaments_3d(
+                center=highlight_center,
+                direction=highlight_direction,
+                radius=myosin_radius,
+                l=myosin_length,
+                Lx=Lx, Ly=Ly, Lz=Lz,
+                plotter=plotter,
+                color='#f5a45b',  # light orange
+            )
 
     plotter.set_background("white")
     plotter.set_scale(xscale=Lx, yscale=Ly, zscale=Lz)
     plotter.set_focus((0, 0, 0))
-    plotter.camera_position = 'xy'
+    plotter.camera_position = 'iso'
 
     return plotter
+
+
+def export_cb_pair_images(frame, data, output_dir, frame_digits,
+                          actin_length, myosin_length, myosin_radius,
+                          Lx, Ly, Lz):
+    """
+    For a single frame, create individual images for each pair of actins
+    whose cb_status == 2 and export the attached myosins.
+    """
+    actin_bonds = data.get("/actin/bonds")
+    if actin_bonds is None:
+        print("Dataset /actin/bonds not found; skipping catch-bond pair exports.")
+        return
+
+    actin_centers = data["/actin/center"][frame]
+    actin_dirs = data["/actin/direction"][frame]
+    cb_status = data["/actin/cb_status"][frame].flatten()
+    frame_bonds = actin_bonds[frame]
+
+    cb_pairs = []
+    for raw_pair in frame_bonds:
+        a_idx, b_idx = int(raw_pair[0]), int(raw_pair[1])
+        if a_idx < 0 or b_idx < 0:
+            continue
+        if cb_status[a_idx] == 2 and cb_status[b_idx] == 2:
+            if b_idx < a_idx:
+                a_idx, b_idx = b_idx, a_idx
+            cb_pairs.append((a_idx, b_idx))
+
+    if not cb_pairs:
+        print(f"Frame {frame}: no catch-bonded actin pairs found for export.")
+        return
+
+    actin_myo_bonds = data.get("/actin_myo/bonds")
+    actin_to_myosins = {}
+    if actin_myo_bonds is not None:
+        frame_am = actin_myo_bonds[frame]
+        for a_idx, m_idx in frame_am:
+            a_idx, m_idx = int(a_idx), int(m_idx)
+            if a_idx < 0 or m_idx < 0:
+                continue
+            actin_to_myosins.setdefault(a_idx, set()).add(m_idx)
+    else:
+        print("Dataset /actin_myo/bonds not found; exporting actin pairs without myosin context.")
+
+    myosin_centers = data["/myosin/center"][frame]
+    myosin_dirs = data["/myosin/direction"][frame]
+
+    for pair_id, (a_idx, b_idx) in enumerate(sorted(set(cb_pairs))):
+        plotter = pv.Plotter(off_screen=True)
+
+        for color, idx in zip(("#1f77b4", "#d62728"), (a_idx, b_idx)):
+            plot_filaments_3d(
+                center=actin_centers[idx:idx+1],
+                direction=actin_dirs[idx:idx+1],
+                radius=0.02,
+                l=actin_length,
+                Lx=Lx, Ly=Ly, Lz=Lz,
+                plotter=plotter,
+                color=color,
+            )
+
+        attached_myosins = sorted(
+            (actin_to_myosins.get(a_idx, set()) | actin_to_myosins.get(b_idx, set()))
+        )
+        if attached_myosins:
+            plot_filaments_3d(
+                center=myosin_centers[attached_myosins],
+                direction=myosin_dirs[attached_myosins],
+                radius=myosin_radius,
+                l=myosin_length,
+                Lx=Lx, Ly=Ly, Lz=Lz,
+                plotter=plotter,
+                color="#f5a45b",
+            )
+
+        plotter.set_background("white")
+        plotter.set_scale(xscale=Lx, yscale=Ly, zscale=Lz)
+        plotter.set_focus((0, 0, 0))
+        plotter.camera_position = 'iso'
+
+        filename = os.path.join(
+            output_dir,
+            f"frame_{frame:0{frame_digits}d}_pair_{pair_id:03d}_actins_{a_idx}_{b_idx}.png",
+        )
+        plotter.screenshot(filename)
+        plotter.close()
+        print(f"Saved catch-bond pair snapshot: {filename}")
 
 
 def plot(ind, nworkers, frame_range, **kwargs):
@@ -251,11 +389,19 @@ def parse_args():
                         help="Start frame (inclusive)")
     parser.add_argument("--end_frame", type=int, default=None,
                         help="End frame (exclusive); default is the last frame")
+    parser.add_argument("--single_frame", type=int, default=None,
+                        help="Render only this frame (overrides start/end ranges)")
     parser.add_argument(
         "--myosin_display",
-        choices=["all", "bonded"],
+        choices=["all", "bonded", "cb_attached"],
         default="all",
-        help="Display all myosins or only those engaged in bonds.",
+        help="Display all myosins, only myosin–myosin bonds, or those attached to catch-bonded actins.",
+    )
+    parser.add_argument(
+        "--cb_pair_dir",
+        type=str,
+        default=None,
+        help="If set, exports per-pair snapshots of cb_status==2 actins and their attached myosins.",
     )
     return parser.parse_args()
 
@@ -365,6 +511,8 @@ if __name__ == "__main__":
     actin_length = args.actin_length
     myosin_length = args.myosin_length
     myosin_display = args.myosin_display
+    single_frame = args.single_frame
+    cb_pair_dir = args.cb_pair_dir
 
     # Open the HDF5 file and convert to dictionary.
     traj = h5py.File(filename, 'r')
@@ -381,9 +529,15 @@ if __name__ == "__main__":
     nparticles = data["/actin/center"].shape[1]
     print(f"Number of particles: {nparticles}")
     print(f"Number of frames: {nframes}")
-    start_frame = max(0, args.start_frame)
-    end_frame = args.end_frame if args.end_frame is not None else nframes
-    end_frame = min(end_frame, nframes)
+    if single_frame is not None:
+        if single_frame < 0 or single_frame >= nframes:
+            raise ValueError(f"single_frame {single_frame} out of bounds (0, {nframes-1})")
+        start_frame = single_frame
+        end_frame = single_frame + 1
+    else:
+        start_frame = max(0, args.start_frame)
+        end_frame = args.end_frame if args.end_frame is not None else nframes
+        end_frame = min(end_frame, nframes)
     frame_range = range(start_frame, end_frame)
     if args.print_frame < nframes:
         actin_center = data["/actin/center"][args.print_frame]
@@ -405,6 +559,19 @@ if __name__ == "__main__":
     html_format = "{}/frame_{:0" + str(n_digits) + "d}.html"
     if not os.path.exists(frame_dir):
         os.mkdir(frame_dir)
+    if cb_pair_dir is not None:
+        os.makedirs(cb_pair_dir, exist_ok=True)
+        for frame in frame_range:
+            export_cb_pair_images(
+                frame=frame,
+                data=data,
+                output_dir=cb_pair_dir,
+                frame_digits=n_digits,
+                actin_length=actin_length,
+                myosin_length=myosin_length,
+                myosin_radius=myosin_radius,
+                Lx=Lx, Ly=Ly, Lz=Lz,
+            )
     Parallel(n_jobs=cpu_workers)(
         delayed(plot)(i, cpu_workers,
                       frame_range=frame_range,
@@ -416,6 +583,3 @@ if __name__ == "__main__":
                       myosin_display=myosin_display)
         for i in range(cpu_workers)
     )
-
-
-
