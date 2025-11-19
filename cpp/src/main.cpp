@@ -45,12 +45,15 @@ int main(int argc, char* argv[]){
     double actin_length;
     double myosin_length;
     double myosin_radius;
+    double myosin_direction_noise;
     double am_cutoff;
     double am_optimal;
     double aa_cutoff;
     double aa_optimal;
     double tau_rec;
     double titin_k;
+    double k_bundle_max;
+    int bundle_ramp_steps;
     bool resume;
     int resume_frame;
     bool directional;
@@ -101,7 +104,7 @@ int main(int argc, char* argv[]){
             ("max_myosin_rotation", "Maximum rotational magnitude per step for myosin",
              cxxopts::value<double>(max_myosin_rotation)->default_value("0.005"))
             ("save_every", "Save every", cxxopts::value<int>(save_every)->default_value("200"))
-            ("k_on", "k_on", cxxopts::value<double>(k_on)->default_value("10000"))
+            ("k_on", "k_on", cxxopts::value<double>(k_on)->default_value("100000"))
             ("k_off", "k_off", cxxopts::value<double>(k_off)->default_value("1"))
             ("base_lifetime", "Base lifetime", cxxopts::value<double>(base_lifetime)->default_value("0.001"))
             ("lifetime_coeff", "Lifetime coefficient", cxxopts::value<double>(lifetime_coeff)->default_value("0.4"))
@@ -111,7 +114,7 @@ int main(int argc, char* argv[]){
             ("k_mm", "k_mm", cxxopts::value<double>(k_mm)->default_value("0"))
             ("kmm", "Alias for k_mm (myomesin spring constant)", cxxopts::value<double>(k_mm))
             ("kappa_am", "kappa_am", cxxopts::value<double>(kappa_am)->default_value("100"))
-            ("v_am", "v_am", cxxopts::value<double>(v_am)->default_value("5"))
+            ("v_am", "v_am", cxxopts::value<double>(v_am)->default_value("10"))
             ("n_actins", "Number of actins", cxxopts::value<int>(n_actins)->default_value("50"))
             ("n_myosins", "Number of myosins", cxxopts::value<int>(n_myosins)->default_value("4"))
             ("Lx", "Lx", cxxopts::value<double>(Lx)->default_value("10"))
@@ -124,12 +127,16 @@ int main(int argc, char* argv[]){
             ("actin_length", "Actin length", cxxopts::value<double>(actin_length)->default_value("1"))
             ("myosin_length", "Myosin length", cxxopts::value<double>(myosin_length)->default_value("1.5"))
             ("myosin_radius", "Myosin radius", cxxopts::value<double>(myosin_radius)->default_value("0.025"))
+            ("myosin_direction_noise", "Std dev for aligning myosin directions to +x during initialization",
+             cxxopts::value<double>(myosin_direction_noise)->default_value("0.1"))
             ("am_cutoff", "cutoff for am interaction range", cxxopts::value<double>(am_cutoff)->default_value("0.05"))
             ("am_optimal", "optimal distance for am interaction", cxxopts::value<double>(am_optimal)->default_value("0.03"))
             // ("aa_cutoff", "cutoff for aa interaction range", cxxopts::value<double>(aa_cutoff)->default_value("0.05"))
             // ("aa_optimal", "optimal distance for aa interaction", cxxopts::value<double>(aa_optimal)->default_value("0.03"))
             ("tau_rec", "Cooldown time after KMC break", cxxopts::value<double>(tau_rec)->default_value("0.002"))
             ("titin_k", "Titin effective spring constant", cxxopts::value<double>(titin_k)->default_value("0.0"))
+            ("k_bundle_max", "Maximum transverse bundling spring constant", cxxopts::value<double>(k_bundle_max)->default_value("0.0"))
+            ("bundle_ramp_steps", "Number of steps used to ramp bundling strength", cxxopts::value<int>(bundle_ramp_steps)->default_value("0"))
             ("resume", "Resume", cxxopts::value<bool>(resume)->default_value("false"))
             ("resume_frame", "Frame index to load when resuming (0-based; default loads latest)",
              cxxopts::value<int>(resume_frame)->default_value("-1"))
@@ -176,6 +183,7 @@ int main(int argc, char* argv[]){
         return 1;
     }
     bool is3D = (dimension == 3);
+    myosin_direction_noise = std::max(0.0, myosin_direction_noise);
 
     if (!resume && resume_frame >= 0) {
         std::cout << "Warning: --resume_frame ignored because --resume was not set.\n";
@@ -241,6 +249,7 @@ int main(int argc, char* argv[]){
                         titin_k, titin_rest_length,
                         directional, max_myosin_bonds, max_actin_force, max_myosin_force,
                         max_actin_torque, max_myosin_torque);
+    model.set_bundling_parameters(k_bundle_max, bundle_ramp_steps);
     model.set_periodicity(periodic_axes);
     if (!is3D) {
         for (int i = 0; i < n_actins; ++i) {
@@ -277,8 +286,14 @@ int main(int argc, char* argv[]){
         else if (init_struc == "cb_off_angle"){
             sim.model.cb_off_angle();
         }
-        int n_volume_exclusion = 100;
-        sim.volume_exclusion(n_volume_exclusion, rng, n_fixed_myosins);
+        else if (init_struc == "myosin_x_noise"){
+            sim.model.set_myosin_direction_x_noise(myosin_direction_noise);
+            int n_volume_exclusion = 500;
+            sim.volume_exclusion(n_volume_exclusion, rng, n_fixed_myosins);
+        }
+        else{
+            int n_volume_exclusion = 500;
+            sim.volume_exclusion(n_volume_exclusion, rng, n_fixed_myosins);}
     }
     sim.run_langevin(nsteps, rng, n_fixed_myosins);
     gsl_rng_free(rng);

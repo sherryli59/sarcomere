@@ -94,10 +94,15 @@ def plot_filaments_3d(plotter, center, direction, radius, l, Lx, Ly, Lz, color='
     if np.isscalar(radius):
         radius = np.ones(center.shape[0]) * radius
 
-    if color_spectrum is not None:
-        color_spectrum = np.sqrt(color_spectrum)
-        colormap = plt.cm.Blues
-        custom_colormap = plt.cm.ScalarMappable(cmap=plt.cm.Blues)
+    color_values = None
+    norm = None
+    if color_spectrum is not None and color_spectrum.size > 0:
+        color_values = np.asarray(color_spectrum, dtype=float).copy()
+        color_values = np.clip(color_values, 0, None)
+        max_val = np.max(color_values)
+        if max_val > 0:
+            color_values /= max_val
+        color_values = np.sqrt(color_values)
         norm = plt.Normalize(0, 1)
 
     for i in range(center.shape[0]):
@@ -105,10 +110,8 @@ def plot_filaments_3d(plotter, center, direction, radius, l, Lx, Ly, Lz, color='
             continue
 
         this_color = color
-        if color_spectrum is not None and color_spectrum[i] >= 0.01:
-            this_color = plt.cm.Blues(norm(color_spectrum[i]))
-        elif color_spectrum is not None:
-            continue
+        if color_values is not None:
+            this_color = plt.cm.Blues(norm(color_values[i]))
 
         # PyVista expects cylinder defined by center, direction, height, and radius
         cyl = pv.Cylinder(center=center[i],
@@ -138,10 +141,63 @@ def plot_filaments_3d(plotter, center, direction, radius, l, Lx, Ly, Lz, color='
             plotter.add_mesh(dup_cyl, color=this_color,opacity=opacity)
 
 
+def add_vector_arrows(plotter, centers, vectors, color, scale=1.0,
+                      shaft_radius=0.01, tip_radius=0.02,
+                      thickness_scale=1.0, min_magnitude=1e-6,
+                      min_display_length=1e-6, normalize=False,
+                      arrow_opacity=1.0):
+    """
+    Draw vector arrows originating from filament centers (forces, velocities, etc.).
+    Arrow length reflects the vector magnitude; optionally normalized per-frame.
+    """
+    if centers.size == 0 or vectors is None or vectors.size == 0:
+        return
+
+    magnitudes = np.linalg.norm(vectors, axis=1)
+    if normalize:
+        max_mag = np.max(magnitudes)
+        norm_factor = max(max_mag, min_magnitude)
+    else:
+        norm_factor = None
+
+    for center, raw_vec, magnitude in zip(centers, vectors, magnitudes):
+        if magnitude < min_magnitude:
+            continue
+        direction_unit = raw_vec / magnitude
+        if normalize:
+            arrow_length = max((magnitude / norm_factor) * scale, min_display_length)
+        else:
+            arrow_length = max(magnitude * scale, min_display_length)
+        arrow = pv.Arrow(
+            start=center,
+            direction=direction_unit * arrow_length,
+            scale=1.0,
+            tip_length=0.2,
+            tip_radius=tip_radius * thickness_scale,
+            shaft_radius=shaft_radius * thickness_scale,
+        )
+        plotter.add_mesh(
+            arrow,
+            color=color,
+            opacity=arrow_opacity,
+            smooth_shading=True,
+            style='surface',
+            show_edges=False,
+            lighting=True
+        )
 
 
 def plot_system(frame, data, myosin_length, actin_length, Lx, Ly, Lz,
-                myosin_radius, myosin_display="all"):
+                myosin_radius, myosin_display="all", actin_display="cb",
+                show_actin_force=False, show_myosin_force=False,
+                show_actin_velocity=False, show_myosin_velocity=False,
+                actin_force_scale=1.0, myosin_force_scale=1.0,
+                actin_velocity_scale=1.0, myosin_velocity_scale=1.0,
+                actin_force_available=False, myosin_force_available=False,
+                actin_velocity_available=False, myosin_velocity_available=False,
+                actin_force_thickness=3.0, myosin_force_thickness=3.0,
+                actin_velocity_thickness=1.5, myosin_velocity_thickness=1.5,
+                myosin_opacity=1.0):
     """Render the system for a single frame."""
     plotter = pv.Plotter(off_screen=True)
 
@@ -152,22 +208,55 @@ def plot_system(frame, data, myosin_length, actin_length, Lx, Ly, Lz,
     actin_direction = data["/actin/direction"][frame]
     f_load = data["/actin/f_load"][frame].flatten()
     cb_status = data["/actin/cb_status"][frame].flatten()
+    actin_force = data["/actin/force"][frame] if actin_force_available else None
+    actin_velocity = data["/actin/velocity"][frame] if actin_velocity_available else None
 
-    mask = cb_status > 1
-    print(f"Frame {frame}: {np.sum(mask)} actin filaments in catch-bond state")
+    load_metric = np.maximum(f_load, 0) * (cb_status == 2)
+    if actin_display == "cb":
+        mask = cb_status == 2
+        print(f"Frame {frame}: {np.sum(mask)} actin filaments in catch-bond state")
+    else:
+        mask = np.ones_like(cb_status, dtype=bool)
     actin_center = actin_center[mask]
     actin_direction = actin_direction[mask]
+    actin_color_values = load_metric[mask]
 
     plot_filaments_3d(
         center=actin_center,
         direction=actin_direction,
-        radius=0.02,
+        radius=0.01,
         l=actin_length,
         Lx=Lx, Ly=Ly, Lz=Lz,
         plotter=plotter,
         color='blue',
-        color_spectrum=None
+        color_spectrum=actin_color_values
     )
+    if show_actin_force and actin_force_available:
+        add_vector_arrows(
+            plotter,
+            centers=actin_center,
+            vectors=actin_force[mask],
+            color='#1f77b4',
+            scale=actin_force_scale,
+            shaft_radius=0.01 * myosin_radius,
+            tip_radius=0.02 * myosin_radius,
+            thickness_scale=actin_force_thickness,
+            normalize=True,
+            arrow_opacity=0.6,
+        )
+    if show_actin_velocity and actin_velocity_available:
+        add_vector_arrows(
+            plotter,
+            centers=actin_center,
+            vectors=actin_velocity[mask],
+            color='#2ca02c',
+            scale=actin_velocity_scale,
+            shaft_radius=0.015 * myosin_radius,
+            tip_radius=0.03 * myosin_radius,
+            thickness_scale=actin_velocity_thickness,
+            normalize=True,
+            arrow_opacity=0.6,
+        )
 
     # ------------------------------------------------------------------
     # Myosin filaments
@@ -175,11 +264,25 @@ def plot_system(frame, data, myosin_length, actin_length, Lx, Ly, Lz,
     myosin_centers_frame = data["/myosin/center"][frame]
     myosin_dirs_frame = data["/myosin/direction"][frame]
     n_myosins = myosin_centers_frame.shape[0]
-    actin_myo_bonds = data.get("/actin_myo/bonds")
+    actin_myo_bonds_ds = data.get("/actin_myo/bonds")
+    actin_myo_bonds_frame = None
+    actin_myo_bonds_available = False
+    if actin_myo_bonds_ds is None:
+        print("Warning: /actin_myo/bonds dataset not found; skipping bond-based highlights.")
+    else:
+        shape = getattr(actin_myo_bonds_ds, "shape", None)
+        total_am_frames = shape[0] if shape and len(shape) > 0 else 0
+        if frame < total_am_frames:
+            actin_myo_bonds_frame = actin_myo_bonds_ds[frame]
+            actin_myo_bonds_available = True
+        else:
+            print(
+                f"Warning: /actin_myo/bonds has {total_am_frames} frame(s), "
+                f"but frame {frame} was requested; skipping bond-based highlights."
+            )
     highlight_indices = np.array([], dtype=int)
-    if actin_myo_bonds is not None:
-        frame_bonds = actin_myo_bonds[frame]
-        valid_pairs = frame_bonds[frame_bonds[:, 0] >= 0]
+    if actin_myo_bonds_available:
+        valid_pairs = actin_myo_bonds_frame[actin_myo_bonds_frame[:, 0] >= 0]
         strong_actins = np.where(cb_status == 2)[0]
         if valid_pairs.size > 0 and strong_actins.size > 0:
             valid_pairs = valid_pairs.astype(int)
@@ -193,12 +296,11 @@ def plot_system(frame, data, myosin_length, actin_length, Lx, Ly, Lz,
         bonded_indices = np.unique(valid_pairs.flatten())
         display_indices = bonded_indices if bonded_indices.size > 0 else np.empty(0, dtype=int)
     elif myosin_display == "cb_attached":
-        if actin_myo_bonds is None:
+        if not actin_myo_bonds_available:
             print("Warning: /actin_myo/bonds dataset not found; displaying all myosins.")
             display_indices = np.arange(n_myosins)
         else:
-            frame_bonds = actin_myo_bonds[frame]
-            valid_pairs = frame_bonds[frame_bonds[:, 0] >= 0]
+            valid_pairs = actin_myo_bonds_frame[actin_myo_bonds_frame[:, 0] >= 0]
             cb_indices = np.where(cb_status > 1)[0]
             if valid_pairs.size == 0 or cb_indices.size == 0:
                 display_indices = np.empty(0, dtype=int)
@@ -216,6 +318,8 @@ def plot_system(frame, data, myosin_length, actin_length, Lx, Ly, Lz,
     if display_indices.size > 0:
         myosin_center = myosin_centers_frame[display_indices]
         myosin_direction = myosin_dirs_frame[display_indices]
+        myosin_force = data["/myosin/force"][frame][display_indices] if myosin_force_available else None
+        myosin_velocity = data["/myosin/velocity"][frame][display_indices] if myosin_velocity_available else None
         highlight_mask = np.isin(display_indices, highlight_indices)
         base_center = myosin_center[~highlight_mask]
         base_direction = myosin_direction[~highlight_mask]
@@ -231,6 +335,7 @@ def plot_system(frame, data, myosin_length, actin_length, Lx, Ly, Lz,
                 Lx=Lx, Ly=Ly, Lz=Lz,
                 plotter=plotter,
                 color='lemon_chiffon',
+                opacity=myosin_opacity
             )
         if highlight_center.size > 0:
             plot_filaments_3d(
@@ -241,25 +346,83 @@ def plot_system(frame, data, myosin_length, actin_length, Lx, Ly, Lz,
                 Lx=Lx, Ly=Ly, Lz=Lz,
                 plotter=plotter,
                 color='#f5a45b',  # light orange
+                opacity=myosin_opacity
+            )
+        if show_myosin_force and myosin_force_available:
+            add_vector_arrows(
+                plotter,
+                centers=myosin_center,
+                vectors=myosin_force,
+                color='#d62728',
+                scale=myosin_force_scale,
+                shaft_radius=0.015 * myosin_radius,
+                tip_radius=0.03 * myosin_radius,
+                thickness_scale=myosin_force_thickness,
+                normalize=True,
+                arrow_opacity=0.6,
+            )
+        if show_myosin_velocity and myosin_velocity_available:
+            add_vector_arrows(
+                plotter,
+                centers=myosin_center,
+                vectors=myosin_velocity,
+                color='#ff7f0e',
+                scale=myosin_velocity_scale,
+                shaft_radius=0.02 * myosin_radius,
+                tip_radius=0.04 * myosin_radius,
+                thickness_scale=myosin_velocity_thickness,
+                normalize=True,
+                arrow_opacity=0.6,
             )
 
     plotter.set_background("white")
-    plotter.set_scale(xscale=Lx, yscale=Ly, zscale=Lz)
     plotter.set_focus((0, 0, 0))
-    plotter.camera_position = 'iso'
-
+    # Example: zoom closer to the myosin bundle
+    plotter.camera_position = [
+        (10, 10, 10),    # camera location
+        (0, 0, 0),    # focal point
+        (0, 0, 1)     # view-up direction
+    ]
+    #plotter.camera.zoom(1.5)   # zoom in by a factor
+    # Draw the simulation box as a wireframe cube for reference.
+    box_corners = np.array([
+        [-0.5 * Lx, -0.5 * Ly, -0.5 * Lz],
+        [ 0.5 * Lx, -0.5 * Ly, -0.5 * Lz],
+        [ 0.5 * Lx,  0.5 * Ly, -0.5 * Lz],
+        [-0.5 * Lx,  0.5 * Ly, -0.5 * Lz],
+        [-0.5 * Lx, -0.5 * Ly,  0.5 * Lz],
+        [ 0.5 * Lx, -0.5 * Ly,  0.5 * Lz],
+        [ 0.5 * Lx,  0.5 * Ly,  0.5 * Lz],
+        [-0.5 * Lx,  0.5 * Ly,  0.5 * Lz],
+    ])
+    faces = np.hstack([
+        [4, 0, 1, 2, 3],
+        [4, 4, 5, 6, 7],
+        [4, 0, 1, 5, 4],
+        [4, 2, 3, 7, 6],
+        [4, 1, 2, 6, 5],
+        [4, 3, 0, 4, 7],
+    ])
+    box_mesh = pv.PolyData(box_corners, faces)
+    plotter.add_mesh(box_mesh, style='wireframe', color='black', line_width=1.0, opacity=0.4)
     return plotter
 
 
-def plot(ind, nworkers, frame_range, **kwargs):
-    frame_start = frame_range.start + int(ind * len(frame_range) / nworkers)
-    frame_end = frame_range.start + int((ind + 1) * len(frame_range) / nworkers)
-    frame_end = min(frame_end, frame_range.stop)
-    for frame in range(frame_start, frame_end):
+def plot(ind, nworkers, frame_indices, **kwargs):
+    total = len(frame_indices)
+    if total == 0:
+        return
+    start_idx = int(ind * total / nworkers)
+    end_idx = int((ind + 1) * total / nworkers)
+    end_idx = min(end_idx, total)
+    for frame in frame_indices[start_idx:end_idx]:
         plotter = plot_system(frame=frame, **kwargs)
         #plotter.export_vtksz('test.vtkjs')
         plotter.export_html(html_format.format(frame_dir, frame))
-        plotter.screenshot(file_format.format(frame_dir, frame))
+        plotter.screenshot(
+            file_format.format(frame_dir, frame),
+            window_size=(2400, 2000)   # or higher
+        )
         plotter.close()
 
 
@@ -296,6 +459,10 @@ def parse_args():
     parser.add_argument("--myosin_radius", type=float, default=0.2)
     parser.add_argument("--actin_length", type=float, default=1)
     parser.add_argument("--myosin_length", type=float, default=1.5)
+    parser.add_argument("--myosin_opacity", type=float, default=1.0,
+                        help="Opacity for myosin filaments (1.0=opaque, <1.0 → semi-transparent).")
+    parser.add_argument("--sample_every", type=int, default=1,
+                        help="Only render every Nth frame (default 1 renders all frames).")
     parser.add_argument("--print_frame", type=int, default=10000)
     parser.add_argument("--start_frame", type=int, default=0,
                         help="Start frame (inclusive)")
@@ -307,6 +474,36 @@ def parse_args():
         default="all",
         help="Display all myosins, only myosin–myosin bonds, or those attached to catch-bonded actins.",
     )
+    parser.add_argument(
+        "--actin_display",
+        choices=["all", "cb"],
+        default="cb",
+        help="Display all actins or only those with catch-bond status == 2.",
+    )
+    parser.add_argument("--show_actin_force", action="store_true",
+                        help="Overlay actin force vectors originating at filament centers.")
+    parser.add_argument("--show_myosin_force", action="store_true",
+                        help="Overlay myosin force vectors originating at filament centers.")
+    parser.add_argument("--show_actin_velocity", action="store_true",
+                        help="Overlay actin velocity vectors originating at filament centers.")
+    parser.add_argument("--show_myosin_velocity", action="store_true",
+                        help="Overlay myosin velocity vectors originating at filament centers.")
+    parser.add_argument("--actin_force_scale", type=float, default=1.0,
+                        help="Scale factor applied to actin force vectors.")
+    parser.add_argument("--myosin_force_scale", type=float, default=1.0,
+                        help="Scale factor applied to myosin force vectors.")
+    parser.add_argument("--actin_velocity_scale", type=float, default=1.0,
+                        help="Scale factor applied to actin velocity vectors.")
+    parser.add_argument("--myosin_velocity_scale", type=float, default=1.0,
+                        help="Scale factor applied to myosin velocity vectors.")
+    parser.add_argument("--actin_force_thickness", type=float, default=3.0,
+                        help="Multiplier for actin force arrow radii (higher → thicker).")
+    parser.add_argument("--myosin_force_thickness", type=float, default=3.0,
+                        help="Multiplier for myosin force arrow radii (higher → thicker).")
+    parser.add_argument("--actin_velocity_thickness", type=float, default=1.5,
+                        help="Multiplier for actin velocity arrow radii (higher → thicker).")
+    parser.add_argument("--myosin_velocity_thickness", type=float, default=1.5,
+                        help="Multiplier for myosin velocity arrow radii (higher → thicker).")
     return parser.parse_args()
 
 
@@ -414,11 +611,37 @@ if __name__ == "__main__":
     myosin_radius = args.myosin_radius
     actin_length = args.actin_length
     myosin_length = args.myosin_length
+    myosin_opacity = np.clip(args.myosin_opacity, 0.0, 1.0)
     myosin_display = args.myosin_display
+    actin_display = args.actin_display
+    show_actin_force = args.show_actin_force
+    show_myosin_force = args.show_myosin_force
+    show_actin_velocity = args.show_actin_velocity
+    show_myosin_velocity = args.show_myosin_velocity
+    actin_force_scale = args.actin_force_scale
+    myosin_force_scale = args.myosin_force_scale
+    actin_velocity_scale = args.actin_velocity_scale
+    myosin_velocity_scale = args.myosin_velocity_scale
+    actin_force_thickness = args.actin_force_thickness
+    myosin_force_thickness = args.myosin_force_thickness
+    actin_velocity_thickness = args.actin_velocity_thickness
+    myosin_velocity_thickness = args.myosin_velocity_thickness
 
     # Open the HDF5 file and convert to dictionary.
     traj = h5py.File(filename, 'r')
     data = hdf5_to_dict(traj)
+    actin_force_available = "/actin/force" in data
+    myosin_force_available = "/myosin/force" in data
+    actin_velocity_available = "/actin/velocity" in data
+    myosin_velocity_available = "/myosin/velocity" in data
+    if show_actin_force and not actin_force_available:
+        print("Warning: --show_actin_force requested but /actin/force dataset is missing.")
+    if show_myosin_force and not myosin_force_available:
+        print("Warning: --show_myosin_force requested but /myosin/force dataset is missing.")
+    if show_actin_velocity and not actin_velocity_available:
+        print("Warning: --show_actin_velocity requested but /actin/velocity dataset is missing.")
+    if show_myosin_velocity and not myosin_velocity_available:
+        print("Warning: --show_myosin_velocity requested but /myosin/velocity dataset is missing.")
     last_frame = data["/actin/center"].shape[0] - 1
     print_and_plot_last_frame(
         args.filename,
@@ -434,7 +657,8 @@ if __name__ == "__main__":
     start_frame = max(0, args.start_frame)
     end_frame = args.end_frame if args.end_frame is not None else nframes
     end_frame = min(end_frame, nframes)
-    frame_range = range(start_frame, end_frame)
+    sample_every = max(1, args.sample_every)
+    frame_indices = list(range(start_frame, end_frame, sample_every))
     if args.print_frame < nframes:
         actin_center = data["/actin/center"][args.print_frame]
         cb_strength = data["/actin/cb_status"][args.print_frame]
@@ -457,12 +681,30 @@ if __name__ == "__main__":
         os.mkdir(frame_dir)
     Parallel(n_jobs=cpu_workers)(
         delayed(plot)(i, cpu_workers,
-                      frame_range=frame_range,
+                      frame_indices=frame_indices,
                       data=data,
                       myosin_radius=myosin_radius,
                       actin_length=actin_length,
                       myosin_length=myosin_length,
                       Lx=Lx, Ly=Ly, Lz=Lz,
-                      myosin_display=myosin_display)
+                      myosin_display=myosin_display,
+                      actin_display=actin_display,
+                      show_actin_force=show_actin_force,
+                      show_myosin_force=show_myosin_force,
+                      show_actin_velocity=show_actin_velocity,
+                      show_myosin_velocity=show_myosin_velocity,
+                      actin_force_scale=actin_force_scale,
+                      myosin_force_scale=myosin_force_scale,
+                      actin_velocity_scale=actin_velocity_scale,
+                      myosin_velocity_scale=myosin_velocity_scale,
+                      actin_force_available=actin_force_available,
+                      myosin_force_available=myosin_force_available,
+                      actin_velocity_available=actin_velocity_available,
+                      myosin_velocity_available=myosin_velocity_available,
+                      actin_force_thickness=actin_force_thickness,
+                      myosin_force_thickness=myosin_force_thickness,
+                      actin_velocity_thickness=actin_velocity_thickness,
+                      myosin_velocity_thickness=myosin_velocity_thickness,
+                      myosin_opacity=myosin_opacity)
         for i in range(cpu_workers)
     )

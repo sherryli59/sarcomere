@@ -56,6 +56,8 @@ public:
     double myomesin_optimal = 0.0;
     double myomesin_cutoff = 0.0;
     double titin_k, titin_rest_length;
+    double k_bundle_max = 0.0;
+    int bundle_ramp_steps = 0;
     double max_actin_force, max_myosin_force, max_actin_torque, max_myosin_torque;
     size_t bond_recovery_steps;
     bool directional;
@@ -85,6 +87,8 @@ public:
     std::vector<std::array<double, 2>> myosin_f_load;
     std::vector<utils::MoleculeConnection> actinIndicesPerMyosin_temp;
     std::vector<gsl_rng*> rng_engines;
+    std::vector<std::vector<int>> myosin_bond_matrix;
+    bool has_myosin_bond_pairs = false;
 
     // Record the global simulation step and catch-bond breakage events
     size_t current_step = 0;
@@ -124,9 +128,11 @@ public:
     void bad_cb();
     void cb_off_angle();
     void am_off_angle();
+    void set_myosin_direction_x_noise(double noise_std);
     void single_am();
     void sarcomeric_structure();
     void sarcomeric_structure_tight();
+    void set_bundling_parameters(double max_strength, int ramp_steps);
     void update_system();
     void update_system_sterics_only();
     void set_periodicity(const std::array<bool,3>& periodic_axes);
@@ -156,6 +162,10 @@ private:
     void _set_cb(int& i, std::vector<int> indices, std::vector<int> status);
     vec _alignment_torque(const vec& u, double k_bias);
     void _apply_cb_alignment_bias(double& k_theta_bias);
+    void _update_myosin_bond_matrix();
+    bool _myosin_pair_bonded(int mi, int mj) const;
+    double _current_bundle_strength() const;
+    void _apply_transverse_bundling(double k_bundle);
     std::tuple<std::vector<double>, std::vector<double>, std::vector<double>>
         _extract_bonded_pairs(
         const std::vector<std::vector<int>>& actin_actin_bonds,

@@ -7,6 +7,7 @@
 #include <limits>
 #include <sstream>
 #include <string>
+#include <gsl/gsl_randist.h>
 
 
 // Parameterized Constructor
@@ -224,6 +225,29 @@ void Sarcomere::cb(){
         myosin.center[i].z = myosin_positions[i][2]; // set z coordinate to 0
         myosin.direction[i] = {1, 0, 0};
     }
+}
+
+void Sarcomere::set_myosin_direction_x_noise(double noise_std){
+    const double sigma = (noise_std > 0.0) ? noise_std : 0.0;
+    for (int i = 0; i < myosin.n; ++i) {
+        double dx = 1.0;
+        double dy = 0.0;
+        double dz = 0.0;
+        if (rng != nullptr && sigma > 0.0) {
+            dx += gsl_ran_gaussian(rng, sigma);
+            dy = gsl_ran_gaussian(rng, sigma);
+            dz = gsl_ran_gaussian(rng, sigma);
+        }
+        vec dir{dx, dy, dz};
+        double norm = dir.norm();
+        if (norm < EPS) {
+            dir = {1.0, 0.0, 0.0};
+        } else {
+            dir = dir / norm;
+        }
+        myosin.direction[i] = dir;
+    }
+    myosin.update_endpoints();
 }
 
 void Sarcomere::cb_off_angle(){
@@ -872,15 +896,14 @@ void Sarcomere::_process_actin_myosin_binding(int& i) {
                         }
                         if (prev_catch_bonded) {
                         double angle = std::acos(std::abs(actin.direction[i].dot(myosin.direction[j]))) * 180.0 / M_PI;
-                        vec repulsive_force = compute_actin_myosin_repulsion(
-                            actin,
-                            myosin,
-                            i,
-                            j,
-                            box,
-                            am_cutoff*1.1,
-                            10*k_aa,
-                            max_myosin_force);
+            vec repulsive_force = compute_actin_myosin_repulsion(
+                actin,
+                myosin,
+                i,
+                j,
+                box,
+                am_cutoff*1.1,
+                10*k_aa);
                         double force_magnitude = repulsive_force.norm();
                         printf("Warning: Actin %d has zero crosslink ratio due to myosin %d,binding ratio is %f, partial binding ratio is %f, angle is %f, repulsion is %f\n", i, j, am_interaction[i][j].myosin_binding_ratio, 
                             am_interaction[i][j].partial_binding_ratio, angle, force_magnitude);
@@ -1094,7 +1117,6 @@ void Sarcomere::_calc_am_force_velocity(int& i) {
                 box,
                 am_cutoff*1.1,
                 k_aa,
-                max_myosin_force,
                 local_actin_forces[i],
                 local_myosin_forces[j]);
         }
@@ -1195,6 +1217,7 @@ void Sarcomere::_apply_myomesin_spring(int i, int j, std::vector<vec>& local_myo
 void Sarcomere::_volume_exclusion(){
     const double EPS_FORCE = 1e-9;
     double myosin_cutoff = 2.0 * myosin.radius;
+    const double myomesin_distance_limit = 2.0 * am_optimal * 1.1;
     #pragma omp for schedule(runtime)
     for (int i = 0; i<myosin.n; i++){
         auto result = neighbor_list.get_neighbors_by_type(i+actin.n);
@@ -1203,6 +1226,7 @@ void Sarcomere::_volume_exclusion(){
         for (int index = 0; index < static_cast<int>(myosin_indices.size()); index++){
             int j = myosin_indices[index];
             if (i<j){
+                double seg_distance = std::numeric_limits<double>::infinity();
                 apply_myosin_repulsion(
                     actin,
                     myosin,
@@ -1212,10 +1236,12 @@ void Sarcomere::_volume_exclusion(){
                     fix_myosin,
                     actinIndicesPerMyosin,
                     10 * k_aa,
-                    max_myosin_force,
                     local_myosin_forces[i],
-                    local_myosin_forces[j]);
-                _apply_myomesin_spring(i, j, local_myosin_forces);
+                    local_myosin_forces[j],
+                    seg_distance);
+                if (seg_distance <= myomesin_distance_limit) {
+                    _apply_myomesin_spring(i, j, local_myosin_forces);
+                }
             }
         }
     }
@@ -1241,7 +1267,6 @@ void Sarcomere::_volume_exclusion(){
                     box,
                     aa_optimal,
                     10*k_aa,
-                    max_actin_force,
                     local_actin_forces[i],
                     local_actin_forces[j]);
             }
@@ -1355,6 +1380,7 @@ void Sarcomere::_apply_wall_forces() {
 void Sarcomere::_myosin_exclusion(){
     const double EPS_FORCE = 1e-9;
     double myosin_cutoff = 2.0 * myosin.radius;
+    const double myomesin_distance_limit = 2.0 * am_optimal * 1.1;
     #pragma omp for schedule(runtime)
     for (int i = 0; i<myosin.n; i++){
         auto result = neighbor_list.get_neighbors_by_type(i+actin.n);
@@ -1363,6 +1389,7 @@ void Sarcomere::_myosin_exclusion(){
         for (int index = 0; index < static_cast<int>(myosin_indices.size()); index++){
             int j = myosin_indices[index];
             if (i<j){
+                double seg_distance = std::numeric_limits<double>::infinity();
                 apply_myosin_repulsion(
                     actin,
                     myosin,
@@ -1372,10 +1399,12 @@ void Sarcomere::_myosin_exclusion(){
                     fix_myosin,
                     actinIndicesPerMyosin,
                     2*k_am,
-                    max_myosin_force,
                     local_myosin_forces[i],
-                    local_myosin_forces[j]);
-                _apply_myomesin_spring(i, j, local_myosin_forces);
+                    local_myosin_forces[j],
+                    seg_distance);
+                if (seg_distance <= myomesin_distance_limit) {
+                    _apply_myomesin_spring(i, j, local_myosin_forces);
+                }
             }
         }
     }
@@ -1384,6 +1413,9 @@ void Sarcomere::_myosin_exclusion(){
 int Sarcomere::determine_cb_status(int& i, int& j){
     double crosslink_i = std::clamp(actin["crosslink_ratio"][i], 0.0, 1.0);
     double crosslink_j = std::clamp(actin["crosslink_ratio"][j], 0.0, 1.0);
+    if (crosslink_i <= EPS || crosslink_j <= EPS) {
+        return 0;
+    }
 
     vec crosslink_point_i = actin.left_end[i];
     crosslink_point_i += actin.direction[i] * (actin.length * crosslink_i);

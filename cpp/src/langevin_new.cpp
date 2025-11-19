@@ -156,6 +156,14 @@ void Langevin::sample_step(double& dt, gsl_rng* rng, int& fix_myosin) {
         if (disp_limit > 0.0 && std::isfinite(disp_limit)) {
             double disp_mag = std::sqrt(disp_sq);
             double allowed = displacement_slack * disp_limit;
+            if (disp_mag > allowed && disp_mag > 1e-12) {
+                double scale = allowed / disp_mag;
+                delta_pos.x *= scale;
+                delta_pos.y *= scale;
+                if (is3D) {
+                    delta_pos.z *= scale;
+                }
+            }
         }
         vec rot_noise={noise[i * 6 + 3], noise[i * 6 + 4], is3D ? noise[i * 6 + 5] : 0.0};
         vec delta_u = std::sqrt(2 * D_rot * dt) * rot_noise + dt * model.myosin.torque[i] * D_rot * beta;
@@ -214,6 +222,14 @@ void Langevin::sample_step(double& dt, gsl_rng* rng, int& fix_myosin) {
         if (disp_limit > 0.0 && std::isfinite(disp_limit)) {
             double disp_mag = std::sqrt(disp_sq);
             double allowed = displacement_slack * disp_limit;
+            if (disp_mag > allowed && disp_mag > 1e-12) {
+                double scale = allowed / disp_mag;
+                delta_pos.x *= scale;
+                delta_pos.y *= scale;
+                if (is3D) {
+                    delta_pos.z *= scale;
+                }
+            }
         }
         vec rot_noise={noise[offset + i * 6 + 3], noise[offset + i * 6 + 4], is3D ? noise[offset + i * 6 + 5] : 0.0};
         vec delta_u = std::sqrt(2 * D_rot * dt) * rot_noise + dt * model.actin.torque[i] * D_rot * beta;

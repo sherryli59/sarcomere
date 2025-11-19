@@ -99,6 +99,7 @@ void Langevin::volume_exclusion(int nsteps, gsl_rng* rng, int& fix_myosin) {
             // Optionally protect saving with the mutex:
             // std::lock_guard<std::mutex> lock(save_mutex);
             start = omp_get_wtime();
+            model.save_state();
         }
         model.update_system_sterics_only();
         sample_step(dt, rng, fix_myosin);
@@ -249,6 +250,14 @@ void Langevin::sample_step(double& dt, gsl_rng* rng, int& fix_myosin) {
         if (disp_limit > 0.0 && std::isfinite(disp_limit)) {
             double disp_mag = std::sqrt(disp_sq);
             double allowed = displacement_slack * disp_limit;
+            if (disp_mag > allowed && disp_mag > 1e-12) {
+                double scale = allowed / disp_mag;
+                delta_pos.x *= scale;
+                delta_pos.y *= scale;
+                if (is3D) {
+                    delta_pos.z *= scale;
+                }
+            }
         }
         vec rot_noise={noise[i * 6 + 3], noise[i * 6 + 4], is3D ? noise[i * 6 + 5] : 0.0};
         vec delta_u = std::sqrt(2 * D_rot * dt) * rot_noise + dt * model.myosin.torque[i] * D_rot * beta;
@@ -267,6 +276,10 @@ void Langevin::sample_step(double& dt, gsl_rng* rng, int& fix_myosin) {
         double dy = delta_pos.y;
         double dz = delta_pos.z;
         model.myosin.displace(i, dx, dy, dz);
+        //print myosin force and displacement
+        // printf("Myosin %d force: (%f, %f, %f), displacement: (%f, %f, %f)\n",
+        //        i, model.myosin.force[i].x, model.myosin.force[i].y, model.myosin.force[i].z,
+        //        dx, dy, dz);
         vec new_dir = static_cast<vec>(model.myosin.direction[i]) + delta_u;
         if (!is3D) {
             new_dir.z = 0.0;
@@ -310,6 +323,14 @@ void Langevin::sample_step(double& dt, gsl_rng* rng, int& fix_myosin) {
         if (disp_limit > 0.0 && std::isfinite(disp_limit)) {
             double disp_mag = std::sqrt(disp_sq);
             double allowed = displacement_slack * disp_limit;
+            if (disp_mag > allowed && disp_mag > 1e-12) {
+                double scale = allowed / disp_mag;
+                delta_pos.x *= scale;
+                delta_pos.y *= scale;
+                if (is3D) {
+                    delta_pos.z *= scale;
+                }
+            }
         }
         vec rot_noise={noise[offset + i * 6 + 3], noise[offset + i * 6 + 4], is3D ? noise[offset + i * 6 + 5] : 0.0};
         vec delta_u = std::sqrt(2 * D_rot * dt) * rot_noise + dt * model.actin.torque[i] * D_rot * beta;

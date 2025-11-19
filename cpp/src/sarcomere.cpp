@@ -2,6 +2,8 @@
 #include <algorithm>
 #include <cmath>
 #include <limits>
+#include <tuple>
+#include <gsl/gsl_randist.h>
 
 
 // Parameterized Constructor
@@ -90,8 +92,7 @@ Sarcomere::Sarcomere(int& n_actins, int& n_myosins, vector box0, double& actin_l
             } else {
                 bond_recovery_steps = 0;
             }
-            myomesin_optimal = 2.0 * this->am_optimal;
-            myomesin_cutoff = (k_mm > 0.0) ? myomesin_optimal * 1.1 : 0.0;
+            myomesin_cutoff = (k_mm > 0.0) ? myosin.length : 0.0;
             double neighbor_cutoff = std::max(am_cutoff, aa_cutoff);
             if (k_mm > 0.0) {
                 neighbor_cutoff = std::max(neighbor_cutoff, myomesin_cutoff);
@@ -129,11 +130,17 @@ Sarcomere::Sarcomere(int& n_actins, int& n_myosins, vector box0, double& actin_l
                 gsl_rng_set(rng_engines[t], seed + t);           
             }
             set_periodicity(is_periodic);
+            myosin_bond_matrix.assign(n_myosins, std::vector<int>(n_myosins, 0));
+            has_myosin_bond_pairs = false;
         }
 
 // Destructor
 Sarcomere::~Sarcomere() {}
 
+void Sarcomere::set_bundling_parameters(double max_strength, int ramp_steps) {
+    k_bundle_max = (max_strength > 0.0) ? max_strength : 0.0;
+    bundle_ramp_steps = (ramp_steps > 0) ? ramp_steps : 0;
+}
 
 void Sarcomere::partial_fix(int& n_fixed){
     // Now each coordinate has three components: x, y, and z (with z = 0).
@@ -177,6 +184,29 @@ void Sarcomere::cb(){
         myosin.center[i].z = myosin_positions[i][2]; // set z coordinate to 0
         myosin.direction[i] = {1, 0, 0};
     }
+}
+
+void Sarcomere::set_myosin_direction_x_noise(double noise_std){
+    const double sigma = (noise_std > 0.0) ? noise_std : 0.0;
+    for (int i = 0; i < myosin.n; ++i) {
+        double dx = 1.0;
+        double dy = 0.0;
+        double dz = 0.0;
+        if (rng != nullptr && sigma > 0.0) {
+            dx += gsl_ran_gaussian(rng, sigma);
+            dy = gsl_ran_gaussian(rng, sigma);
+            dz = gsl_ran_gaussian(rng, sigma);
+        }
+        vec dir{dx, dy, dz};
+        double norm = dir.norm();
+        if (norm < EPS) {
+            dir = {1.0, 0.0, 0.0};
+        } else {
+            dir = dir / norm;
+        }
+        myosin.direction[i] = dir;
+    }
+    myosin.update_endpoints();
 }
 
 void Sarcomere::cb_off_angle(){
@@ -371,6 +401,7 @@ void Sarcomere::sarcomeric_structure(){
 void Sarcomere::update_system() {
     // Advance global step counter each time the system is updated
     current_step++;
+    const double bundle_strength = _current_bundle_strength();
     _update_neighbors();
     #pragma omp parallel
     {   
@@ -382,10 +413,10 @@ void Sarcomere::update_system() {
             _process_actin_myosin_binding(i);
         }
         #pragma omp barrier
-        // #pragma omp single
-        // { //_enforce_actin_cb_limit();
-        //   //_enforce_myosin_bond_limit(); 
-        // }
+        #pragma omp single
+        { 
+          _enforce_myosin_bond_limit(); 
+        }
         #pragma omp barrier
 
         // Step 3: Concatenate actinIndicesPerMyosin connections
@@ -419,6 +450,13 @@ void Sarcomere::update_system() {
 
         #pragma omp barrier
 
+        #pragma omp single
+        {
+            _update_myosin_bond_matrix();
+        }
+
+        #pragma omp barrier
+
         // Step 6: Compute actin-myosin forces
         #pragma omp for schedule(runtime)
         for (int i = 0; i < actin.n; i++) {
@@ -447,6 +485,15 @@ void Sarcomere::update_system() {
         reduce_array(myosin_forces_temp, myosin.force);
         reduce_array(myosin_velocities_temp, myosin.velocity);
         reduce_array(myosin_torques_temp, myosin.torque);
+
+        #pragma omp barrier
+        if (bundle_strength > 0.0) {
+            #pragma omp single
+            {
+                _apply_transverse_bundling(bundle_strength);
+            }
+        }
+        #pragma omp barrier
 
         // Cap forces based on specified maxima
         #pragma omp for
@@ -542,6 +589,7 @@ void Sarcomere::update_system() {
 void Sarcomere::update_system_sterics_only() {
     // Advance step counter as well for sterics-only updates
     current_step++;
+    const double bundle_strength = _current_bundle_strength();
     _update_neighbors();
     #pragma omp parallel
     {   
@@ -555,7 +603,16 @@ void Sarcomere::update_system_sterics_only() {
         // Step 8: Reduce myosin forces, velocities, and angular forces
         reduce_array(myosin_forces_temp, myosin.force);
         reduce_array(myosin_torques_temp, myosin.torque);
+
         #pragma omp barrier
+        if (bundle_strength > 0.0) {
+            #pragma omp single
+            {
+                _apply_transverse_bundling(bundle_strength);
+            }
+        }
+        #pragma omp barrier
+
         #pragma omp for
         for (int i = 0; i < actin.n; ++i) {
             double cap = max_actin_torque;
@@ -701,11 +758,10 @@ void Sarcomere::_process_actin_myosin_binding(int& i) {
         am_interaction[i][j] = geometry::analyze_am(
             actin.left_end[i], actin.right_end[i], myosin.left_end[j], myosin.right_end[j],
             am_cutoff, box, is_periodic);
-        if (am_interaction[i][j].myosin_binding_ratio > 0) {
+        if (am_interaction[i][j].partial_binding_ratio > EPS || !directional) {
             double partial_ratio = am_interaction[i][j].partial_binding_ratio;
             double binding_ratio = am_interaction[i][j].myosin_binding_ratio;
-            if (!directional || partial_ratio > EPS) {
-                if (actin_crosslink_ratio[i] > am_interaction[i][j].crosslinkable_ratio) {
+            if (actin_crosslink_ratio[i] > am_interaction[i][j].crosslinkable_ratio) {
                     actin_crosslink_ratio[i] = am_interaction[i][j].crosslinkable_ratio;
                     if (actin_crosslink_ratio[i] < EPS) {
                         auto actin_neighbors = actin_neighbors_by_species[i].first;
@@ -717,22 +773,22 @@ void Sarcomere::_process_actin_myosin_binding(int& i) {
                             }
                         }
                         if (prev_catch_bonded) {
-                        double angle = std::acos(std::abs(actin.direction[i].dot(myosin.direction[j]))) * 180.0 / M_PI;
-                        vec repulsive_force = compute_actin_myosin_repulsion(
-                            actin,
-                            myosin,
-                            i,
-                            j,
-                            box,
-                            am_cutoff*1.1,
-                            10*k_aa,
-                            max_myosin_force);
-                        double force_magnitude = repulsive_force.norm();
-                        printf("Warning: Actin %d has zero crosslink ratio due to myosin %d,binding ratio is %f, partial binding ratio is %f, angle is %f, repulsion is %f\n", i, j, am_interaction[i][j].myosin_binding_ratio, 
-                            am_interaction[i][j].partial_binding_ratio, angle, force_magnitude);
+                            double angle = std::acos(std::abs(actin.direction[i].dot(myosin.direction[j]))) * 180.0 / M_PI;
+                            vec repulsive_force = compute_actin_myosin_repulsion(
+                                actin,
+                                myosin,
+                                i,
+                                j,
+                                box,
+                                am_cutoff*1.1,
+                                10*k_aa);
+                            double force_magnitude = repulsive_force.norm();
+                            printf("Warning: Actin %d has zero crosslink ratio due to myosin %d,binding ratio is %f, partial binding ratio is %f, angle is %f, repulsion is %f\n", i, j, am_interaction[i][j].myosin_binding_ratio, 
+                                am_interaction[i][j].partial_binding_ratio, angle, force_magnitude);
                         }
                     }
                 }
+            if (!directional || partial_ratio > EPS) {
                 // Record all actin–myosin attachments regardless of bond state
                 local_actinIndicesPerMyosin.addConnection(j, i);
                 myosinIndicesPerActin.addConnection(i, j);
@@ -802,34 +858,125 @@ void Sarcomere::_process_catch_bonds(int& i) {
 
 void Sarcomere::_enforce_myosin_bond_limit() {
     for (int j = 0; j < myosin.n; ++j) {
-        std::vector<int> bound_actins;
+        struct BoundInfo {
+            int actin_idx;
+            bool cb;
+            bool prev;
+            double dot;
+            bool active;
+        };
+
+        std::vector<BoundInfo> bound;
+        bound.reserve(actin.n);
         for (int i = 0; i < actin.n; ++i) {
             if (am_bonds[i][j] == 1) {
-                bound_actins.push_back(i);
+                double dot = actin.direction[i].dot(myosin.direction[j]);
+                bool cb = actin.cb_status[i] >= 2;
+                bool prev = am_bonds_prev[i][j] == 1;
+                bound.push_back({i, cb, prev, dot, true});
             }
         }
 
-        if (static_cast<int>(bound_actins.size()) <= max_myosin_bonds) {
+        if (bound.empty()) {
             continue;
         }
 
-        std::vector<int> priority(bound_actins.size(), 0);
-        for (size_t idx = 0; idx < bound_actins.size(); ++idx) {
-            int i = bound_actins[idx];
-            bool cb = actin.cb_status[i] > 1;
-            bool prev = am_bonds_prev[i][j] == 1;
-            if (cb && prev) priority[idx] = 3;
-            else if (cb) priority[idx] = 2;
-            else if (prev) priority[idx] = 1;
+        auto remove_connection = [&](BoundInfo& info) {
+            if (!info.active) {
+                return;
+            }
+            am_bonds[info.actin_idx][j] = 0;
+            myosinIndicesPerActin.deleteConnection(info.actin_idx, j);
+            for (auto& temp_conn : actinIndicesPerMyosin_temp) {
+                temp_conn.deleteConnection(j, info.actin_idx);
+            }
+            info.active = false;
+        };
+
+        auto cmp_priority = [](const BoundInfo* lhs, const BoundInfo* rhs) {
+            auto score = [](const BoundInfo* entry) {
+                int value = 0;
+                if (entry->cb) value += 2;
+                if (entry->prev) value += 1;
+                double align = std::abs(entry->dot);
+                return std::make_tuple(value, align, -entry->actin_idx);
+            };
+            auto l = score(lhs);
+            auto r = score(rhs);
+            if (std::get<0>(l) != std::get<0>(r)) {
+                return std::get<0>(l) > std::get<0>(r);
+            }
+            if (std::get<1>(l) != std::get<1>(r)) {
+                return std::get<1>(l) > std::get<1>(r);
+            }
+            return std::get<2>(l) > std::get<2>(r);
+        };
+
+        int active_count = static_cast<int>(bound.size());
+
+        if (active_count > max_myosin_bonds) {
+            for (auto& info : bound) {
+                if (active_count <= max_myosin_bonds) {
+                    break;
+                }
+                if (!info.active || info.cb) {
+                    continue;
+                }
+                remove_connection(info);
+                --active_count;
+            }
         }
 
-        auto order = utils::sort_indices(priority);
-        for (size_t k = max_myosin_bonds; k < order.size(); ++k) {
-            int actin_idx = bound_actins[order[k]];
-            am_bonds[actin_idx][j] = 0;
-            myosinIndicesPerActin.deleteConnection(actin_idx, j);
-            for (auto& temp_conn : actinIndicesPerMyosin_temp) {
-                temp_conn.deleteConnection(j, actin_idx);
+        int per_group_limit = 0;
+        if (max_myosin_bonds >= 2) {
+            per_group_limit = max_myosin_bonds / 2;
+        } else {
+            per_group_limit = max_myosin_bonds;
+        }
+
+        if (per_group_limit > 0) {
+            std::vector<BoundInfo*> positive;
+            std::vector<BoundInfo*> negative;
+            positive.reserve(bound.size());
+            negative.reserve(bound.size());
+            for (auto& info : bound) {
+                if (!info.active) continue;
+                if (info.dot >= 0.0) {
+                    positive.push_back(&info);
+                } else {
+                    negative.push_back(&info);
+                }
+            }
+
+            auto trim_group = [&](std::vector<BoundInfo*>& group) {
+                if (static_cast<int>(group.size()) <= per_group_limit) {
+                    return;
+                }
+                std::sort(group.begin(), group.end(), cmp_priority);
+                for (size_t idx = per_group_limit; idx < group.size(); ++idx) {
+                    if (!group[idx]->active) {
+                        continue;
+                    }
+                    remove_connection(*group[idx]);
+                    --active_count;
+                }
+            };
+
+            trim_group(positive);
+            trim_group(negative);
+        }
+
+        if (active_count > max_myosin_bonds) {
+            std::vector<BoundInfo*> survivors;
+            survivors.reserve(bound.size());
+            for (auto& info : bound) {
+                if (info.active) {
+                    survivors.push_back(&info);
+                }
+            }
+            std::sort(survivors.begin(), survivors.end(), cmp_priority);
+            for (size_t idx = max_myosin_bonds; idx < survivors.size(); ++idx) {
+                remove_connection(*survivors[idx]);
             }
         }
     }
@@ -894,22 +1041,40 @@ void Sarcomere::_calc_am_force_velocity(int& i) {
             printf("Warning: Actin %d has catch bond status but no myosin bound\n", i);
         }
         actin.velocity[i] = (1 - actin.f_load[i]) * velocity;
-        for (int j : myosin_neighbors) {
-            double abs_cos_angle = std::abs(actin.direction[i].dot(myosin.direction[j]));
-            if (am_bonds[i][j] == 1 | abs_cos_angle < 0.95) {
-                continue;
+        // printf("Actin %d (CB): f_load %f, velocity set to (%f, %f, %f)\n",
+        //        i, actin.f_load[i],
+        //        actin.velocity[i].x,
+        //        actin.velocity[i].y,
+        //        actin.velocity[i].z);
+        if (has_myosin_bond_pairs) {
+            for (int j : myosin_neighbors) {
+                if (am_bonds[i][j] == 1) {
+                    continue;
+                }
+                bool bonded_pair = false;
+                for (int bound_idx : myosin_indices) {
+                    if (am_interaction[i][bound_idx].partial_binding_ratio <= EPS) {
+                        continue;
+                    }
+                    if (_myosin_pair_bonded(bound_idx, j)) {
+                        bonded_pair = true;
+                        break;
+                    }
+                }
+                if (!bonded_pair) {
+                    continue;
+                }
+                apply_actin_myosin_repulsion(
+                    actin,
+                    myosin,
+                    i,
+                    j,
+                    box,
+                    am_cutoff,
+                    20*k_aa,
+                    local_actin_forces[i],
+                    local_myosin_forces[j]);
             }
-            apply_actin_myosin_repulsion(
-                actin,
-                myosin,
-                i,
-                j,
-                box,
-                am_cutoff*1.1,
-                k_aa,
-                max_myosin_force,
-                local_actin_forces[i],
-                local_myosin_forces[j]);
         }
     } else {
         if (myosin_indices.size() == 0) {
@@ -976,31 +1141,39 @@ void Sarcomere::_apply_myomesin_spring(int i, int j, std::vector<vec>& local_myo
         return;
     }
     vec diff = utils::pbc_diff_masked(myosin.center[i], myosin.center[j], box, is_periodic);
-    double dist = diff.norm();
-    if (dist <= 1e-12 || dist > myomesin_cutoff) {
+
+        // get normalized directions
+    vec di = myosin.direction[i];
+    vec dj = myosin.direction[j];
+    di.normalize();
+    dj.normalize();
+    // enforce apolar consistency: flip dj if it's anti-parallel to di
+    if (di.dot(dj) < 0.0) {
+        dj = -dj;
+    }
+    // average axis direction
+    vec e_axis = di + dj;
+    e_axis.normalize();
+    // axial separation
+    double axial = diff.dot(e_axis);
+    double dist_axial = std::abs(axial);
+    if (dist_axial <= 1e-12 || dist_axial > myomesin_cutoff) {
         return;
     }
-    vec unit = diff / dist;
-    double stretch = dist - myomesin_optimal;
+    // unit force direction along ±e_axis
+    vec unit_axial = (axial >= 0.0) ? e_axis : -e_axis;
+    double stretch = dist_axial/myomesin_cutoff; //normalized stretch
     double force_scalar = -k_mm * stretch;
-    if (std::isfinite(max_myosin_force) && max_myosin_force > 0.0) {
-        force_scalar = std::clamp(force_scalar, -max_myosin_force, max_myosin_force);
-    }
-    vec force_on_i = force_scalar * unit;
+    vec force_on_i = force_scalar * unit_axial;
     vec force_on_j = -force_on_i;
-    if (i < fix_myosin && j < fix_myosin) {
-        return;
-    }
-    if (i < fix_myosin) {
-        local_myosin_forces[j] += 2.0 * force_on_j;
-        return;
-    }
-    if (j < fix_myosin) {
-        local_myosin_forces[i] += 2.0 * force_on_i;
-        return;
-    }
-    local_myosin_forces[i] += force_on_i;
-    local_myosin_forces[j] += force_on_j;
+    //print myosin centers, directions and force vectors
+    // printf("Myomesin spring between myosin %d (center (%f, %f, %f), direction (%f, %f, %f)) and %d (center (%f, %f, %f), direction (%f, %f, %f)): stretch %f, force on i (%f, %f, %f)\n",
+    //     i, myosin.center[i].x, myosin.center[i].y, myosin.center[i].z,
+    //        myosin.direction[i].x, myosin.direction[i].y, myosin.direction[i].z,
+    //     j, myosin.center[j].x, myosin.center[j].y, myosin.center[j].z,
+    //        myosin.direction[j].x, myosin.direction[j].y, myosin.direction[j].z,
+    //      stretch,
+    //     force_on_i.x, force_on_i.y, force_on_i.z);
 }
 
 
@@ -1008,6 +1181,7 @@ void Sarcomere::_apply_myomesin_spring(int i, int j, std::vector<vec>& local_myo
 void Sarcomere::_volume_exclusion(){
     const double EPS_FORCE = 1e-9;
     double myosin_cutoff = 2.0 * myosin.radius;
+    const double myomesin_distance_limit = 2.0 * am_cutoff;
     #pragma omp for schedule(runtime)
     for (int i = 0; i<myosin.n; i++){
         auto result = neighbor_list.get_neighbors_by_type(i+actin.n);
@@ -1016,6 +1190,7 @@ void Sarcomere::_volume_exclusion(){
         for (int index = 0; index < static_cast<int>(myosin_indices.size()); index++){
             int j = myosin_indices[index];
             if (i<j){
+                double seg_distance = std::numeric_limits<double>::infinity();
                 apply_myosin_repulsion(
                     actin,
                     myosin,
@@ -1024,11 +1199,13 @@ void Sarcomere::_volume_exclusion(){
                     box,
                     fix_myosin,
                     actinIndicesPerMyosin,
-                    10 * k_aa,
-                    max_myosin_force,
+                    100 * k_aa,
                     local_myosin_forces[i],
-                    local_myosin_forces[j]);
-                _apply_myomesin_spring(i, j, local_myosin_forces);
+                    local_myosin_forces[j],
+                    seg_distance);
+                if (seg_distance <= myomesin_distance_limit) {
+                    _apply_myomesin_spring(i, j, local_myosin_forces);
+                }
             }
         }
     }
@@ -1054,7 +1231,6 @@ void Sarcomere::_volume_exclusion(){
                     box,
                     aa_optimal,
                     10*k_aa,
-                    max_actin_force,
                     local_actin_forces[i],
                     local_actin_forces[j]);
             }
@@ -1073,6 +1249,7 @@ void Sarcomere::_myosin_exclusion(){
         for (int index = 0; index < static_cast<int>(myosin_indices.size()); index++){
             int j = myosin_indices[index];
             if (i<j){
+                double seg_distance = std::numeric_limits<double>::infinity();
                 apply_myosin_repulsion(
                     actin,
                     myosin,
@@ -1081,10 +1258,10 @@ void Sarcomere::_myosin_exclusion(){
                     box,
                     fix_myosin,
                     actinIndicesPerMyosin,
-                    2*k_am,
-                    max_myosin_force,
+                    100*k_aa,
                     local_myosin_forces[i],
-                    local_myosin_forces[j]);
+                    local_myosin_forces[j],
+                    seg_distance);
             }
         }
     }
@@ -1093,7 +1270,9 @@ void Sarcomere::_myosin_exclusion(){
 int Sarcomere::determine_cb_status(int& i, int& j){
     double crosslink_i = std::clamp(actin["crosslink_ratio"][i], 0.0, 1.0);
     double crosslink_j = std::clamp(actin["crosslink_ratio"][j], 0.0, 1.0);
-
+    // if (crosslink_i <= EPS || crosslink_j <= EPS) {
+    //     return 0;
+    // }
     vec crosslink_point_i = actin.left_end[i];
     crosslink_point_i += actin.direction[i] * (actin.length * crosslink_i);
     vec crosslink_point_j = actin.left_end[j];
@@ -1133,11 +1312,11 @@ int Sarcomere::determine_cb_status(int& i, int& j){
         }
     };
     bool crosslink = false;
-    if ((crosslink_i > EPS) && (crosslink_j > EPS) || !directional) {
-        if (distance < aa_cutoff) {
-            crosslink = true;
-        }
+    // if ((crosslink_i > EPS) && (crosslink_j > EPS) || !directional) {
+    if (distance < aa_cutoff) {
+        crosslink = true;
     }
+    //}
     if (!crosslink){
         if (was_strong){
             int myosin_i = myosinIndicesPerActin.getConnections(i)[0];
@@ -1246,15 +1425,16 @@ bool Sarcomere::_cb_decide(int& i, int& j, int status){
 
     else{
         if (rand >= k_on * dt){
-            if (status==2){
-            printf("Actins %d and %d fail to form catch bond with status %d, rand %f, k_on*dt %f, f_load %f, abs_cos_angle %f\n",
-                i, j, status, rand, k_on*dt, f_load, abs_cos_angle);}
+            //if (status==2){
+            // printf("Actins %d and %d fail to form catch bond with status %d, rand %f, k_on*dt %f, f_load %f, abs_cos_angle %f\n",
+            //     i, j, status, rand, k_on*dt, f_load, abs_cos_angle);
+            //}
             return false;
         }
-        if (status==2){
-        printf("Actins %d and %d form/maintain catch bond with status %d, rand %f, f_load %f, abs_cos_angle %f\n",
-           i, j, status, rand, f_load, abs_cos_angle);}
-    }
+    //     if (status==2){
+    //     printf("Actins %d and %d form/maintain catch bond with status %d, rand %f, f_load %f, abs_cos_angle %f\n",
+    //         i, j, status, rand, f_load, abs_cos_angle);}
+     }
     // Bond is accepted or persists: record status locally
     local_actin_cb_status[i] = std::max(local_actin_cb_status[i], status);
     local_actin_cb_status[j] = std::max(local_actin_cb_status[j], status);
@@ -1429,6 +1609,137 @@ void Sarcomere::_apply_cb_alignment_bias(double& k_theta_bias)
             vec tau = _alignment_torque(u, k_theta_bias * actin.cb_status[i]);
             actin_torques_temp[omp_get_thread_num()][i] += tau;
         }
+}
+
+double Sarcomere::_current_bundle_strength() const {
+    if (k_bundle_max <= 0.0) {
+        return 0.0;
+    }
+    if (bundle_ramp_steps <= 0) {
+        return k_bundle_max;
+    }
+    size_t step_for_ramp = (current_step > 0) ? (current_step - 1) : 0;
+    double ramp = static_cast<double>(step_for_ramp) / static_cast<double>(bundle_ramp_steps);
+    ramp = std::clamp(ramp, 0.0, 1.0);
+    return k_bundle_max * ramp * ramp;
+}
+
+void Sarcomere::_apply_transverse_bundling(double k_bundle) {
+    if (k_bundle <= 0.0) {
+        return;
+    }
+    double sum_y = 0.0;
+    double sum_z = 0.0;
+    size_t participant_count = 0;
+
+    for (int i = fix_myosin; i < myosin.n; ++i) {
+        sum_y += myosin.center[i].y;
+        sum_z += myosin.center[i].z;
+        ++participant_count;
+    }
+    for (int i = 0; i < actin.n; ++i) {
+        sum_y += actin.center[i].y;
+        sum_z += actin.center[i].z;
+        ++participant_count;
+    }
+
+    if (participant_count == 0) {
+        return;
+    }
+
+    double com_y = sum_y / static_cast<double>(participant_count);
+    double com_z = sum_z / static_cast<double>(participant_count);
+
+    for (int i = fix_myosin; i < myosin.n; ++i) {
+        double dy = myosin.center[i].y - com_y;
+        double dz = myosin.center[i].z - com_z;
+        myosin.force[i].y -= k_bundle * dy;
+        myosin.force[i].z -= k_bundle * dz;
+    }
+    for (int i = 0; i < actin.n; ++i) {
+        double dy = actin.center[i].y - com_y;
+        double dz = actin.center[i].z - com_z;
+        actin.force[i].y -= k_bundle * dy;
+        actin.force[i].z -= k_bundle * dz;
+    }
+}
+
+void Sarcomere::_update_myosin_bond_matrix() {
+    if (myosin.n <= 0) {
+        myosin_bond_matrix.clear();
+        has_myosin_bond_pairs = false;
+        return;
+    }
+    if (myosin_bond_matrix.size() != static_cast<size_t>(myosin.n)) {
+        myosin_bond_matrix.assign(myosin.n, std::vector<int>(myosin.n, 0));
+    } else {
+        for (auto& row : myosin_bond_matrix) {
+            std::fill(row.begin(), row.end(), 0);
+        }
+    }
+    has_myosin_bond_pairs = false;
+    std::vector<std::vector<int>> actin_attached(actin.n);
+    for (int act_idx = 0; act_idx < actin.n; ++act_idx) {
+        const auto& attachments = myosinIndicesPerActin.getConnections(act_idx);
+        actin_attached[act_idx].reserve(attachments.size());
+        for (int m_idx : attachments) {
+            if (m_idx < 0 || m_idx >= myosin.n) {
+                continue;
+            }
+            if (am_interaction[act_idx][m_idx].partial_binding_ratio > EPS) {
+                actin_attached[act_idx].push_back(m_idx);
+            }
+        }
+    }
+    for (int a = 0; a < actin.n; ++a) {
+        if (actin.cb_status[a] != 2) {
+            continue;
+        }
+        const auto& attached_a = actin_attached[a];
+        if (attached_a.empty()) {
+            continue;
+        }
+        for (int b = a + 1; b < actin.n; ++b) {
+            if (actin.cb_status[b] != 2) {
+                continue;
+            }
+            if (actin_actin_status[a][b] != 2) {
+                continue;
+            }
+            const auto& attached_b = actin_attached[b];
+            if (attached_b.empty()) {
+                continue;
+            }
+            for (int mi : attached_a) {
+                for (int mj : attached_b) {
+                    if (mi == mj) {
+                        continue;
+                    }
+                    if (myosin_bond_matrix[mi][mj] == 0) {
+                        has_myosin_bond_pairs = true;
+                    }
+                    myosin_bond_matrix[mi][mj] = 1;
+                    myosin_bond_matrix[mj][mi] = 1;
+                }
+            }
+        }
+    }
+}
+
+bool Sarcomere::_myosin_pair_bonded(int mi, int mj) const {
+    if (myosin_bond_matrix.empty()) {
+        return false;
+    }
+    if (mi < 0 || mj < 0) {
+        return false;
+    }
+    if (mi >= static_cast<int>(myosin_bond_matrix.size())) {
+        return false;
+    }
+    if (mj >= static_cast<int>(myosin_bond_matrix[mi].size())) {
+        return false;
+    }
+    return myosin_bond_matrix[mi][mj] != 0;
 }
 
 

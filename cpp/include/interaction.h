@@ -216,6 +216,7 @@ struct RepulsionResult {
     bool applied = false;
     vec force_on_first {0.0, 0.0, 0.0};
     vec force_on_second {0.0, 0.0, 0.0};
+    double segment_distance = std::numeric_limits<double>::infinity();
 };
 
 // Myosin–myosin segment repulsion helper.
@@ -226,8 +227,7 @@ RepulsionResult compute_myosin_repulsion(const Filament& actin,
                                          const std::vector<double>& box,
                                          int fix_myosin,
                                          const utils::MoleculeConnection& actinIndicesPerMyosin,
-                                         double stiffness,
-                                         double max_force_cap);
+                                         double stiffness);
 
 // Actin–actin segment repulsion helper.
 RepulsionResult compute_actin_repulsion(const Filament& actin,
@@ -235,8 +235,7 @@ RepulsionResult compute_actin_repulsion(const Filament& actin,
                                         int j,
                                         const std::vector<double>& box,
                                         double crosslinker_length,
-                                        double stiffness,
-                                        double max_force_cap);
+                                        double stiffness);
 
 // Actin–myosin axial end-stop repulsion helper.
 vec compute_actin_myosin_repulsion(const Filament& actin,
@@ -245,8 +244,7 @@ vec compute_actin_myosin_repulsion(const Filament& actin,
                                    int myo_idx,
                                    const std::vector<double>& box,
                                    double radius,
-                                   double stiffness,
-                                   double max_force_cap);
+                                   double stiffness);
 
 // Convenience wrappers that accumulate repulsion forces.
 bool apply_myosin_repulsion(const Filament& actin,
@@ -257,9 +255,9 @@ bool apply_myosin_repulsion(const Filament& actin,
                             int fix_myosin,
                             const utils::MoleculeConnection& actinIndicesPerMyosin,
                             double stiffness,
-                            double max_force_cap,
                             vec& force_on_first,
-                            vec& force_on_second);
+                            vec& force_on_second,
+                            double& segment_distance);
 
 bool apply_actin_repulsion(const Filament& actin,
                            int i,
@@ -267,7 +265,6 @@ bool apply_actin_repulsion(const Filament& actin,
                            const std::vector<double>& box,
                            double crosslinker_length,
                            double stiffness,
-                           double max_force_cap,
                            vec& force_on_first,
                            vec& force_on_second);
 
@@ -278,7 +275,6 @@ bool apply_actin_myosin_repulsion(const Filament& actin,
                                   const std::vector<double>& box,
                                   double radius,
                                   double stiffness,
-                                  double max_force_cap,
                                   vec& force_on_actin,
                                   vec& force_on_myosin);
 

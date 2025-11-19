@@ -40,8 +40,14 @@ real am_energy1(const ArrayXreal& center1, const double& length1, const ArrayXre
         return angle_energy;
     }
     else {
-        real offset = dist - optimal;
-        return 0.5 * k_am * strength * offset * offset + angle_energy;
+        real offset = (dist - optimal)/optimal;
+        real energy = 0.5 * k_am * strength * offset * offset + angle_energy;
+        // real repulsion_threshold = real(0.9) * optimal;
+        // if (dist < repulsion_threshold) {
+        //     real rep_offset = (repulsion_threshold - dist)/optimal;
+        //     energy += 0.5 * 5 * k_am * rep_offset * rep_offset;
+        // }
+        return energy;
     }
 }
 
@@ -84,7 +90,7 @@ real aa_energy(const ArrayXreal& center1, const double& length1,
     if (cutoff > 0.0 && raw_dist > cutoff) {
         return angle_energy;
     }
-    real dist = raw_dist - optimal;
+    real dist = (raw_dist - optimal)/optimal;
 
     // ===== Axial-gap soft wall between barbed ends a (filament1) and c (filament2) =====
     // Compute minimum-image displacement c - a
@@ -108,9 +114,14 @@ real aa_energy(const ArrayXreal& center1, const double& length1,
     // One-sided quadratic penalty beyond s_tol
     real U_ax = 0.0;
     if (ds < 0.0) {
-        U_ax = 0.5 * k_aa * ds * ds;
-    }    
-    return 0.5 * (k_aa * dist * dist) + angle_energy + U_ax;
+        U_ax = 0.5 * 10 * k_aa * (ds/optimal) * (ds/optimal);
+        //printf("Axial gap penalty applied: ds = %f, U_ax = %f\n", ds.val(), U_ax.val());
+    }  
+    real ds_pos = (ds - 0.1*length1)/(0.1*length1);  // scaled positive excess
+    U_ax += 0.5 * k_aa * (ds_pos) * (ds_pos);
+    //printf("Axial gap penalty applied: ds = %f, U_ax = %f\n", ds.val(), U_ax.val());
+    real energy = 0.5 * (k_aa * dist * dist) + angle_energy + U_ax;
+    return energy;
 }
 
 
@@ -192,11 +203,11 @@ std::vector<double> compute_am_force_and_energy(Filament& actin, Myosin& myosin,
         vec tip_disp = actin_tip - myosin_end;
         tip_disp.pbc_wrap(box, actin.periodic_axes);
         double s = std::fabs(tip_disp.dot(myosin.direction[myosin_index]));  // +s toward "right" tip, −s toward "left"
-        double Lm = 0.5 * myosin.length;                     // half-length of myosin
+        double Lm = 0.4 * myosin.length;                     // half-length of myosin
         vec endstop_force = {0.0, 0.0, 0.0};
         if (s >= Lm) {
             double dist_to_end = s - Lm;   
-            double mag_mid = k_am * dist_to_end;         // increase toward center
+            double mag_mid = 5 * k_am * (dist_to_end)/Lm;         // increase toward center
             // choose outward sign; for s==0 pick +1 by convention
             endstop_force = - mag_mid * actin_dir;         // pushes toward the nearer end
         }
@@ -224,22 +235,14 @@ RepulsionResult compute_myosin_repulsion(const Filament& actin,
                                          const std::vector<double>& box,
                                          int fix_myosin,
                                          const utils::MoleculeConnection& actinIndicesPerMyosin,
-                                         double stiffness,
-                                         double max_force_cap)
+                                         double stiffness)
 {
     RepulsionResult result{};
     const double cutoff = 2.0 * myosin.radius;
     const double EPS = 1e-9;
-    const double max_force_limit = (max_force_cap > 0.0 && std::isfinite(max_force_cap))
-                                       ? max_force_cap
-                                       : std::numeric_limits<double>::infinity();
 
     vec center_displacement = myosin.center[i] - myosin.center[j];
     center_displacement.pbc_wrap(box, myosin.periodic_axes);
-    const double center_distance = center_displacement.norm();
-    if (center_distance > cutoff + myosin.length) {
-        return result;
-    }
 
     auto geom = geometry::segment_segment_distance_w_normal(
         myosin.left_end[i], myosin.right_end[i],
@@ -247,6 +250,7 @@ RepulsionResult compute_myosin_repulsion(const Filament& actin,
         box, myosin.periodic_axes);
 
     const double distance = geom.first;
+    result.segment_distance = distance;
     if (distance >= cutoff) {
         return result;
     }
@@ -259,7 +263,7 @@ RepulsionResult compute_myosin_repulsion(const Filament& actin,
     vec normal_vector = normal_it->second;
     double norm = normal_vector.norm();
     if (norm <= EPS) {
-        const double denom = std::max(center_distance, EPS);
+        const double denom = std::max(center_displacement.norm(), EPS);
         if (denom <= EPS) {
             return result;
         }
@@ -268,7 +272,7 @@ RepulsionResult compute_myosin_repulsion(const Filament& actin,
         normal_vector = normal_vector / norm;
     }
 
-    double overlap = cutoff - distance;
+    double overlap = (cutoff - distance)/cutoff;
     if (overlap <= 0.0) {
         return result;
     }
@@ -277,13 +281,9 @@ RepulsionResult compute_myosin_repulsion(const Filament& actin,
     if (effective_stiffness <= 0.0) {
         return result;
     }
-
     double force_mag = effective_stiffness * overlap;
     if (!std::isfinite(force_mag) || force_mag < 0.0) {
         force_mag = 0.0;
-    }
-    if (force_mag > max_force_limit) {
-        force_mag = max_force_limit;
     }
 
     vec force_vec = force_mag * normal_vector;
@@ -319,6 +319,11 @@ RepulsionResult compute_myosin_repulsion(const Filament& actin,
         result.force_on_first += force_vec;
         result.force_on_second -= force_vec;
     }
+    // if (overlap > 0.1) {
+    //     printf("Myosin-myosin repulsion between myosins %d and %d: distance=%f, overlap=%f, force_mag=%f,force_vec=(%f, %f, %f)\n",
+    //            i, j, distance, overlap, force_mag,
+    //             force_vec.x, force_vec.y, force_vec.z);
+    // }
     return result;
 }
 
@@ -327,13 +332,9 @@ RepulsionResult compute_actin_repulsion(const Filament& actin,
                                         int j,
                                         const std::vector<double>& box,
                                         double crosslinker_length,
-                                        double stiffness,
-                                        double max_force_cap)
+                                        double stiffness)
 {
     RepulsionResult result{};
-    const double max_force_limit = (max_force_cap > 0.0 && std::isfinite(max_force_cap))
-                                       ? max_force_cap
-                                       : std::numeric_limits<double>::infinity();
     const double EPS = 1e-9;
 
     vec center_displacement = actin.center[i] - actin.center[j];
@@ -382,9 +383,6 @@ RepulsionResult compute_actin_repulsion(const Filament& actin,
     if (!std::isfinite(force_mag) || force_mag < 0.0) {
         force_mag = 0.0;
     }
-    // if (force_mag > max_force_limit) {
-    //     force_mag = max_force_limit;
-    // }
     vec force_vec = force_mag * normal_vector;
 
     const int status_i = actin.cb_status[i];
@@ -409,8 +407,7 @@ vec compute_actin_myosin_repulsion(const Filament& actin,
                                    int myo_idx,
                                    const std::vector<double>& box,
                                    double radius,
-                                   double stiffness,
-                                   double max_force_cap)
+                                   double stiffness)
 {
     // const double EPS = 1e-9;
     // const double max_force_limit = (max_force_cap > 0.0 && std::isfinite(max_force_cap))
@@ -459,10 +456,15 @@ vec compute_actin_myosin_repulsion(const Filament& actin,
     vec endstop_force = {0.0, 0.0, 0.0};
     if (std::fabs(s) <= Lm) {
         double dist_to_end = Lm - std::fabs(s);       // ∈ [0, Lm]
-        double mag_mid = stiffness * dist_to_end;         // increase toward center
-        endstop_force = mag_mid * actin.direction[act_idx]; // pushes outward along actin direction
-        // printf("actin-myosin (%d, %d) repulsion force magnitude: %f\n", act_idx, myo_idx,
-        //     endstop_force.norm());
+        double mag_mid = stiffness * dist_to_end/Lm;         // increase toward center
+        //endstop_force = mag_mid * actin.direction[act_idx]; // pushes outward along actin direction
+        endstop_force = mag_mid * (s >= 0 ? u : -u);      //force on actin pushes outward along myosin axis
+        if (dist_to_end/Lm > 0.1){
+        printf("actin %d (center=(%f,%f,%f)) - myosin %d (center=(%f,%f,%f)): s=%f, dist_to_end=%f, mag_mid=%f, endstop_force=(%f,%f,%f)\n",
+               act_idx, actin.center[act_idx].x, actin.center[act_idx].y, actin.center[act_idx].z,
+               myo_idx, myosin.center[myo_idx].x, myosin.center[myo_idx].y, myosin.center[myo_idx].z,
+               s, dist_to_end, mag_mid,
+               endstop_force.x, endstop_force.y, endstop_force.z);}
     }
     return endstop_force; //force on actin
 }
@@ -475,9 +477,9 @@ bool apply_myosin_repulsion(const Filament& actin,
                             int fix_myosin,
                             const utils::MoleculeConnection& actinIndicesPerMyosin,
                             double stiffness,
-                            double max_force_cap,
                             vec& force_on_first,
-                            vec& force_on_second)
+                            vec& force_on_second,
+                            double& segment_distance)
 {
     auto result = compute_myosin_repulsion(
         actin,
@@ -487,8 +489,8 @@ bool apply_myosin_repulsion(const Filament& actin,
         box,
         fix_myosin,
         actinIndicesPerMyosin,
-        stiffness,
-        max_force_cap);
+        stiffness);
+    segment_distance = result.segment_distance;
     if (!result.applied) {
         return false;
     }
@@ -503,7 +505,6 @@ bool apply_actin_repulsion(const Filament& actin,
                            const std::vector<double>& box,
                            double crosslinker_length,
                            double stiffness,
-                           double max_force_cap,
                            vec& force_on_first,
                            vec& force_on_second)
 {
@@ -513,8 +514,7 @@ bool apply_actin_repulsion(const Filament& actin,
         j,
         box,
         crosslinker_length,
-        stiffness,
-        max_force_cap);
+        stiffness);
     if (!result.applied) {
         return false;
     }
@@ -530,7 +530,6 @@ bool apply_actin_myosin_repulsion(const Filament& actin,
                                   const std::vector<double>& box,
                                   double radius,
                                   double stiffness,
-                                  double max_force_cap,
                                   vec& force_on_actin,
                                   vec& force_on_myosin)
 {
@@ -542,8 +541,7 @@ bool apply_actin_myosin_repulsion(const Filament& actin,
         myo_idx,
         box,
         radius,
-        stiffness,
-        max_force_cap);
+        stiffness);
     if (repulsive_force.norm() <= EPS_FORCE) {
         return false;
     }
