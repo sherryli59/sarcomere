@@ -89,7 +89,7 @@ int main(int argc, char* argv[]){
         options.add_options()
             ("nsteps", "Number of steps", cxxopts::value<int>(nsteps)->default_value("500000"))
             ("seed", "Seed value", cxxopts::value<int>(seed)->default_value("0"))
-            ("dt", "Time step", cxxopts::value<double>(dt)->default_value("0.000001"))
+            ("dt", "Time step", cxxopts::value<double>(dt)->default_value("0.00001"))
             ("beta", "Beta value", cxxopts::value<double>(beta)->default_value("241.0"))
             ("actin_diff_coeff_trans", "Actin translational diffusion coefficient", cxxopts::value<double>(actin_diff_coeff_trans)->default_value("0.2"))
             ("actin_diff_coeff_rot", "Actin rotational diffusion coefficient", cxxopts::value<double>(actin_diff_coeff_rot)->default_value("0.1"))
@@ -104,7 +104,7 @@ int main(int argc, char* argv[]){
             ("max_myosin_rotation", "Maximum rotational magnitude per step for myosin",
              cxxopts::value<double>(max_myosin_rotation)->default_value("0.005"))
             ("save_every", "Save every", cxxopts::value<int>(save_every)->default_value("200"))
-            ("k_on", "k_on", cxxopts::value<double>(k_on)->default_value("100000"))
+            ("k_on", "k_on", cxxopts::value<double>(k_on)->default_value("1000"))
             ("k_off", "k_off", cxxopts::value<double>(k_off)->default_value("1"))
             ("base_lifetime", "Base lifetime", cxxopts::value<double>(base_lifetime)->default_value("0.001"))
             ("lifetime_coeff", "Lifetime coefficient", cxxopts::value<double>(lifetime_coeff)->default_value("0.4"))
@@ -120,34 +120,29 @@ int main(int argc, char* argv[]){
             ("Lx", "Lx", cxxopts::value<double>(Lx)->default_value("10"))
             ("Ly", "Ly", cxxopts::value<double>(Ly)->default_value("10"))
             ("Lz", "Lz", cxxopts::value<double>(Lz)->default_value("10"))
-            ("pbc_mask", "Periodicity mask as three digits (e.g., 110 => periodic in x,y)",
-             cxxopts::value<std::string>()->default_value("111"))
-            ("periodic_mask", "Deprecated alias for --pbc_mask",
-             cxxopts::value<std::string>())
+            ("pbc_mask", "Periodicity mask as three digits (e.g., 110 => periodic in x,y)", cxxopts::value<std::string>()->default_value("111"))
+            ("periodic_mask", "Deprecated alias for --pbc_mask", cxxopts::value<std::string>())
             ("actin_length", "Actin length", cxxopts::value<double>(actin_length)->default_value("1"))
             ("myosin_length", "Myosin length", cxxopts::value<double>(myosin_length)->default_value("1.5"))
             ("myosin_radius", "Myosin radius", cxxopts::value<double>(myosin_radius)->default_value("0.025"))
-            ("myosin_direction_noise", "Std dev for aligning myosin directions to +x during initialization",
-             cxxopts::value<double>(myosin_direction_noise)->default_value("0.1"))
+            ("myosin_direction_noise", "Std dev for aligning myosin directions to +x during initialization", cxxopts::value<double>(myosin_direction_noise)->default_value("0.3"))
             ("am_cutoff", "cutoff for am interaction range", cxxopts::value<double>(am_cutoff)->default_value("0.05"))
             ("am_optimal", "optimal distance for am interaction", cxxopts::value<double>(am_optimal)->default_value("0.03"))
             // ("aa_cutoff", "cutoff for aa interaction range", cxxopts::value<double>(aa_cutoff)->default_value("0.05"))
             // ("aa_optimal", "optimal distance for aa interaction", cxxopts::value<double>(aa_optimal)->default_value("0.03"))
-            ("tau_rec", "Cooldown time after KMC break", cxxopts::value<double>(tau_rec)->default_value("0.002"))
+            ("tau_rec", "Cooldown time after KMC break", cxxopts::value<double>(tau_rec)->default_value("0.05"))
             ("titin_k", "Titin effective spring constant", cxxopts::value<double>(titin_k)->default_value("0.0"))
             ("k_bundle_max", "Maximum transverse bundling spring constant", cxxopts::value<double>(k_bundle_max)->default_value("0.0"))
             ("bundle_ramp_steps", "Number of steps used to ramp bundling strength", cxxopts::value<int>(bundle_ramp_steps)->default_value("0"))
             ("resume", "Resume", cxxopts::value<bool>(resume)->default_value("false"))
-            ("resume_frame", "Frame index to load when resuming (0-based; default loads latest)",
-             cxxopts::value<int>(resume_frame)->default_value("-1"))
+            ("resume_frame", "Frame index to load when resuming (0-based; default loads latest)", cxxopts::value<int>(resume_frame)->default_value("-1"))
             ("directional", "Directional", cxxopts::value<bool>(directional)->default_value("true"))
             ("deterministic", "Force deterministic single-threaded execution", cxxopts::value<bool>(deterministic)->default_value("false")->implicit_value("true"))
             ("n_fixed_myosins", "Number of fixed myosins", cxxopts::value<int>(n_fixed_myosins)->default_value("0"))
             ("filename", "Filename", cxxopts::value<std::string>(filename)->default_value("data/traj.h5"))
             ("initial_structure", "Type of initial structure", cxxopts::value<std::string>(init_struc)->default_value("random"))
             ("max_myosin_bonds", "Maximum actin bonds per myosin",cxxopts::value<int>(max_myosin_bonds)->default_value("10"))
-            ("dimension", "Simulation dimensionality (2 or 3)",
-             cxxopts::value<int>(dimension)->default_value("3"))
+            ("dimension", "Simulation dimensionality (2 or 3)", cxxopts::value<int>(dimension)->default_value("3"))
             ("h, help", "Print usage");
 
         auto result = options.parse(argc, argv);

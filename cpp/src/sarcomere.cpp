@@ -1380,7 +1380,7 @@ bool Sarcomere::_cb_decide(int& i, int& j, int status){
     if (status == 0){
         return false;
     }
-    bool was_bonded_prev = (actin_actin_bonds_prev[i][j] == 1);
+    bool was_bonded_prev = (actin_actin_bonds_prev[i][j] == 1 || actin_recovery_until[i][j] > current_step);
     if (!was_bonded_prev && bond_recovery_steps > 0 && actin_recovery_until[i][j] > current_step) {
         return false;
     }
