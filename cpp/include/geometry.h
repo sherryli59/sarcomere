@@ -78,10 +78,10 @@ namespace geometry {
     // Analyze actin–myosin interaction geometry and return an interaction struct.
     am_interaction analyze_am(vec actin_left, vec actin_right,
                               vec myosin_left, vec myosin_right, double d,
-                              std::vector<double> box);
+                              std::vector<double> box, bool directional = true);
     am_interaction analyze_am(vec actin_left, vec actin_right,
                               vec myosin_left, vec myosin_right, double d,
-                              std::vector<double> box, const std::array<bool,3>& periodic);
+                              std::vector<double> box, const std::array<bool,3>& periodic, bool directional = true);
 }
 
 #endif // GEOMETRY_H

@@ -568,7 +568,7 @@ std::tuple<double,vec,vec> subsegment_within_distance(vec A, vec B, vec C, vec D
 // Function to calculate the points on segment 1 that are distance d away from segment 2
 am_interaction analyze_am(vec actin_left, vec actin_right, 
                         vec myosin_left, vec myosin_right, double d, std::vector<double> box,
-                        const std::array<bool,3>& periodic) {
+                        const std::array<bool,3>& periodic, bool directional) {
     apply_pbc(actin_left, actin_right, myosin_left, myosin_right, box, periodic);
     vec actin_mid = 0.5 * (actin_left + actin_right);
     vec myosin_mid = 0.5 * (myosin_left + myosin_right);
@@ -577,25 +577,44 @@ am_interaction analyze_am(vec actin_left, vec actin_right,
     interaction.myosin_binding_ratio = std::get<0>(result);
     interaction.myosin_binding_start = std::get<1>(result);
     interaction.myosin_binding_end = std::get<2>(result);
-    // if (interaction.myosin_binding_ratio > 0) {
-    // printf("actin left (%f, %f, %f)\n"
-    //         "actin right (%f, %f, %f)\n"
-    //         "myosin left (%f, %f, %f)\n"
-    //         "myosin right (%f, %f, %f)\n"
-    //         "myosin binding start (%f, %f, %f)\n"
-    //         "myosin binding end (%f, %f, %f)\n",
-    //         actin_left.x, actin_left.y, actin_left.z,
-    //         actin_right.x, actin_right.y, actin_right.z,
-    //         myosin_left.x, myosin_left.y, myosin_left.z,
-    //         myosin_right.x, myosin_right.y, myosin_right.z,
-    //         interaction.myosin_binding_start.x, interaction.myosin_binding_start.y, interaction.myosin_binding_start.z,
-    //         interaction.myosin_binding_end.x, interaction.myosin_binding_end.y, interaction.myosin_binding_end.z);
-    // }
-
+    
     //crosslinkable
-    interaction.crosslinkable_start = actin_left;
-    interaction.crosslinkable_end = interaction.myosin_binding_start;
-    interaction.crosslinkable_ratio = (interaction.crosslinkable_end-actin_left).norm()
+    if (directional) {
+        interaction.crosslinkable_start = actin_left;
+        interaction.crosslinkable_end = interaction.myosin_binding_start;
+    } else {
+        // For non-directional, choose the end that's NOT between myosin_binding_start and myosin_binding_end
+        vec actin_dir = actin_right - actin_left;
+        double actin_length_sq = actin_dir.norm_squared();
+        
+        // Calculate parametric positions of myosin_binding_start and myosin_binding_end on actin segment
+        double t_binding_start = actin_dir.dot(interaction.myosin_binding_start - actin_left) / actin_length_sq;
+        double t_binding_end = actin_dir.dot(interaction.myosin_binding_end - actin_left) / actin_length_sq;
+        
+        // Ensure t_binding_start <= t_binding_end
+        if (t_binding_start > t_binding_end) {
+            std::swap(t_binding_start, t_binding_end);
+        }
+        
+        // Check if actin_left (t=0) is between binding start and end
+        bool left_is_between = (t_binding_start <= 0.0 && 0.0 <= t_binding_end);
+        // Check if actin_right (t=1) is between binding start and end
+        bool right_is_between = (t_binding_start <= 1.0 && 1.0 <= t_binding_end);
+        
+        if (!left_is_between) {
+            interaction.crosslinkable_start = actin_left;
+            interaction.crosslinkable_end = interaction.myosin_binding_start;
+        } else if (!right_is_between) {
+            interaction.crosslinkable_start = actin_right;
+            interaction.crosslinkable_end = interaction.myosin_binding_end;
+        } else {
+            // Both ends are between binding region, default to left
+            interaction.crosslinkable_start = actin_left;
+            interaction.crosslinkable_end = interaction.myosin_binding_start;
+        }
+    }
+    
+    interaction.crosslinkable_ratio = (interaction.crosslinkable_end - interaction.crosslinkable_start).norm()
         / actin_right.distance(actin_left, box, periodic);
     double dot = (actin_mid-actin_left).dot(myosin_mid-myosin_left);
     vec partial_start, partial_end;
@@ -615,9 +634,9 @@ am_interaction analyze_am(vec actin_left, vec actin_right,
 }
 
 am_interaction analyze_am(vec actin_left, vec actin_right, 
-                        vec myosin_left, vec myosin_right, double d, std::vector<double> box) {
+                        vec myosin_left, vec myosin_right, double d, std::vector<double> box, bool directional) {
     static const std::array<bool,3> default_periodic{true, true, true};
-    return analyze_am(actin_left, actin_right, myosin_left, myosin_right, d, box, default_periodic);
+    return analyze_am(actin_left, actin_right, myosin_left, myosin_right, d, box, default_periodic, directional);
 }
 
 } // namespace geometry

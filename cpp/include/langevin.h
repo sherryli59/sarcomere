@@ -38,6 +38,7 @@ public:
     double max_actin_displacement, max_myosin_displacement;
     double max_actin_rotation, max_myosin_rotation;
     bool is3D;
+    bool skip_initial_save;
     int save_every, start_step, loaded_frame_index;
     Sarcomere& model;
 };

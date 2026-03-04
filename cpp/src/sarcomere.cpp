@@ -1,6 +1,8 @@
 #include "sarcomere.h"
 #include <algorithm>
 #include <cmath>
+#include <cstdint>
+#include <cstring>
 #include <limits>
 #include <tuple>
 #include <gsl/gsl_randist.h>
@@ -109,6 +111,8 @@ Sarcomere::Sarcomere(int& n_actins, int& n_myosins, vector box0, double& actin_l
             am_bonds_prev = am_bonds;
             actin_basic_tension.resize(n_actins);
             actin_crosslink_ratio.resize(n_actins);
+            actin_crosslink_start.resize(n_actins);
+            actin_crosslink_end.resize(n_actins);
             actin_n_bonds.resize(n_actins);
             actin_strong_cb_count.resize(n_actins);
             n_myosins_per_actin.resize(n_actins);
@@ -136,267 +140,6 @@ Sarcomere::Sarcomere(int& n_actins, int& n_myosins, vector box0, double& actin_l
 
 // Destructor
 Sarcomere::~Sarcomere() {}
-
-void Sarcomere::set_bundling_parameters(double max_strength, int ramp_steps) {
-    k_bundle_max = (max_strength > 0.0) ? max_strength : 0.0;
-    bundle_ramp_steps = (ramp_steps > 0) ? ramp_steps : 0;
-}
-
-void Sarcomere::partial_fix(int& n_fixed){
-    // Now each coordinate has three components: x, y, and z (with z = 0).
-    std::vector<vector> myosin_positions;
-    myosin_positions = {
-        {0, -2, 0}, {0, -1, 0}, {0, 0, 0}, {0, 1, 0}, {0, 2, 0},
-        {0, -2.5, 0}, {0, -1.5, 0}, {0, -0.5, 0}, {0, 0.5, 0}, {0, 1.5, 0}
-    };
-    for (int i = 0; i < n_fixed; i++){
-        myosin.center[i].x = myosin_positions[i][0];
-        myosin.center[i].y = myosin_positions[i][1];
-        myosin.center[i].z = myosin_positions[i][2]; // set z coordinate to 0        
-    }
-    //set all myosin directions to x-axis
-    for (int i = 0; i < myosin.n; i++){
-        myosin.direction[i] = {1, 0, 0};
-    }
-    myosin.update_endpoints();
-    update_system();
-}
-
-void Sarcomere::cb(){
-    // For actin, now include a z coordinate equal to 0.
-    std::vector<vector> actin_positions = {
-        {0.5, -0.015, 0}, {-0.5, 0.015, 0}
-    };
-    for (int i = 0; i < actin_positions.size(); i++){
-        actin.center[i].x = actin_positions[i][0];
-        actin.center[i].y = actin_positions[i][1];
-        actin.center[i].z = actin_positions[i][2]; // set z coordinate to 0
-    }
-    actin.direction[0] = {1, 0, 0};
-    actin.direction[1] = {-1, 0, 0};
-    
-    std::vector<vector> myosin_positions = {
-        {-1.33, 0.045, 0}, {-1.33, -0.015, 0}, {1.33, 0.015, 0}, {1.33, -0.045, 0}
-    };
-    for (int i = 0; i < myosin_positions.size(); i++){
-        myosin.center[i].x = myosin_positions[i][0];
-        myosin.center[i].y = myosin_positions[i][1];
-        myosin.center[i].z = myosin_positions[i][2]; // set z coordinate to 0
-        myosin.direction[i] = {1, 0, 0};
-    }
-}
-
-void Sarcomere::set_myosin_direction_x_noise(double noise_std){
-    const double sigma = (noise_std > 0.0) ? noise_std : 0.0;
-    for (int i = 0; i < myosin.n; ++i) {
-        double dx = 1.0;
-        double dy = 0.0;
-        double dz = 0.0;
-        if (rng != nullptr && sigma > 0.0) {
-            dx += gsl_ran_gaussian(rng, sigma);
-            dy = gsl_ran_gaussian(rng, sigma);
-            dz = gsl_ran_gaussian(rng, sigma);
-        }
-        vec dir{dx, dy, dz};
-        double norm = dir.norm();
-        if (norm < EPS) {
-            dir = {1.0, 0.0, 0.0};
-        } else {
-            dir = dir / norm;
-        }
-        myosin.direction[i] = dir;
-    }
-    myosin.update_endpoints();
-}
-
-void Sarcomere::cb_off_angle(){
-    if (actin.n < 2 || myosin.n < 4) {
-        return;
-    }
-
-    constexpr double ANG2_DEG     = 150.0;
-    constexpr double Y_ANCH_LEFT  = -0.015;
-    constexpr double Y_ANCH_RIGHT =  0.015;
-
-    const double angle_rad = ANG2_DEG * M_PI / 180.0;
-    vec dir0{1.0, 0.0, 0.0};
-    vec dir1{std::cos(angle_rad), std::sin(angle_rad), 0.0};
-    dir1.normalize();
-    printf("dir1: (%f, %f, %f)\n", dir1.x, dir1.y, dir1.z);
-
-    actin.direction[0] = dir0;
-    actin.direction[1] = dir1;
-
-    const double half_len = 0.5 * actin.length;
-    vec anchor0{0.0, Y_ANCH_LEFT, 0.0};   // treat as left endpoint for actin 0
-    vec anchor1{0.0, Y_ANCH_RIGHT, 0.0};  // treat as right endpoint for actin 1
-
-    vec center0 = anchor0 + dir0 * half_len;
-    vec center1 = anchor1 + dir1 * half_len;
-    printf("Actin 1 center: (%f, %f, %f)\n", center1.x, center1.y, center1.z);
-    actin.center[0] = center0;
-    actin.center[1] = center1;
-    actin.update_endpoints();
-
-    double y0 = actin.right_end_y[0];
-    double y1 = actin.right_end_y[1];
-    printf("Actin 0 right endpoint y: %f\n", y0);
-    printf("Actin 1 right endpoint y: %f\n", y1);
-    printf("Actin 0 left endpoint y: %f\n", actin.left_end_y[0]);
-    printf("Actin 1 left endpoint y: %f\n", actin.left_end_y[1]);
-    std::vector<vec> myosin_positions = {
-        { 1.33, y0 - 0.03, 0.0 },
-        { 1.33, y0 + 0.03, 0.0 },
-        {-1.33, y1 - 0.03, 0.0 },
-        {-1.33, y1 + 0.03, 0.0 }
-    };
-
-
-    for (size_t i = 0; i < myosin_positions.size() && i < static_cast<size_t>(myosin.n); ++i) {
-        myosin.center[static_cast<int>(i)] = myosin_positions[i];
-        myosin.direction[static_cast<int>(i)] = vec{1.0, 0.0, 0.0};
-    }
-    myosin.update_endpoints();
-}
-
-void Sarcomere::am_off_angle(){
-    // For actin, now include a z coordinate equal to 0.
-    std::vector<vector> actin_positions = {
-       {-0.5, 0.015, 0}
-    };
-    for (int i = 0; i < actin_positions.size(); i++){
-        actin.center[i].x = actin_positions[i][0];
-        actin.center[i].y = actin_positions[i][1];
-        actin.center[i].z = actin_positions[i][2];
-    }
-
-    // Actin directions: 0 deg and 160 deg apart
-    actin.direction[0] = {-0.9397, 0.3420, 0};  // 160° from the first
-
-    std::vector<vector> myosin_positions = {
-        {-1.33, 0, 0}
-    };
-    for (int i = 0; i < myosin_positions.size(); i++){
-        myosin.center[i].x = myosin_positions[i][0];
-        myosin.center[i].y = myosin_positions[i][1];
-        myosin.center[i].z = myosin_positions[i][2];
-        myosin.direction[i] = {1, 0, 0};
-    }
-}
-
-void Sarcomere::sarcomeric_structure_tight(){
-    // set box to encompass all three dimensions
-    box[0] = 5.32;
-    box[1] = 5.32;
-    box[2] = 5.32;
-
-    // myosin heads: three rows at y = –0.32, 0, +0.32
-    std::vector<vector> myosin_positions = {
-        {-1, -0.03, 0.0}, {1, -0.06, 0.0},
-        {-1,  0.03, 0.0}, {1,  0, 0.0},
-        {-1,  0.09, 0.0}, {1,  0.06, 0.0}
-    };
-    for (int i = 0; i < myosin_positions.size(); i++){
-        myosin.center[i].x   = myosin_positions[i][0];
-        myosin.center[i].y   = myosin_positions[i][1];
-        myosin.center[i].z   = myosin_positions[i][2];
-        myosin.direction[i] = {1, 0, 0}; // set direction to x-axis
-    }
-    myosin.update_endpoints();
-
-    std::vector<vector> actin_positions = {
-        {-2.16, -0.06, 0.0}, 
-        {-2.16, 0.0, 0.0}, 
-        {-2.16,  0.06, 0.0}, 
-        {0.1, -0.03, 0.0}, 
-        {0.1, 0.03, 0.0},
-        {0.1,  0.09, 0.0}
-    };
-    for (int i = 0; i < actin_positions.size(); i++){
-        printf("Setting actin %d position to (%f, %f, %f)\n", i, actin_positions[i][0], actin_positions[i][1], actin_positions[i][2]);
-        actin.center[i].x   = actin_positions[i][0];
-        actin.center[i].y   = actin_positions[i][1];
-        actin.center[i].z   = actin_positions[i][2];
-        actin.direction[i] = {1, 0, 0}; // set direction to x-axis
-    }
-    int n = actin_positions.size();
-    actin_positions = {
-        {-0.1, -0.06, 0.0},
-        {-0.1,  0.00, 0.0},
-        {-0.1,  0.06, 0.0},
-        { 2.16, -0.03, 0.0},
-        { 2.16,  0.03, 0.0},
-        { 2.16,  0.09, 0.0}
-    };
-    for (int i = 0; i < actin_positions.size(); i++){
-        printf("Setting actin %d position to (%f, %f, %f)\n", i+n, actin_positions[i][0], actin_positions[i][1], actin_positions[i][2]);
-        actin.center[i+n].x   = actin_positions[i][0];
-        actin.center[i+n].y   = actin_positions[i][1];
-        actin.center[i+n].z   = actin_positions[i][2];
-        actin.direction[i+n] = {-1, 0, 0}; // set direction to negative x-axis
-    }
-    actin.update_endpoints();
-
-    update_system();
-}
-
-void Sarcomere::sarcomeric_structure(){
-    // set box to encompass all three dimensions
-    box[0] = 5.32;
-    box[1] = 5.32;
-    box[2] = 5.32;
-
-    // myosin heads: three rows at y = –0.32, 0, +0.32
-    std::vector<vector> myosin_positions = {
-        {-1.33, -0.03, 0.0}, {1.33, -0.06, 0.0},
-        {-1.33,  0.03, 0.0}, {1.33,  0, 0.0},
-        {-1.33,  0.09, 0.0}, {1.33,  0.06, 0.0}
-    };
-    for (int i = 0; i < myosin_positions.size(); i++){
-        myosin.center[i].x   = myosin_positions[i][0];
-        myosin.center[i].y   = myosin_positions[i][1];
-        myosin.center[i].z   = myosin_positions[i][2];
-        myosin.direction[i] = {1, 0, 0}; // set direction to x-axis
-    }
-    myosin.update_endpoints();
-
-    std::vector<vector> actin_positions = {
-        {-2.16, -0.06, 0.0}, 
-        {-2.16, 0.0, 0.0}, 
-        {-2.16,  0.06, 0.0}, 
-        {0.5, -0.03, 0.0}, 
-        {0.5, 0.03, 0.0},
-        {0.5,  0.09, 0.0}
-    };
-    for (int i = 0; i < actin_positions.size(); i++){
-        printf("Setting actin %d position to (%f, %f, %f)\n", i, actin_positions[i][0], actin_positions[i][1], actin_positions[i][2]);
-        actin.center[i].x   = actin_positions[i][0];
-        actin.center[i].y   = actin_positions[i][1];
-        actin.center[i].z   = actin_positions[i][2];
-        actin.direction[i] = {1, 0, 0}; // set direction to x-axis
-    }
-
-    int n = actin_positions.size();
-    actin_positions = {
-        {-0.5, -0.06, 0.0},
-        {-0.5,  0.00, 0.0},
-        {-0.5,  0.06, 0.0},
-        { 2.16, -0.03, 0.0},
-        { 2.16,  0.03, 0.0},
-        { 2.16,  0.09, 0.0}
-    };
-    for (int i = 0; i < actin_positions.size(); i++){
-        printf("Setting actin %d position to (%f, %f, %f)\n", i+n, actin_positions[i][0], actin_positions[i][1], actin_positions[i][2]);
-        actin.center[i+n].x   = actin_positions[i][0];
-        actin.center[i+n].y   = actin_positions[i][1];
-        actin.center[i+n].z   = actin_positions[i][2];
-        actin.direction[i+n] = {-1, 0, 0}; // set direction to negative x-axis
-    }
-    actin.update_endpoints();
-
-    update_system();
-}
-
 
 void Sarcomere::update_system() {
     // Advance global step counter each time the system is updated
@@ -710,6 +453,8 @@ void Sarcomere::_set_to_zero() {
         actin_strong_cb_count[i] = 0;
         n_myosins_per_actin[i] = 0;
         actin_crosslink_ratio[i] = 1;
+        actin_crosslink_start[i] = actin.left_end[i];
+        actin_crosslink_end[i] = actin.right_end[i];
         actin["myosin_binding_ratio"][i] = 0;
         actin["crosslink_ratio"][i] = 1;
         actin["partial_binding_ratio"][i] = 0;
@@ -757,12 +502,14 @@ void Sarcomere::_process_actin_myosin_binding(int& i) {
         int j = myosin_neighbors[index];
         am_interaction[i][j] = geometry::analyze_am(
             actin.left_end[i], actin.right_end[i], myosin.left_end[j], myosin.right_end[j],
-            am_cutoff, box, is_periodic);
+            am_cutoff, box, is_periodic, directional);
         if (am_interaction[i][j].partial_binding_ratio > EPS || !directional) {
             double partial_ratio = am_interaction[i][j].partial_binding_ratio;
             double binding_ratio = am_interaction[i][j].myosin_binding_ratio;
-            if (actin_crosslink_ratio[i] > am_interaction[i][j].crosslinkable_ratio) {
+                if (actin_crosslink_ratio[i] > am_interaction[i][j].crosslinkable_ratio) {
                     actin_crosslink_ratio[i] = am_interaction[i][j].crosslinkable_ratio;
+                    actin_crosslink_start[i] = am_interaction[i][j].crosslinkable_start;
+                    actin_crosslink_end[i] = am_interaction[i][j].crosslinkable_end;
                     if (actin_crosslink_ratio[i] < EPS) {
                         auto actin_neighbors = actin_neighbors_by_species[i].first;
                         bool prev_catch_bonded = false;
@@ -1273,14 +1020,24 @@ int Sarcomere::determine_cb_status(int& i, int& j){
     // if (crosslink_i <= EPS || crosslink_j <= EPS) {
     //     return 0;
     // }
-    vec crosslink_point_i = actin.left_end[i];
-    crosslink_point_i += actin.direction[i] * (actin.length * crosslink_i);
-    vec crosslink_point_j = actin.left_end[j];
-    crosslink_point_j += actin.direction[j] * (actin.length * crosslink_j);
 
-    // Compute geometric metrics using the first binding-zone points as endpoints
-    double distance = geometry::segment_segment_distance(
-        actin.left_end[i], crosslink_point_i, actin.left_end[j], crosslink_point_j, box, is_periodic);
+    double distance;
+    if (directional) {
+        vec crosslink_point_i = actin.left_end[i];
+        crosslink_point_i += actin.direction[i] * (actin.length * crosslink_i);
+        vec crosslink_point_j = actin.left_end[j];
+        crosslink_point_j += actin.direction[j] * (actin.length * crosslink_j);
+        // Compute geometric metrics using the first binding-zone points as endpoints
+        distance = geometry::segment_segment_distance(
+            actin.left_end[i], crosslink_point_i, actin.left_end[j], crosslink_point_j, box, is_periodic);
+    } else {
+        // Use the stored crosslinkable segment endpoints (from the chosen myosin)
+        vec start_i = actin_crosslink_start[i];
+        vec end_i = actin_crosslink_end[i];
+        vec start_j = actin_crosslink_start[j];
+        vec end_j = actin_crosslink_end[j];
+        distance = geometry::segment_segment_distance(start_i, end_i, start_j, end_j, box, is_periodic);
+    }
     double cos_angle = actin.direction[i].dot(actin.direction[j]);
 
     bool was_strong = (actin_actin_status_prev[i][j] == 2);
@@ -1315,6 +1072,8 @@ int Sarcomere::determine_cb_status(int& i, int& j){
     // if ((crosslink_i > EPS) && (crosslink_j > EPS) || !directional) {
     if (distance < aa_cutoff) {
         crosslink = true;
+        printf("Actins %d and %d are crosslinked, distance: %f, cos_angle: %f, crosslink ratio: %f, %f\n",
+               i, j, distance, cos_angle,crosslink_i, crosslink_j);
     }
     //}
     if (!crosslink){
@@ -1755,6 +1514,156 @@ void Sarcomere::save_state(){
     std::vector<double> flatActinMyosinBonds = std::get<2>(bondData);
     append_to_file(filename, actin, myosin, flatActinBonds,
                    flatMyosinBonds, flatActinMyosinBonds, max_myosin_bonds);
+    
+    // Save additional state needed for resume: full bond/state matrices and RNG state.
+    {
+        H5::H5File file(filename, H5F_ACC_RDWR);
+        H5::Group group_state;
+        try {
+            group_state = file.openGroup("/state");
+        } catch (H5::Exception&) {
+            group_state = file.createGroup("/state");
+        }
+        auto ensure_state_dataset_int = [&](const std::string& dataset_name, hsize_t width) {
+            const std::string full_path = "/state/" + dataset_name;
+            if (!file.nameExists(full_path)) {
+                std::vector<hsize_t> initDims = {0, width};
+                std::vector<hsize_t> maxDims = {H5S_UNLIMITED, width};
+                std::vector<hsize_t> chunkDims = {10, width};
+                create_empty_dataset_int(file, "/state", dataset_name, initDims, maxDims, chunkDims);
+            }
+        };
+        auto ensure_state_dataset_double = [&](const std::string& dataset_name, hsize_t width) {
+            const std::string full_path = "/state/" + dataset_name;
+            if (!file.nameExists(full_path)) {
+                std::vector<hsize_t> initDims = {0, width};
+                std::vector<hsize_t> maxDims = {H5S_UNLIMITED, width};
+                std::vector<hsize_t> chunkDims = {10, width};
+                create_empty_dataset(file, "/state", dataset_name, initDims, maxDims, chunkDims);
+            }
+        };
+
+        const hsize_t aa_width = static_cast<hsize_t>(actin.n * actin.n);
+        const hsize_t am_width = static_cast<hsize_t>(actin.n * myosin.n);
+
+        ensure_state_dataset_int("current_step", 1);
+        ensure_state_dataset_int("actin_actin_bonds_prev", aa_width);
+        ensure_state_dataset_int("actin_actin_status_prev", aa_width);
+        ensure_state_dataset_double("actin_actin_lifetime_prev", aa_width);
+        ensure_state_dataset_int("am_bonds_prev", am_width);
+        ensure_state_dataset_int("actin_recovery_until", aa_width);
+
+        // Current (not previous-step) matrices are required for exact resume.
+        ensure_state_dataset_int("actin_actin_bonds_current", aa_width);
+        ensure_state_dataset_int("actin_actin_status_current", aa_width);
+        ensure_state_dataset_int("actin_actin_lifetime_current", aa_width);
+        ensure_state_dataset_int("am_bonds_current", am_width);
+
+        // Save current_step (scalar value)
+        std::vector<int> step_vec = {static_cast<int>(current_step)};
+        append_to_dataset_int(group_state, "current_step", step_vec, {1, 1});
+
+        // Flatten and save actin-actin previous/current matrices.
+        std::vector<int> aa_bonds_prev_flat;
+        std::vector<int> aa_status_prev_flat;
+        std::vector<int> aa_lifetime_prev_flat;
+        std::vector<int> aa_bonds_current_flat;
+        std::vector<int> aa_status_current_flat;
+        std::vector<int> aa_lifetime_current_flat;
+        aa_bonds_prev_flat.reserve(aa_width);
+        aa_status_prev_flat.reserve(aa_width);
+        aa_lifetime_prev_flat.reserve(aa_width);
+        aa_bonds_current_flat.reserve(aa_width);
+        aa_status_current_flat.reserve(aa_width);
+        aa_lifetime_current_flat.reserve(aa_width);
+        for (int i = 0; i < actin.n; ++i) {
+            for (int j = 0; j < actin.n; ++j) {
+                aa_bonds_prev_flat.push_back(actin_actin_bonds_prev[i][j]);
+                aa_status_prev_flat.push_back(actin_actin_status_prev[i][j]);
+                aa_lifetime_prev_flat.push_back(actin_actin_lifetime_prev[i][j]);
+                aa_bonds_current_flat.push_back(actin_actin_bonds[i][j]);
+                aa_status_current_flat.push_back(actin_actin_status[i][j]);
+                aa_lifetime_current_flat.push_back(actin_actin_lifetime[i][j]);
+            }
+        }
+        append_to_dataset_int(group_state, "actin_actin_bonds_prev", aa_bonds_prev_flat, {1, aa_width});
+        append_to_dataset_int(group_state, "actin_actin_status_prev", aa_status_prev_flat, {1, aa_width});
+        append_to_dataset_int(group_state, "actin_actin_lifetime_prev", aa_lifetime_prev_flat, {1, aa_width});
+        append_to_dataset_int(group_state, "actin_actin_bonds_current", aa_bonds_current_flat, {1, aa_width});
+        append_to_dataset_int(group_state, "actin_actin_status_current", aa_status_current_flat, {1, aa_width});
+        append_to_dataset_int(group_state, "actin_actin_lifetime_current", aa_lifetime_current_flat, {1, aa_width});
+
+        // Flatten and save actin-myosin previous/current matrices.
+        std::vector<int> am_bonds_prev_flat;
+        std::vector<int> am_bonds_current_flat;
+        am_bonds_prev_flat.reserve(am_width);
+        am_bonds_current_flat.reserve(am_width);
+        for (int i = 0; i < actin.n; ++i) {
+            for (int j = 0; j < myosin.n; ++j) {
+                am_bonds_prev_flat.push_back(am_bonds_prev[i][j]);
+                am_bonds_current_flat.push_back(am_bonds[i][j]);
+            }
+        }
+        append_to_dataset_int(group_state, "am_bonds_prev", am_bonds_prev_flat, {1, am_width});
+        append_to_dataset_int(group_state, "am_bonds_current", am_bonds_current_flat, {1, am_width});
+
+        // Flatten and save actin_recovery_until.
+        std::vector<int> recovery_flat;
+        recovery_flat.reserve(aa_width);
+        for (int i = 0; i < actin.n; ++i) {
+            for (int j = 0; j < actin.n; ++j) {
+                recovery_flat.push_back(static_cast<int>(actin_recovery_until[i][j]));
+            }
+        }
+        append_to_dataset_int(group_state, "actin_recovery_until", recovery_flat, {1, aa_width});
+
+        // Save RNG states so resumed trajectories can be bitwise reproducible.
+        if (rng != nullptr) {
+            const size_t main_state_size = gsl_rng_size(rng);
+            if (main_state_size > 0) {
+                ensure_state_dataset_int("rng_main_state", static_cast<hsize_t>(main_state_size));
+                const auto* state_ptr = static_cast<const unsigned char*>(gsl_rng_state(rng));
+                std::vector<int> main_state(main_state_size, 0);
+                for (size_t idx = 0; idx < main_state_size; ++idx) {
+                    main_state[idx] = static_cast<int>(state_ptr[idx]);
+                }
+                append_to_dataset_int(group_state, "rng_main_state", main_state,
+                                      {1, static_cast<hsize_t>(main_state_size)});
+            }
+        }
+        if (!rng_engines.empty() && rng_engines[0] != nullptr) {
+            const int thread_count = static_cast<int>(rng_engines.size());
+            const size_t thread_state_size = gsl_rng_size(rng_engines[0]);
+            const hsize_t flat_width = static_cast<hsize_t>(thread_count) *
+                                       static_cast<hsize_t>(thread_state_size);
+            if (thread_state_size > 0) {
+                ensure_state_dataset_int("rng_thread_state", flat_width);
+                ensure_state_dataset_int("rng_thread_count", 1);
+                ensure_state_dataset_int("rng_thread_state_size", 1);
+
+                std::vector<int> thread_state(flat_width, 0);
+                for (int t = 0; t < thread_count; ++t) {
+                    if (rng_engines[t] == nullptr) {
+                        continue;
+                    }
+                    const size_t local_size = gsl_rng_size(rng_engines[t]);
+                    if (local_size != thread_state_size) {
+                        continue;
+                    }
+                    const auto* local_ptr =
+                        static_cast<const unsigned char*>(gsl_rng_state(rng_engines[t]));
+                    size_t base = static_cast<size_t>(t) * thread_state_size;
+                    for (size_t idx = 0; idx < thread_state_size; ++idx) {
+                        thread_state[base + idx] = static_cast<int>(local_ptr[idx]);
+                    }
+                }
+                append_to_dataset_int(group_state, "rng_thread_state", thread_state, {1, flat_width});
+                append_to_dataset_int(group_state, "rng_thread_count", {thread_count}, {1, 1});
+                append_to_dataset_int(group_state, "rng_thread_state_size",
+                                      {static_cast<int>(thread_state_size)}, {1, 1});
+            }
+        }
+    }
 
     // Flush any recorded catch-bond events to the HDF5 file
     if (!cb_breakage_events.empty() || !cb_limit_events.empty() || !aa_completed_lifetimes.empty()) {
@@ -1787,6 +1696,259 @@ void Sarcomere::save_state(){
 
 int Sarcomere::load_state(int& n_frames, int frame_index){
     int target_frame = load_from_file(filename, actin, myosin, actin_actin_bonds, n_frames, frame_index);
-    update_system();
+
+    const size_t aa_stride = static_cast<size_t>(actin.n) * static_cast<size_t>(actin.n);
+    const size_t am_stride = static_cast<size_t>(actin.n) * static_cast<size_t>(myosin.n);
+
+    auto load_state_vector = [&](H5::Group& group, const std::string& dataset_name,
+                                 size_t expected_width, std::vector<int>& out) -> bool {
+        try {
+            if (!group.nameExists(dataset_name)) {
+                return false;
+            }
+            std::vector<hsize_t> dims;
+            std::vector<double> raw = load_from_dataset(group, dataset_name, dims);
+            if (dims.size() < 2 || target_frame < 0 || target_frame >= static_cast<int>(dims[0])) {
+                return false;
+            }
+            if (static_cast<size_t>(dims[1]) != expected_width) {
+                return false;
+            }
+            size_t offset = static_cast<size_t>(target_frame) * expected_width;
+            out.resize(expected_width);
+            for (size_t i = 0; i < expected_width; ++i) {
+                out[i] = static_cast<int>(std::llround(raw[offset + i]));
+            }
+            return true;
+        } catch (H5::Exception&) {
+            return false;
+        }
+    };
+
+    auto assign_aa_matrix = [&](const std::vector<int>& flat, std::vector<std::vector<int>>& matrix) {
+        if (flat.size() != aa_stride) {
+            return;
+        }
+        for (int i = 0; i < actin.n; ++i) {
+            for (int j = 0; j < actin.n; ++j) {
+                matrix[i][j] = flat[static_cast<size_t>(i) * actin.n + j];
+            }
+        }
+    };
+
+    auto assign_am_matrix = [&](const std::vector<int>& flat, std::vector<std::vector<int>>& matrix) {
+        if (flat.size() != am_stride) {
+            return;
+        }
+        for (int i = 0; i < actin.n; ++i) {
+            for (int j = 0; j < myosin.n; ++j) {
+                matrix[i][j] = flat[static_cast<size_t>(i) * myosin.n + j];
+            }
+        }
+    };
+
+    bool loaded_state_group = false;
+    try {
+        H5::H5File file(filename, H5F_ACC_RDONLY);
+        H5::Group group_state(file.openGroup("/state"));
+        loaded_state_group = true;
+
+        std::vector<int> flat;
+        std::vector<hsize_t> dims;
+
+        // Load current_step (if missing, fallback handled below).
+        if (group_state.nameExists("current_step")) {
+            std::vector<double> step_data = load_from_dataset(group_state, "current_step", dims);
+            if (dims.size() >= 2 && target_frame >= 0 && target_frame < static_cast<int>(dims[0])) {
+                current_step = static_cast<size_t>(std::llround(step_data[target_frame]));
+            } else {
+                current_step = 0;
+            }
+        } else {
+            current_step = 0;
+        }
+
+        if (load_state_vector(group_state, "actin_actin_bonds_prev", aa_stride, flat)) {
+            assign_aa_matrix(flat, actin_actin_bonds_prev);
+        }
+        if (load_state_vector(group_state, "actin_actin_status_prev", aa_stride, flat)) {
+            assign_aa_matrix(flat, actin_actin_status_prev);
+        }
+        if (load_state_vector(group_state, "actin_actin_lifetime_prev", aa_stride, flat)) {
+            assign_aa_matrix(flat, actin_actin_lifetime_prev);
+        }
+        if (load_state_vector(group_state, "am_bonds_prev", am_stride, flat)) {
+            assign_am_matrix(flat, am_bonds_prev);
+        }
+        if (load_state_vector(group_state, "actin_recovery_until", aa_stride, flat)) {
+            for (int i = 0; i < actin.n; ++i) {
+                for (int j = 0; j < actin.n; ++j) {
+                    actin_recovery_until[i][j] =
+                        static_cast<size_t>(flat[static_cast<size_t>(i) * actin.n + j]);
+                }
+            }
+        }
+
+        bool have_current_bonds = load_state_vector(group_state, "actin_actin_bonds_current", aa_stride, flat);
+        if (have_current_bonds) {
+            assign_aa_matrix(flat, actin_actin_bonds);
+        }
+
+        bool have_current_status = load_state_vector(group_state, "actin_actin_status_current", aa_stride, flat);
+        if (have_current_status) {
+            assign_aa_matrix(flat, actin_actin_status);
+        } else {
+            // Legacy fallback: /actin/bonds stores only strong bonds.
+            for (int i = 0; i < actin.n; ++i) {
+                for (int j = 0; j < actin.n; ++j) {
+                    actin_actin_status[i][j] = (actin_actin_bonds[i][j] == 1) ? 2 : 0;
+                }
+            }
+        }
+
+        bool have_current_lifetime = load_state_vector(group_state, "actin_actin_lifetime_current", aa_stride, flat);
+        if (have_current_lifetime) {
+            assign_aa_matrix(flat, actin_actin_lifetime);
+        } else {
+            for (int i = 0; i < actin.n; ++i) {
+                for (int j = 0; j < actin.n; ++j) {
+                    if (actin_actin_bonds[i][j] == 1) {
+                        actin_actin_lifetime[i][j] = std::max(1, actin_actin_lifetime_prev[i][j]);
+                    } else {
+                        actin_actin_lifetime[i][j] = 0;
+                    }
+                }
+            }
+        }
+
+        bool have_current_am = load_state_vector(group_state, "am_bonds_current", am_stride, flat);
+        if (have_current_am) {
+            assign_am_matrix(flat, am_bonds);
+        } else {
+            for (int i = 0; i < actin.n; ++i) {
+                std::fill(am_bonds[i].begin(), am_bonds[i].end(), 0);
+            }
+            // Fallback for legacy files: reconstruct current am_bonds from /actin_myo/bonds.
+            try {
+                H5::Group group_am(file.openGroup("/actin_myo"));
+                std::vector<double> am_bonds_all = load_from_dataset(group_am, "bonds", dims);
+                if (dims.size() >= 3 && target_frame >= 0 && target_frame < static_cast<int>(dims[0])) {
+                    size_t bonds_per_frame = static_cast<size_t>(dims[1]) * static_cast<size_t>(dims[2]);
+                    size_t start = static_cast<size_t>(target_frame) * bonds_per_frame;
+                    for (size_t idx = 0; idx + 1 < bonds_per_frame; idx += 2) {
+                        int a = static_cast<int>(std::llround(am_bonds_all[start + idx]));
+                        int m = static_cast<int>(std::llround(am_bonds_all[start + idx + 1]));
+                        if (a >= 0 && a < actin.n && m >= 0 && m < myosin.n) {
+                            am_bonds[a][m] = 1;
+                        }
+                    }
+                }
+            } catch (H5::Exception&) {
+                // Keep zeros if legacy AM bonds are unavailable.
+            }
+        }
+
+        // Restore per-actin cb_status from the matrix so diagnostic output remains consistent.
+        for (int i = 0; i < actin.n; ++i) {
+            int max_status = 0;
+            for (int j = 0; j < actin.n; ++j) {
+                max_status = std::max(max_status, actin_actin_status[i][j]);
+            }
+            actin.cb_status[i] = max_status;
+        }
+
+        // Restore RNG states for exact reproducibility.
+        if (rng != nullptr) {
+            if (group_state.nameExists("rng_main_state")) {
+                std::vector<double> rng_main_data = load_from_dataset(group_state, "rng_main_state", dims);
+                const size_t expected = gsl_rng_size(rng);
+                if (dims.size() >= 2 && target_frame >= 0 && target_frame < static_cast<int>(dims[0]) &&
+                    static_cast<size_t>(dims[1]) == expected) {
+                    size_t start = static_cast<size_t>(target_frame) * expected;
+                    auto* state_ptr = static_cast<unsigned char*>(gsl_rng_state(rng));
+                    for (size_t idx = 0; idx < expected; ++idx) {
+                        int byte_value = static_cast<int>(std::llround(rng_main_data[start + idx]));
+                        byte_value = std::clamp(byte_value, 0, 255);
+                        state_ptr[idx] = static_cast<unsigned char>(byte_value);
+                    }
+                }
+            }
+        }
+        if (!rng_engines.empty() && rng_engines[0] != nullptr &&
+            group_state.nameExists("rng_thread_state")) {
+                std::vector<double> thread_data = load_from_dataset(group_state, "rng_thread_state", dims);
+                if (dims.size() >= 2 && target_frame >= 0 && target_frame < static_cast<int>(dims[0])) {
+                    int file_thread_count = 0;
+                    int file_state_size = 0;
+                    if (group_state.nameExists("rng_thread_count") && group_state.nameExists("rng_thread_state_size")) {
+                        std::vector<hsize_t> scalar_dims;
+                        std::vector<double> tc = load_from_dataset(group_state, "rng_thread_count", scalar_dims);
+                        if (scalar_dims.size() >= 2 && target_frame < static_cast<int>(scalar_dims[0])) {
+                            file_thread_count = static_cast<int>(std::llround(tc[target_frame]));
+                        }
+                        std::vector<double> ts = load_from_dataset(group_state, "rng_thread_state_size", scalar_dims);
+                        if (scalar_dims.size() >= 2 && target_frame < static_cast<int>(scalar_dims[0])) {
+                            file_state_size = static_cast<int>(std::llround(ts[target_frame]));
+                        }
+                    }
+
+                    if (file_thread_count <= 0) {
+                        file_thread_count = static_cast<int>(rng_engines.size());
+                    }
+                    if (file_state_size <= 0) {
+                        if (file_thread_count > 0) {
+                            file_state_size = static_cast<int>(dims[1] / static_cast<hsize_t>(file_thread_count));
+                        } else {
+                            file_state_size = 0;
+                        }
+                    }
+
+                    const size_t frame_width = static_cast<size_t>(dims[1]);
+                    const size_t frame_start = static_cast<size_t>(target_frame) * frame_width;
+                    const int local_thread_count = static_cast<int>(rng_engines.size());
+                    const int restore_threads = std::min(local_thread_count, file_thread_count);
+                    for (int t = 0; t < restore_threads; ++t) {
+                        if (rng_engines[t] == nullptr) {
+                            continue;
+                        }
+                        const size_t local_state_size = gsl_rng_size(rng_engines[t]);
+                        const size_t copy_size = std::min(local_state_size, static_cast<size_t>(file_state_size));
+                        auto* local_ptr = static_cast<unsigned char*>(gsl_rng_state(rng_engines[t]));
+                        size_t thread_offset = frame_start + static_cast<size_t>(t) * static_cast<size_t>(file_state_size);
+                        if (thread_offset + copy_size > thread_data.size()) {
+                            break;
+                        }
+                        for (size_t idx = 0; idx < copy_size; ++idx) {
+                            int byte_value = static_cast<int>(std::llround(thread_data[thread_offset + idx]));
+                            byte_value = std::clamp(byte_value, 0, 255);
+                            local_ptr[idx] = static_cast<unsigned char>(byte_value);
+                        }
+                    }
+                }
+        }
+
+    } catch (H5::Exception&) {
+        loaded_state_group = false;
+    }
+
+    if (!loaded_state_group) {
+        printf("Warning: Could not load /state group. Falling back to approximate resume state.\n");
+        current_step = 0;
+        for (int i = 0; i < actin.n; ++i) {
+            for (int j = 0; j < actin.n; ++j) {
+                actin_actin_bonds_prev[i][j] = actin_actin_bonds[i][j];
+                actin_actin_status_prev[i][j] = 0;
+                actin_actin_lifetime_prev[i][j] = 0;
+                actin_actin_status[i][j] = (actin_actin_bonds[i][j] == 1) ? 2 : 0;
+                actin_actin_lifetime[i][j] = 0;
+                actin_recovery_until[i][j] = 0;
+            }
+            for (int j = 0; j < myosin.n; ++j) {
+                am_bonds_prev[i][j] = 0;
+                am_bonds[i][j] = 0;
+            }
+        }
+    }
+
     return target_frame;
 }

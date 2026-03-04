@@ -122,17 +122,30 @@ void append_to_dataset(H5::Group& group, const std::string& datasetName,
 
         // Get the current dataspace and size of the dataset.
         H5::DataSpace filespace = dataset.getSpace();
-        std::vector<hsize_t> currentSize(filespace.getSimpleExtentNdims());
+        int rank = filespace.getSimpleExtentNdims();
+        std::vector<hsize_t> currentSize(rank);
         filespace.getSimpleExtentDims(currentSize.data(), NULL);
 
-        // Check that the new data dimensions match (except for the first dimension).
+        // Diagnostic: if shapes don't match, print both and throw.
         if (newDims.size() != currentSize.size()) {
+            std::cerr << "Dimension mismatch when appending to dataset '" << datasetName << "'.\n";
+            std::cerr << "  dataset rank=" << rank << " currentSize=[";
+            for (size_t ii = 0; ii < currentSize.size(); ++ii) {
+                if (ii) std::cerr << ", ";
+                std::cerr << currentSize[ii];
+            }
+            std::cerr << "] newDims=[";
+            for (size_t ii = 0; ii < newDims.size(); ++ii) {
+                if (ii) std::cerr << ", ";
+                std::cerr << newDims[ii];
+            }
+            std::cerr << "]\n";
             throw std::runtime_error("Dimensions of new data do not match dataset.");
         }
         for (size_t i = 1; i < newDims.size(); ++i) {
             if (newDims[i] != currentSize[i]) {
-                printf("datasetName: %s\n", datasetName.c_str());
-                printf("newDims[%zu]: %zu, currentSize[%zu]: %zu\n", i, newDims[i], i, currentSize[i]);
+                std::cerr << "Non-append dimension mismatch for dataset '" << datasetName << "': index " << i
+                          << " new=" << newDims[i] << " existing=" << currentSize[i] << "\n";
                 throw std::runtime_error("Non-append dimensions do not match dataset.");
             }
         }
@@ -178,8 +191,26 @@ void append_to_dataset_int(H5::Group& group, const std::string& datasetName,
     try {
         H5::DataSet dataset = group.openDataSet(datasetName);
         H5::DataSpace filespace = dataset.getSpace();
-        std::vector<hsize_t> currentSize(filespace.getSimpleExtentNdims());
+        int rank = filespace.getSimpleExtentNdims();
+        std::vector<hsize_t> currentSize(rank);
         filespace.getSimpleExtentDims(currentSize.data(), NULL);
+
+        if (newDims.size() != currentSize.size()) {
+            std::cerr << "Dimension mismatch when appending to int dataset '" << datasetName << "'.\n";
+            std::cerr << "  dataset rank=" << rank << " currentSize=[";
+            for (size_t ii = 0; ii < currentSize.size(); ++ii) {
+                if (ii) std::cerr << ", ";
+                std::cerr << currentSize[ii];
+            }
+            std::cerr << "] newDims=[";
+            for (size_t ii = 0; ii < newDims.size(); ++ii) {
+                if (ii) std::cerr << ", ";
+                std::cerr << newDims[ii];
+            }
+            std::cerr << "]\n";
+            throw std::runtime_error("Dimensions of new data do not match dataset.");
+        }
+
         std::vector<hsize_t> newSize = currentSize;
         newSize[0] += newDims[0];
         dataset.extend(newSize.data());
@@ -311,6 +342,35 @@ void create_file(std::string& filename, Filament& actin, Myosin& myosin,
     maxDims     = {H5S_UNLIMITED};
     chunkDims   = {100};
     create_empty_dataset(file, "/catch_bond", "completed_lifetimes", initialDims, maxDims, chunkDims);
+
+    // Initialize /state group and datasets so newly created files contain
+    // the state arrays expected by code paths that open /state early.
+
+    // current_step: 2D dataset with shape (n_frames, 1) to match save_state append {1,1}
+    initialDims = {0, 1};
+    maxDims     = {H5S_UNLIMITED, 1};
+    chunkDims   = {10, 1};
+    create_empty_dataset_int(file, "/state", "current_step", initialDims, maxDims, chunkDims);
+
+    // Flattened actin-actin arrays: store as 2D datasets with shape (n_frames, n_actins*n_actins)
+    initialDims = {0, static_cast<hsize_t>(n_actins * n_actins)};
+    maxDims     = {H5S_UNLIMITED, static_cast<hsize_t>(n_actins * n_actins)};
+    chunkDims   = {1, static_cast<hsize_t>(n_actins * n_actins)};
+    create_empty_dataset_int(file, "/state", "actin_actin_bonds_prev", initialDims, maxDims, chunkDims);
+    create_empty_dataset_int(file, "/state", "actin_actin_status_prev", initialDims, maxDims, chunkDims);
+    create_empty_dataset(file, "/state", "actin_actin_lifetime_prev", initialDims, maxDims, chunkDims);
+
+    // am_bonds_prev: flattened per-frame array of size actin.n * myosin.n
+    initialDims = {0, static_cast<hsize_t>(n_actins * n_myosins)};
+    maxDims     = {H5S_UNLIMITED, static_cast<hsize_t>(n_actins * n_myosins)};
+    chunkDims   = {1, static_cast<hsize_t>(n_actins * n_myosins)};
+    create_empty_dataset_int(file, "/state", "am_bonds_prev", initialDims, maxDims, chunkDims);
+
+    // actin_recovery_until: flattened per-frame array size n_actins * n_actins
+    initialDims = {0, static_cast<hsize_t>(n_actins * n_actins)};
+    maxDims     = {H5S_UNLIMITED, static_cast<hsize_t>(n_actins * n_actins)};
+    chunkDims   = {1, static_cast<hsize_t>(n_actins * n_actins)};
+    create_empty_dataset_int(file, "/state", "actin_recovery_until", initialDims, maxDims, chunkDims);
 }
 
 

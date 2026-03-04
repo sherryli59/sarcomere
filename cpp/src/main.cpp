@@ -125,7 +125,7 @@ int main(int argc, char* argv[]){
             ("actin_length", "Actin length", cxxopts::value<double>(actin_length)->default_value("1"))
             ("myosin_length", "Myosin length", cxxopts::value<double>(myosin_length)->default_value("1.5"))
             ("myosin_radius", "Myosin radius", cxxopts::value<double>(myosin_radius)->default_value("0.025"))
-            ("myosin_direction_noise", "Std dev for aligning myosin directions to +x during initialization", cxxopts::value<double>(myosin_direction_noise)->default_value("0.3"))
+            ("myosin_direction_noise", "Std dev for aligning myosin directions to +x during initialization", cxxopts::value<double>(myosin_direction_noise)->default_value("1"))
             ("am_cutoff", "cutoff for am interaction range", cxxopts::value<double>(am_cutoff)->default_value("0.05"))
             ("am_optimal", "optimal distance for am interaction", cxxopts::value<double>(am_optimal)->default_value("0.03"))
             // ("aa_cutoff", "cutoff for aa interaction range", cxxopts::value<double>(aa_cutoff)->default_value("0.05"))

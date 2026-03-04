@@ -22,6 +22,7 @@ Langevin::Langevin(Sarcomere& model0, double& beta0, double& dt0, double& D0_act
         save_every(save_every0), is3D(is3D),
         max_actin_displacement(max_actin_displacement0), max_myosin_displacement(max_myosin_displacement0),
         max_actin_rotation(max_actin_rotation0), max_myosin_rotation(max_myosin_rotation0),
+        skip_initial_save(false),
         loaded_frame_index(-1)
 {
     if (resume) {
@@ -29,9 +30,12 @@ Langevin::Langevin(Sarcomere& model0, double& beta0, double& dt0, double& D0_act
         int requested_frame = resume_frame;
         int frame_idx = model.load_state(n_frames, requested_frame);
         loaded_frame_index = frame_idx;
-        start_step = frame_idx * save_every + 1;
-        printf("Resuming from file %s at step %d (frame %d of %d)\n",
-               model.filename.c_str(), start_step, frame_idx, n_frames);
+        // Frames are written at step multiples of save_every before integrating that step.
+        // Resume should continue from that same step index.
+        start_step = frame_idx * save_every;
+        skip_initial_save = true;
+        printf("Resuming from file %s at step %d (frame %d of %d, current_step=%zu)\n",
+               model.filename.c_str(), start_step, frame_idx, n_frames, model.current_step);
         if (requested_frame >= 0 && frame_idx != requested_frame) {
             printf("Requested resume frame %d adjusted to %d (available frames: %d)\n",
                    requested_frame, frame_idx, n_frames);
@@ -52,6 +56,7 @@ Langevin::Langevin(Sarcomere& model0, double& beta0, double& dt0, double& D0_act
         // }
     } else {
         start_step = 0;
+        skip_initial_save = false;
         loaded_frame_index = -1;
         model.new_file();
     }
@@ -70,9 +75,14 @@ Langevin::~Langevin() {
 //---------------------------------------------------------------------
 void Langevin::run_langevin(int nsteps, gsl_rng* rng, int& fix_myosin) {
     double start, end;
+    bool skip_first_save = skip_initial_save;
     int end_step = start_step + nsteps;
     for (int step = start_step; step < end_step; ++step) {
-        if (step % save_every == 0) {
+        bool should_save = (step % save_every == 0);
+        if (skip_first_save && step == start_step) {
+            should_save = false;
+        }
+        if (should_save) {
             std::cout << "Step " << step << std::endl;
             // Optionally protect saving with the mutex:
             // std::lock_guard<std::mutex> lock(save_mutex);
@@ -81,20 +91,29 @@ void Langevin::run_langevin(int nsteps, gsl_rng* rng, int& fix_myosin) {
         }
         model.update_system();
         sample_step(dt, rng, fix_myosin);
-        if (step % save_every == 0) {
+        if (should_save) {
             end = omp_get_wtime();
             printf("Step %d took %f seconds\n", step, end - start);
             //model.debug_cb_stats();
-        } 
+        }
+        if (skip_first_save && step == start_step) {
+            skip_first_save = false;
+        }
     }
+    skip_initial_save = false;
     start_step = end_step;
 }
 
 void Langevin::volume_exclusion(int nsteps, gsl_rng* rng, int& fix_myosin) {
     double start, end;
+    bool skip_first_save = skip_initial_save;
     int end_step = start_step + nsteps;
     for (int step = start_step; step < end_step; ++step) {
-        if (step % save_every == 0) {
+        bool should_save = (step % save_every == 0);
+        if (skip_first_save && step == start_step) {
+            should_save = false;
+        }
+        if (should_save) {
             std::cout << "Step " << step << std::endl;
             // Optionally protect saving with the mutex:
             // std::lock_guard<std::mutex> lock(save_mutex);
@@ -103,11 +122,15 @@ void Langevin::volume_exclusion(int nsteps, gsl_rng* rng, int& fix_myosin) {
         }
         model.update_system_sterics_only();
         sample_step(dt, rng, fix_myosin);
-        if (step % save_every == 0) {
+        if (should_save) {
             end = omp_get_wtime();
             printf("Step %d took %f seconds\n", step, end - start);
         }
+        if (skip_first_save && step == start_step) {
+            skip_first_save = false;
+        }
     }
+    skip_initial_save = false;
     start_step = end_step;
 }
 

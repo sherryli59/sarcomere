@@ -66,6 +66,8 @@ public:
     int max_strong_actin_bonds;
     std::vector<std::vector<interaction>> am_interaction;
     vector actin_crosslink_ratio;
+    std::vector<vec> actin_crosslink_start;
+    std::vector<vec> actin_crosslink_end;
     std::vector<int> actin_n_bonds;
     std::vector<int> actin_strong_cb_count;
     std::vector<int> n_myosins_per_actin;

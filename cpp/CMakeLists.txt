@@ -30,6 +30,8 @@ include_directories("${PROJECT_SOURCE_DIR}/autodiff")
 # Set compiler flags
 set(CMAKE_BUILD_TYPE Debug)
 set(CMAKE_CXX_FLAGS_DEBUG "-g")  # Add debug symbols
+set(CMAKE_CXX_STANDARD 17)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 # Source files
 set(SOURCES
@@ -41,6 +43,7 @@ set(SOURCES
     ${SRC_DIR}/h5_utils.cpp
     ${SRC_DIR}/components.cpp
     ${SRC_DIR}/langevin.cpp
+    ${SRC_DIR}/initialization.cpp
 
 
 )
