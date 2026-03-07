@@ -61,6 +61,7 @@ int main(int argc, char* argv[]){
     int n_fixed_myosins;
     int max_myosin_bonds;
     int dimension;
+    int pre_phase_steps;
     std::array<bool,3> periodic_axes{true, true, true};
 
     auto parse_pbc_mask = [](const std::string& mask) -> std::array<bool,3> {
@@ -141,6 +142,7 @@ int main(int argc, char* argv[]){
             ("n_fixed_myosins", "Number of fixed myosins", cxxopts::value<int>(n_fixed_myosins)->default_value("0"))
             ("filename", "Filename", cxxopts::value<std::string>(filename)->default_value("data/traj.h5"))
             ("initial_structure", "Type of initial structure", cxxopts::value<std::string>(init_struc)->default_value("random"))
+            ("pre_phase_steps", "Number of sterics-only pre-phase steps (used by myosin_x_noise and default init paths)", cxxopts::value<int>(pre_phase_steps)->default_value("500"))
             ("max_myosin_bonds", "Maximum actin bonds per myosin",cxxopts::value<int>(max_myosin_bonds)->default_value("10"))
             ("dimension", "Simulation dimensionality (2 or 3)", cxxopts::value<int>(dimension)->default_value("3"))
             ("h, help", "Print usage");
@@ -179,6 +181,7 @@ int main(int argc, char* argv[]){
     }
     bool is3D = (dimension == 3);
     myosin_direction_noise = std::max(0.0, myosin_direction_noise);
+    pre_phase_steps = std::max(0, pre_phase_steps);
 
     if (!resume && resume_frame >= 0) {
         std::cout << "Warning: --resume_frame ignored because --resume was not set.\n";
@@ -283,12 +286,10 @@ int main(int argc, char* argv[]){
         }
         else if (init_struc == "myosin_x_noise"){
             sim.model.set_myosin_direction_x_noise(myosin_direction_noise);
-            int n_volume_exclusion = 500;
-            sim.volume_exclusion(n_volume_exclusion, rng, n_fixed_myosins);
+            sim.volume_exclusion(pre_phase_steps, rng, n_fixed_myosins);
         }
         else{
-            int n_volume_exclusion = 500;
-            sim.volume_exclusion(n_volume_exclusion, rng, n_fixed_myosins);}
+            sim.volume_exclusion(pre_phase_steps, rng, n_fixed_myosins);}
     }
     sim.run_langevin(nsteps, rng, n_fixed_myosins);
     gsl_rng_free(rng);

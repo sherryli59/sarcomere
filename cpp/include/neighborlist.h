@@ -65,6 +65,14 @@ public:
     // Access the neighbor list for a specific particle.
     const std::vector<std::pair<int, ParticleType>>& get_neighbors(int index) const;
 
+    // Export/import cached "last rebuild" positions used by needs_rebuild().
+    void get_last_species_positions(std::vector<double>& actin_x, std::vector<double>& actin_y,
+                                    std::vector<double>& actin_z, std::vector<double>& myosin_x,
+                                    std::vector<double>& myosin_y, std::vector<double>& myosin_z) const;
+    bool set_last_species_positions(const std::vector<double>& actin_x, const std::vector<double>& actin_y,
+                                    const std::vector<double>& actin_z, const std::vector<double>& myosin_x,
+                                    const std::vector<double>& myosin_y, const std::vector<double>& myosin_z);
+
 private:
     // Helper functions.
     std::tuple<int, int, int> get_cell_index(double x, double y, double z) const;

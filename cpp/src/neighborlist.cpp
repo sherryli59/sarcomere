@@ -351,6 +351,35 @@ const std::vector<std::pair<int, ParticleType>>& NeighborList::get_neighbors(int
     return neighbor_list_[index];
 }
 
+void NeighborList::get_last_species_positions(std::vector<double>& actin_x, std::vector<double>& actin_y,
+                                              std::vector<double>& actin_z, std::vector<double>& myosin_x,
+                                              std::vector<double>& myosin_y, std::vector<double>& myosin_z) const {
+    actin_x = last_actin_x_;
+    actin_y = last_actin_y_;
+    actin_z = last_actin_z_;
+    myosin_x = last_myosin_x_;
+    myosin_y = last_myosin_y_;
+    myosin_z = last_myosin_z_;
+}
+
+bool NeighborList::set_last_species_positions(const std::vector<double>& actin_x, const std::vector<double>& actin_y,
+                                              const std::vector<double>& actin_z, const std::vector<double>& myosin_x,
+                                              const std::vector<double>& myosin_y, const std::vector<double>& myosin_z) {
+    if (actin_x.size() != actin_x_.size() || actin_y.size() != actin_y_.size() || actin_z.size() != actin_z_.size()) {
+        return false;
+    }
+    if (myosin_x.size() != myosin_x_.size() || myosin_y.size() != myosin_y_.size() || myosin_z.size() != myosin_z_.size()) {
+        return false;
+    }
+    last_actin_x_ = actin_x;
+    last_actin_y_ = actin_y;
+    last_actin_z_ = actin_z;
+    last_myosin_x_ = myosin_x;
+    last_myosin_y_ = myosin_y;
+    last_myosin_z_ = myosin_z;
+    return true;
+}
+
 // Return the neighbors of a specific particle, separated by species.
 std::pair<std::vector<int>, std::vector<int>> NeighborList::get_neighbors_by_type(int index) const {
     std::vector<int> actin_neighbors;

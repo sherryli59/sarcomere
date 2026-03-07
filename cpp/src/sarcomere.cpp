@@ -1545,6 +1545,8 @@ void Sarcomere::save_state(){
 
         const hsize_t aa_width = static_cast<hsize_t>(actin.n * actin.n);
         const hsize_t am_width = static_cast<hsize_t>(actin.n * myosin.n);
+        const hsize_t actin_width = static_cast<hsize_t>(actin.n);
+        const hsize_t myosin_width = static_cast<hsize_t>(myosin.n);
 
         ensure_state_dataset_int("current_step", 1);
         ensure_state_dataset_int("actin_actin_bonds_prev", aa_width);
@@ -1558,6 +1560,12 @@ void Sarcomere::save_state(){
         ensure_state_dataset_int("actin_actin_status_current", aa_width);
         ensure_state_dataset_int("actin_actin_lifetime_current", aa_width);
         ensure_state_dataset_int("am_bonds_current", am_width);
+        ensure_state_dataset_double("neighbor_last_actin_x", actin_width);
+        ensure_state_dataset_double("neighbor_last_actin_y", actin_width);
+        ensure_state_dataset_double("neighbor_last_actin_z", actin_width);
+        ensure_state_dataset_double("neighbor_last_myosin_x", myosin_width);
+        ensure_state_dataset_double("neighbor_last_myosin_y", myosin_width);
+        ensure_state_dataset_double("neighbor_last_myosin_z", myosin_width);
 
         // Save current_step (scalar value)
         std::vector<int> step_vec = {static_cast<int>(current_step)};
@@ -1616,6 +1624,22 @@ void Sarcomere::save_state(){
             }
         }
         append_to_dataset_int(group_state, "actin_recovery_until", recovery_flat, {1, aa_width});
+
+        std::vector<double> neighbor_last_actin_x;
+        std::vector<double> neighbor_last_actin_y;
+        std::vector<double> neighbor_last_actin_z;
+        std::vector<double> neighbor_last_myosin_x;
+        std::vector<double> neighbor_last_myosin_y;
+        std::vector<double> neighbor_last_myosin_z;
+        neighbor_list.get_last_species_positions(
+            neighbor_last_actin_x, neighbor_last_actin_y, neighbor_last_actin_z,
+            neighbor_last_myosin_x, neighbor_last_myosin_y, neighbor_last_myosin_z);
+        append_to_dataset(group_state, "neighbor_last_actin_x", neighbor_last_actin_x, {1, actin_width});
+        append_to_dataset(group_state, "neighbor_last_actin_y", neighbor_last_actin_y, {1, actin_width});
+        append_to_dataset(group_state, "neighbor_last_actin_z", neighbor_last_actin_z, {1, actin_width});
+        append_to_dataset(group_state, "neighbor_last_myosin_x", neighbor_last_myosin_x, {1, myosin_width});
+        append_to_dataset(group_state, "neighbor_last_myosin_y", neighbor_last_myosin_y, {1, myosin_width});
+        append_to_dataset(group_state, "neighbor_last_myosin_z", neighbor_last_myosin_z, {1, myosin_width});
 
         // Save RNG states so resumed trajectories can be bitwise reproducible.
         if (rng != nullptr) {
@@ -1725,6 +1749,31 @@ int Sarcomere::load_state(int& n_frames, int frame_index){
         }
     };
 
+    auto load_state_vector_double = [&](H5::Group& group, const std::string& dataset_name,
+                                        size_t expected_width, std::vector<double>& out) -> bool {
+        try {
+            if (!group.nameExists(dataset_name)) {
+                return false;
+            }
+            std::vector<hsize_t> dims;
+            std::vector<double> raw = load_from_dataset(group, dataset_name, dims);
+            if (dims.size() < 2 || target_frame < 0 || target_frame >= static_cast<int>(dims[0])) {
+                return false;
+            }
+            if (static_cast<size_t>(dims[1]) != expected_width) {
+                return false;
+            }
+            size_t offset = static_cast<size_t>(target_frame) * expected_width;
+            out.resize(expected_width);
+            std::copy_n(raw.begin() + static_cast<std::ptrdiff_t>(offset),
+                        static_cast<std::ptrdiff_t>(expected_width),
+                        out.begin());
+            return true;
+        } catch (H5::Exception&) {
+            return false;
+        }
+    };
+
     auto assign_aa_matrix = [&](const std::vector<int>& flat, std::vector<std::vector<int>>& matrix) {
         if (flat.size() != aa_stride) {
             return;
@@ -1748,6 +1797,7 @@ int Sarcomere::load_state(int& n_frames, int frame_index){
     };
 
     bool loaded_state_group = false;
+    bool restored_neighbor_cache = false;
     try {
         H5::H5File file(filename, H5F_ACC_RDONLY);
         H5::Group group_state(file.openGroup("/state"));
@@ -1927,6 +1977,30 @@ int Sarcomere::load_state(int& n_frames, int frame_index){
                 }
         }
 
+        std::vector<double> neighbor_last_actin_x;
+        std::vector<double> neighbor_last_actin_y;
+        std::vector<double> neighbor_last_actin_z;
+        std::vector<double> neighbor_last_myosin_x;
+        std::vector<double> neighbor_last_myosin_y;
+        std::vector<double> neighbor_last_myosin_z;
+        bool have_neighbor_cache =
+            load_state_vector_double(group_state, "neighbor_last_actin_x", static_cast<size_t>(actin.n), neighbor_last_actin_x) &&
+            load_state_vector_double(group_state, "neighbor_last_actin_y", static_cast<size_t>(actin.n), neighbor_last_actin_y) &&
+            load_state_vector_double(group_state, "neighbor_last_actin_z", static_cast<size_t>(actin.n), neighbor_last_actin_z) &&
+            load_state_vector_double(group_state, "neighbor_last_myosin_x", static_cast<size_t>(myosin.n), neighbor_last_myosin_x) &&
+            load_state_vector_double(group_state, "neighbor_last_myosin_y", static_cast<size_t>(myosin.n), neighbor_last_myosin_y) &&
+            load_state_vector_double(group_state, "neighbor_last_myosin_z", static_cast<size_t>(myosin.n), neighbor_last_myosin_z);
+        if (have_neighbor_cache) {
+            // Reconstruct cached neighbor pairs from the original rebuild reference positions.
+            neighbor_list.set_species_positions(neighbor_last_actin_x, neighbor_last_actin_y, neighbor_last_actin_z,
+                                                neighbor_last_myosin_x, neighbor_last_myosin_y, neighbor_last_myosin_z);
+            neighbor_list.rebuild_neighbor_list();
+            // Then restore current particle positions while preserving the cached "last" positions.
+            neighbor_list.set_species_positions(actin.center_x, actin.center_y, actin.center_z,
+                                                myosin.center_x, myosin.center_y, myosin.center_z);
+            restored_neighbor_cache = true;
+        }
+
     } catch (H5::Exception&) {
         loaded_state_group = false;
     }
@@ -1948,6 +2022,13 @@ int Sarcomere::load_state(int& n_frames, int frame_index){
                 am_bonds[i][j] = 0;
             }
         }
+    }
+
+    if (!restored_neighbor_cache) {
+        // Legacy checkpoint fallback: rebuild from current positions.
+        neighbor_list.set_species_positions(actin.center_x, actin.center_y, actin.center_z,
+                                            myosin.center_x, myosin.center_y, myosin.center_z);
+        neighbor_list.rebuild_neighbor_list();
     }
 
     return target_frame;
