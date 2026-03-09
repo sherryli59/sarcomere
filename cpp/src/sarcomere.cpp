@@ -1281,6 +1281,7 @@ int Sarcomere::determine_cb_status(int& i, int& j){
     // Compute geometric metrics using the first binding-zone points as endpoints
     double distance = geometry::segment_segment_distance(
         actin.left_end[i], crosslink_point_i, actin.left_end[j], crosslink_point_j, box, is_periodic);
+    printf("distance %f\n",distance);
     double cos_angle = actin.direction[i].dot(actin.direction[j]);
 
     bool was_strong = (actin_actin_status_prev[i][j] == 2);
@@ -1315,6 +1316,8 @@ int Sarcomere::determine_cb_status(int& i, int& j){
     // if ((crosslink_i > EPS) && (crosslink_j > EPS) || !directional) {
     if (distance < aa_cutoff) {
         crosslink = true;
+        printf("crosslink set to true\n");
+
     }
     //}
     if (!crosslink){
