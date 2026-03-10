@@ -4,8 +4,61 @@
 #include <cstdint>
 #include <cstring>
 #include <limits>
+#include <stdexcept>
 #include <tuple>
 #include <gsl/gsl_randist.h>
+
+namespace {
+
+struct PackedAABondState {
+    std::vector<int> pairs;
+    std::vector<int> status;
+    std::vector<int> lifetime;
+};
+
+PackedAABondState pack_aa_bond_state(
+    const std::vector<std::vector<int>>& bonds,
+    const std::vector<std::vector<int>>& status,
+    const std::vector<std::vector<int>>& lifetime) {
+    PackedAABondState packed;
+    const int n = static_cast<int>(bonds.size());
+    for (int i = 0; i < n; ++i) {
+        for (int j = i + 1; j < n; ++j) {
+            if (bonds[i][j] != 1) {
+                continue;
+            }
+            packed.pairs.push_back(i);
+            packed.pairs.push_back(j);
+            packed.status.push_back(status[i][j]);
+            packed.lifetime.push_back(lifetime[i][j]);
+        }
+    }
+    return packed;
+}
+
+std::vector<int> pack_am_bond_pairs(const std::vector<std::vector<int>>& bonds) {
+    std::vector<int> packed;
+    const int n_actins = static_cast<int>(bonds.size());
+    for (int i = 0; i < n_actins; ++i) {
+        const int n_myosins = static_cast<int>(bonds[i].size());
+        for (int j = 0; j < n_myosins; ++j) {
+            if (bonds[i][j] != 1) {
+                continue;
+            }
+            packed.push_back(i);
+            packed.push_back(j);
+        }
+    }
+    return packed;
+}
+
+void pad_int_vector(std::vector<int>& values, size_t target_size, int pad_value) {
+    if (values.size() < target_size) {
+        values.resize(target_size, pad_value);
+    }
+}
+
+}
 
 
 // Parameterized Constructor
@@ -1515,7 +1568,7 @@ void Sarcomere::save_state(){
     append_to_file(filename, actin, myosin, flatActinBonds,
                    flatMyosinBonds, flatActinMyosinBonds, max_myosin_bonds);
     
-    // Save additional state needed for resume: full bond/state matrices and RNG state.
+    // Save compact bond state for resume using pair lists instead of dense matrices.
     {
         H5::H5File file(filename, H5F_ACC_RDWR);
         H5::Group group_state;
@@ -1543,23 +1596,36 @@ void Sarcomere::save_state(){
             }
         };
 
-        const hsize_t aa_width = static_cast<hsize_t>(actin.n * actin.n);
-        const hsize_t am_width = static_cast<hsize_t>(actin.n * myosin.n);
         const hsize_t actin_width = static_cast<hsize_t>(actin.n);
         const hsize_t myosin_width = static_cast<hsize_t>(myosin.n);
+        const hsize_t max_aa_pairs = static_cast<hsize_t>(actin.n) *
+                                     static_cast<hsize_t>(std::max(10, 2 * max_myosin_bonds));
+        const hsize_t max_am_pairs = static_cast<hsize_t>(myosin.n) *
+                                     static_cast<hsize_t>(max_myosin_bonds);
+
+        auto ensure_state_pair_dataset = [&](const std::string& dataset_name, hsize_t rows, hsize_t cols) {
+            const std::string full_path = "/state/" + dataset_name;
+            if (!file.nameExists(full_path)) {
+                std::vector<hsize_t> initDims = {0, rows, cols};
+                std::vector<hsize_t> maxDims = {H5S_UNLIMITED, rows, cols};
+                std::vector<hsize_t> chunkDims = {10, rows, cols};
+                create_empty_dataset_int(file, "/state", dataset_name, initDims, maxDims, chunkDims);
+            }
+        };
 
         ensure_state_dataset_int("current_step", 1);
-        ensure_state_dataset_int("actin_actin_bonds_prev", aa_width);
-        ensure_state_dataset_int("actin_actin_status_prev", aa_width);
-        ensure_state_dataset_double("actin_actin_lifetime_prev", aa_width);
-        ensure_state_dataset_int("am_bonds_prev", am_width);
-        ensure_state_dataset_int("actin_recovery_until", aa_width);
-
-        // Current (not previous-step) matrices are required for exact resume.
-        ensure_state_dataset_int("actin_actin_bonds_current", aa_width);
-        ensure_state_dataset_int("actin_actin_status_current", aa_width);
-        ensure_state_dataset_int("actin_actin_lifetime_current", aa_width);
-        ensure_state_dataset_int("am_bonds_current", am_width);
+        ensure_state_dataset_int("aa_pairs_prev_count", 1);
+        ensure_state_dataset_int("aa_pairs_current_count", 1);
+        ensure_state_dataset_int("am_pairs_prev_count", 1);
+        ensure_state_dataset_int("am_pairs_current_count", 1);
+        ensure_state_pair_dataset("aa_pairs_prev", max_aa_pairs, 2);
+        ensure_state_pair_dataset("aa_status_prev", max_aa_pairs, 1);
+        ensure_state_pair_dataset("aa_lifetime_prev", max_aa_pairs, 1);
+        ensure_state_pair_dataset("aa_pairs_current", max_aa_pairs, 2);
+        ensure_state_pair_dataset("aa_status_current", max_aa_pairs, 1);
+        ensure_state_pair_dataset("aa_lifetime_current", max_aa_pairs, 1);
+        ensure_state_pair_dataset("am_pairs_prev", max_am_pairs, 2);
+        ensure_state_pair_dataset("am_pairs_current", max_am_pairs, 2);
         ensure_state_dataset_double("neighbor_last_actin_x", actin_width);
         ensure_state_dataset_double("neighbor_last_actin_y", actin_width);
         ensure_state_dataset_double("neighbor_last_actin_z", actin_width);
@@ -1571,59 +1637,52 @@ void Sarcomere::save_state(){
         std::vector<int> step_vec = {static_cast<int>(current_step)};
         append_to_dataset_int(group_state, "current_step", step_vec, {1, 1});
 
-        // Flatten and save actin-actin previous/current matrices.
-        std::vector<int> aa_bonds_prev_flat;
-        std::vector<int> aa_status_prev_flat;
-        std::vector<int> aa_lifetime_prev_flat;
-        std::vector<int> aa_bonds_current_flat;
-        std::vector<int> aa_status_current_flat;
-        std::vector<int> aa_lifetime_current_flat;
-        aa_bonds_prev_flat.reserve(aa_width);
-        aa_status_prev_flat.reserve(aa_width);
-        aa_lifetime_prev_flat.reserve(aa_width);
-        aa_bonds_current_flat.reserve(aa_width);
-        aa_status_current_flat.reserve(aa_width);
-        aa_lifetime_current_flat.reserve(aa_width);
-        for (int i = 0; i < actin.n; ++i) {
-            for (int j = 0; j < actin.n; ++j) {
-                aa_bonds_prev_flat.push_back(actin_actin_bonds_prev[i][j]);
-                aa_status_prev_flat.push_back(actin_actin_status_prev[i][j]);
-                aa_lifetime_prev_flat.push_back(actin_actin_lifetime_prev[i][j]);
-                aa_bonds_current_flat.push_back(actin_actin_bonds[i][j]);
-                aa_status_current_flat.push_back(actin_actin_status[i][j]);
-                aa_lifetime_current_flat.push_back(actin_actin_lifetime[i][j]);
-            }
-        }
-        append_to_dataset_int(group_state, "actin_actin_bonds_prev", aa_bonds_prev_flat, {1, aa_width});
-        append_to_dataset_int(group_state, "actin_actin_status_prev", aa_status_prev_flat, {1, aa_width});
-        append_to_dataset_int(group_state, "actin_actin_lifetime_prev", aa_lifetime_prev_flat, {1, aa_width});
-        append_to_dataset_int(group_state, "actin_actin_bonds_current", aa_bonds_current_flat, {1, aa_width});
-        append_to_dataset_int(group_state, "actin_actin_status_current", aa_status_current_flat, {1, aa_width});
-        append_to_dataset_int(group_state, "actin_actin_lifetime_current", aa_lifetime_current_flat, {1, aa_width});
+        auto aa_prev = pack_aa_bond_state(
+            actin_actin_bonds_prev, actin_actin_status_prev, actin_actin_lifetime_prev);
+        auto aa_current = pack_aa_bond_state(
+            actin_actin_bonds, actin_actin_status, actin_actin_lifetime);
+        auto am_prev = pack_am_bond_pairs(am_bonds_prev);
+        auto am_current = pack_am_bond_pairs(am_bonds);
 
-        // Flatten and save actin-myosin previous/current matrices.
-        std::vector<int> am_bonds_prev_flat;
-        std::vector<int> am_bonds_current_flat;
-        am_bonds_prev_flat.reserve(am_width);
-        am_bonds_current_flat.reserve(am_width);
-        for (int i = 0; i < actin.n; ++i) {
-            for (int j = 0; j < myosin.n; ++j) {
-                am_bonds_prev_flat.push_back(am_bonds_prev[i][j]);
-                am_bonds_current_flat.push_back(am_bonds[i][j]);
-            }
+        const hsize_t aa_prev_count = static_cast<hsize_t>(aa_prev.status.size());
+        const hsize_t aa_current_count = static_cast<hsize_t>(aa_current.status.size());
+        const hsize_t am_prev_count = static_cast<hsize_t>(am_prev.size() / 2);
+        const hsize_t am_current_count = static_cast<hsize_t>(am_current.size() / 2);
+        if (aa_prev_count > max_aa_pairs || aa_current_count > max_aa_pairs ||
+            am_prev_count > max_am_pairs || am_current_count > max_am_pairs) {
+            throw std::runtime_error("Bond pair list exceeds configured compact state capacity.");
         }
-        append_to_dataset_int(group_state, "am_bonds_prev", am_bonds_prev_flat, {1, am_width});
-        append_to_dataset_int(group_state, "am_bonds_current", am_bonds_current_flat, {1, am_width});
 
-        // Flatten and save actin_recovery_until.
-        std::vector<int> recovery_flat;
-        recovery_flat.reserve(aa_width);
-        for (int i = 0; i < actin.n; ++i) {
-            for (int j = 0; j < actin.n; ++j) {
-                recovery_flat.push_back(static_cast<int>(actin_recovery_until[i][j]));
-            }
-        }
-        append_to_dataset_int(group_state, "actin_recovery_until", recovery_flat, {1, aa_width});
+        std::vector<int> aa_prev_pairs = aa_prev.pairs;
+        std::vector<int> aa_prev_status = aa_prev.status;
+        std::vector<int> aa_prev_lifetime = aa_prev.lifetime;
+        std::vector<int> aa_current_pairs = aa_current.pairs;
+        std::vector<int> aa_current_status = aa_current.status;
+        std::vector<int> aa_current_lifetime = aa_current.lifetime;
+        std::vector<int> am_prev_pairs = am_prev;
+        std::vector<int> am_current_pairs = am_current;
+
+        pad_int_vector(aa_prev_pairs, static_cast<size_t>(max_aa_pairs * 2), -1);
+        pad_int_vector(aa_prev_status, static_cast<size_t>(max_aa_pairs), 0);
+        pad_int_vector(aa_prev_lifetime, static_cast<size_t>(max_aa_pairs), 0);
+        pad_int_vector(aa_current_pairs, static_cast<size_t>(max_aa_pairs * 2), -1);
+        pad_int_vector(aa_current_status, static_cast<size_t>(max_aa_pairs), 0);
+        pad_int_vector(aa_current_lifetime, static_cast<size_t>(max_aa_pairs), 0);
+        pad_int_vector(am_prev_pairs, static_cast<size_t>(max_am_pairs * 2), -1);
+        pad_int_vector(am_current_pairs, static_cast<size_t>(max_am_pairs * 2), -1);
+
+        append_to_dataset_int(group_state, "aa_pairs_prev_count", {static_cast<int>(aa_prev_count)}, {1, 1});
+        append_to_dataset_int(group_state, "aa_pairs_current_count", {static_cast<int>(aa_current_count)}, {1, 1});
+        append_to_dataset_int(group_state, "am_pairs_prev_count", {static_cast<int>(am_prev_count)}, {1, 1});
+        append_to_dataset_int(group_state, "am_pairs_current_count", {static_cast<int>(am_current_count)}, {1, 1});
+        append_to_dataset_int(group_state, "aa_pairs_prev", aa_prev_pairs, {1, max_aa_pairs, 2});
+        append_to_dataset_int(group_state, "aa_status_prev", aa_prev_status, {1, max_aa_pairs, 1});
+        append_to_dataset_int(group_state, "aa_lifetime_prev", aa_prev_lifetime, {1, max_aa_pairs, 1});
+        append_to_dataset_int(group_state, "aa_pairs_current", aa_current_pairs, {1, max_aa_pairs, 2});
+        append_to_dataset_int(group_state, "aa_status_current", aa_current_status, {1, max_aa_pairs, 1});
+        append_to_dataset_int(group_state, "aa_lifetime_current", aa_current_lifetime, {1, max_aa_pairs, 1});
+        append_to_dataset_int(group_state, "am_pairs_prev", am_prev_pairs, {1, max_am_pairs, 2});
+        append_to_dataset_int(group_state, "am_pairs_current", am_current_pairs, {1, max_am_pairs, 2});
 
         std::vector<double> neighbor_last_actin_x;
         std::vector<double> neighbor_last_actin_y;
@@ -1718,6 +1777,168 @@ void Sarcomere::save_state(){
     }
 }
 
+void Sarcomere::save_resume_snapshot() {
+    H5::H5File file(filename, H5F_ACC_RDWR);
+    H5::Group group_resume;
+    try {
+        group_resume = file.openGroup("/resume");
+    } catch (H5::Exception&) {
+        group_resume = file.createGroup("/resume");
+    }
+
+    const hsize_t n_actins = static_cast<hsize_t>(actin.n);
+    const hsize_t n_myosins = static_cast<hsize_t>(myosin.n);
+    const hsize_t max_aa_pairs = static_cast<hsize_t>(actin.n) *
+                                 static_cast<hsize_t>(std::max(10, 2 * max_myosin_bonds));
+    const hsize_t max_am_pairs = static_cast<hsize_t>(myosin.n) *
+                                 static_cast<hsize_t>(max_myosin_bonds);
+
+    auto replace_dataset_int = [&](const std::string& name,
+                                   const std::vector<hsize_t>& dims,
+                                   const std::vector<int>& data) {
+        const std::string full_path = "/resume/" + name;
+        if (file.nameExists(full_path)) {
+            H5Ldelete(file.getId(), full_path.c_str(), H5P_DEFAULT);
+        }
+        H5::DataSpace dataspace(dims.size(), dims.data());
+        H5::IntType datatype(H5::PredType::STD_I32LE);
+        H5::DataSet dataset = group_resume.createDataSet(name, datatype, dataspace);
+        dataset.write(data.data(), H5::PredType::STD_I32LE);
+    };
+
+    auto replace_dataset_double = [&](const std::string& name,
+                                      const std::vector<hsize_t>& dims,
+                                      const std::vector<double>& data) {
+        const std::string full_path = "/resume/" + name;
+        if (file.nameExists(full_path)) {
+            H5Ldelete(file.getId(), full_path.c_str(), H5P_DEFAULT);
+        }
+        H5::DataSpace dataspace(dims.size(), dims.data());
+        H5::FloatType datatype(H5::PredType::IEEE_F64LE);
+        H5::DataSet dataset = group_resume.createDataSet(name, datatype, dataspace);
+        dataset.write(data.data(), H5::PredType::IEEE_F64LE);
+    };
+
+    auto aa_prev = pack_aa_bond_state(
+        actin_actin_bonds_prev, actin_actin_status_prev, actin_actin_lifetime_prev);
+    auto aa_current = pack_aa_bond_state(
+        actin_actin_bonds, actin_actin_status, actin_actin_lifetime);
+    auto am_prev = pack_am_bond_pairs(am_bonds_prev);
+    auto am_current = pack_am_bond_pairs(am_bonds);
+
+    std::vector<int> aa_prev_pairs = aa_prev.pairs;
+    std::vector<int> aa_prev_status = aa_prev.status;
+    std::vector<int> aa_prev_lifetime = aa_prev.lifetime;
+    std::vector<int> aa_current_pairs = aa_current.pairs;
+    std::vector<int> aa_current_status = aa_current.status;
+    std::vector<int> aa_current_lifetime = aa_current.lifetime;
+    std::vector<int> aa_current_attach_step;
+    aa_current_attach_step.reserve(aa_current.status.size());
+    for (size_t idx = 0; idx + 1 < aa_current.pairs.size(); idx += 2) {
+        const int a = aa_current.pairs[idx];
+        const int b = aa_current.pairs[idx + 1];
+        aa_current_attach_step.push_back(aa_attach_step[a][b]);
+    }
+    std::vector<int> am_prev_pairs = am_prev;
+    std::vector<int> am_current_pairs = am_current;
+
+    pad_int_vector(aa_prev_pairs, static_cast<size_t>(max_aa_pairs * 2), -1);
+    pad_int_vector(aa_prev_status, static_cast<size_t>(max_aa_pairs), 0);
+    pad_int_vector(aa_prev_lifetime, static_cast<size_t>(max_aa_pairs), 0);
+    pad_int_vector(aa_current_pairs, static_cast<size_t>(max_aa_pairs * 2), -1);
+    pad_int_vector(aa_current_status, static_cast<size_t>(max_aa_pairs), 0);
+    pad_int_vector(aa_current_lifetime, static_cast<size_t>(max_aa_pairs), 0);
+    pad_int_vector(aa_current_attach_step, static_cast<size_t>(max_aa_pairs), -1);
+    pad_int_vector(am_prev_pairs, static_cast<size_t>(max_am_pairs * 2), -1);
+    pad_int_vector(am_current_pairs, static_cast<size_t>(max_am_pairs * 2), -1);
+
+    replace_dataset_int("current_step", {1}, {static_cast<int>(current_step)});
+    replace_dataset_double("actin_center", {n_actins, 3}, flatten_3d_array(actin.center));
+    replace_dataset_double("actin_direction", {n_actins, 3}, flatten_3d_array(actin.direction));
+    replace_dataset_double("myosin_center", {n_myosins, 3}, flatten_3d_array(myosin.center));
+    replace_dataset_double("myosin_direction", {n_myosins, 3}, flatten_3d_array(myosin.direction));
+    replace_dataset_int("aa_pairs_prev_count", {1}, {static_cast<int>(aa_prev.status.size())});
+    replace_dataset_int("aa_pairs_current_count", {1}, {static_cast<int>(aa_current.status.size())});
+    replace_dataset_int("am_pairs_prev_count", {1}, {static_cast<int>(am_prev.size() / 2)});
+    replace_dataset_int("am_pairs_current_count", {1}, {static_cast<int>(am_current.size() / 2)});
+    replace_dataset_int("aa_pairs_prev", {max_aa_pairs, 2}, aa_prev_pairs);
+    replace_dataset_int("aa_status_prev", {max_aa_pairs, 1}, aa_prev_status);
+    replace_dataset_int("aa_lifetime_prev", {max_aa_pairs, 1}, aa_prev_lifetime);
+    replace_dataset_int("aa_pairs_current", {max_aa_pairs, 2}, aa_current_pairs);
+    replace_dataset_int("aa_status_current", {max_aa_pairs, 1}, aa_current_status);
+    replace_dataset_int("aa_lifetime_current", {max_aa_pairs, 1}, aa_current_lifetime);
+    replace_dataset_int("aa_attach_step_current", {max_aa_pairs, 1}, aa_current_attach_step);
+    replace_dataset_int("am_pairs_prev", {max_am_pairs, 2}, am_prev_pairs);
+    replace_dataset_int("am_pairs_current", {max_am_pairs, 2}, am_current_pairs);
+
+    std::vector<int> recovery_flat;
+    recovery_flat.reserve(static_cast<size_t>(actin.n) * static_cast<size_t>(actin.n));
+    for (int i = 0; i < actin.n; ++i) {
+        for (int j = 0; j < actin.n; ++j) {
+            recovery_flat.push_back(static_cast<int>(actin_recovery_until[i][j]));
+        }
+    }
+    replace_dataset_int("actin_recovery_until",
+                        {static_cast<hsize_t>(actin.n), static_cast<hsize_t>(actin.n)},
+                        recovery_flat);
+
+    std::vector<double> neighbor_last_actin_x;
+    std::vector<double> neighbor_last_actin_y;
+    std::vector<double> neighbor_last_actin_z;
+    std::vector<double> neighbor_last_myosin_x;
+    std::vector<double> neighbor_last_myosin_y;
+    std::vector<double> neighbor_last_myosin_z;
+    neighbor_list.get_last_species_positions(
+        neighbor_last_actin_x, neighbor_last_actin_y, neighbor_last_actin_z,
+        neighbor_last_myosin_x, neighbor_last_myosin_y, neighbor_last_myosin_z);
+    replace_dataset_double("neighbor_last_actin_x", {n_actins}, neighbor_last_actin_x);
+    replace_dataset_double("neighbor_last_actin_y", {n_actins}, neighbor_last_actin_y);
+    replace_dataset_double("neighbor_last_actin_z", {n_actins}, neighbor_last_actin_z);
+    replace_dataset_double("neighbor_last_myosin_x", {n_myosins}, neighbor_last_myosin_x);
+    replace_dataset_double("neighbor_last_myosin_y", {n_myosins}, neighbor_last_myosin_y);
+    replace_dataset_double("neighbor_last_myosin_z", {n_myosins}, neighbor_last_myosin_z);
+    replace_dataset_double("cb_breakage_pending",
+                           {static_cast<hsize_t>(cb_breakage_events.size())},
+                           cb_breakage_events);
+    replace_dataset_double("cb_limit_pending",
+                           {static_cast<hsize_t>(cb_limit_events.size())},
+                           cb_limit_events);
+    replace_dataset_double("aa_completed_lifetimes_pending",
+                           {static_cast<hsize_t>(aa_completed_lifetimes.size())},
+                           aa_completed_lifetimes);
+
+    if (rng != nullptr) {
+        const size_t main_state_size = gsl_rng_size(rng);
+        std::vector<int> main_state(main_state_size, 0);
+        const auto* state_ptr = static_cast<const unsigned char*>(gsl_rng_state(rng));
+        for (size_t idx = 0; idx < main_state_size; ++idx) {
+            main_state[idx] = static_cast<int>(state_ptr[idx]);
+        }
+        replace_dataset_int("rng_main_state", {static_cast<hsize_t>(main_state_size)}, main_state);
+    }
+    if (!rng_engines.empty() && rng_engines[0] != nullptr) {
+        const int thread_count = static_cast<int>(rng_engines.size());
+        const size_t thread_state_size = gsl_rng_size(rng_engines[0]);
+        const hsize_t flat_width = static_cast<hsize_t>(thread_count) *
+                                   static_cast<hsize_t>(thread_state_size);
+        std::vector<int> thread_state(flat_width, 0);
+        for (int t = 0; t < thread_count; ++t) {
+            if (rng_engines[t] == nullptr) {
+                continue;
+            }
+            const auto* local_ptr =
+                static_cast<const unsigned char*>(gsl_rng_state(rng_engines[t]));
+            const size_t base = static_cast<size_t>(t) * thread_state_size;
+            for (size_t idx = 0; idx < thread_state_size; ++idx) {
+                thread_state[base + idx] = static_cast<int>(local_ptr[idx]);
+            }
+        }
+        replace_dataset_int("rng_thread_state", {flat_width}, thread_state);
+        replace_dataset_int("rng_thread_count", {1}, {thread_count});
+        replace_dataset_int("rng_thread_state_size", {1}, {static_cast<int>(thread_state_size)});
+    }
+}
+
 int Sarcomere::load_state(int& n_frames, int frame_index){
     int target_frame = load_from_file(filename, actin, myosin, actin_actin_bonds, n_frames, frame_index);
 
@@ -1796,8 +2017,267 @@ int Sarcomere::load_state(int& n_frames, int frame_index){
         }
     };
 
+    auto load_state_tensor_int = [&](H5::Group& group, const std::string& dataset_name,
+                                     size_t expected_rows, size_t expected_cols,
+                                     std::vector<int>& out) -> bool {
+        try {
+            if (!group.nameExists(dataset_name)) {
+                return false;
+            }
+            std::vector<hsize_t> dims;
+            std::vector<double> raw = load_from_dataset(group, dataset_name, dims);
+            if (dims.size() < 3 || target_frame < 0 || target_frame >= static_cast<int>(dims[0])) {
+                return false;
+            }
+            if (static_cast<size_t>(dims[1]) != expected_rows ||
+                static_cast<size_t>(dims[2]) != expected_cols) {
+                return false;
+            }
+            const size_t frame_width = expected_rows * expected_cols;
+            const size_t offset = static_cast<size_t>(target_frame) * frame_width;
+            out.resize(frame_width);
+            for (size_t i = 0; i < frame_width; ++i) {
+                out[i] = static_cast<int>(std::llround(raw[offset + i]));
+            }
+            return true;
+        } catch (H5::Exception&) {
+            return false;
+        }
+    };
+
+    auto load_fixed_vector_int = [&](H5::Group& group, const std::string& dataset_name,
+                                     size_t expected_width, std::vector<int>& out) -> bool {
+        try {
+            if (!group.nameExists(dataset_name)) {
+                return false;
+            }
+            std::vector<hsize_t> dims;
+            std::vector<double> raw = load_from_dataset(group, dataset_name, dims);
+            if (dims.size() != 1 || static_cast<size_t>(dims[0]) != expected_width) {
+                return false;
+            }
+            out.resize(expected_width);
+            for (size_t i = 0; i < expected_width; ++i) {
+                out[i] = static_cast<int>(std::llround(raw[i]));
+            }
+            return true;
+        } catch (H5::Exception&) {
+            return false;
+        }
+    };
+
+    auto load_fixed_vector_double = [&](H5::Group& group, const std::string& dataset_name,
+                                        size_t expected_width, std::vector<double>& out) -> bool {
+        try {
+            if (!group.nameExists(dataset_name)) {
+                return false;
+            }
+            std::vector<hsize_t> dims;
+            out = load_from_dataset(group, dataset_name, dims);
+            return dims.size() == 1 && static_cast<size_t>(dims[0]) == expected_width;
+        } catch (H5::Exception&) {
+            return false;
+        }
+    };
+
+    auto load_any_vector_double = [&](H5::Group& group, const std::string& dataset_name,
+                                      std::vector<double>& out) -> bool {
+        try {
+            if (!group.nameExists(dataset_name)) {
+                return false;
+            }
+            std::vector<hsize_t> dims;
+            out = load_from_dataset(group, dataset_name, dims);
+            return dims.size() == 1;
+        } catch (H5::Exception&) {
+            return false;
+        }
+    };
+
+    auto load_fixed_matrix_int = [&](H5::Group& group, const std::string& dataset_name,
+                                     size_t expected_rows, size_t expected_cols,
+                                     std::vector<int>& out) -> bool {
+        try {
+            if (!group.nameExists(dataset_name)) {
+                return false;
+            }
+            std::vector<hsize_t> dims;
+            std::vector<double> raw = load_from_dataset(group, dataset_name, dims);
+            if (dims.size() != 2 || static_cast<size_t>(dims[0]) != expected_rows ||
+                static_cast<size_t>(dims[1]) != expected_cols) {
+                return false;
+            }
+            out.resize(expected_rows * expected_cols);
+            for (size_t i = 0; i < out.size(); ++i) {
+                out[i] = static_cast<int>(std::llround(raw[i]));
+            }
+            return true;
+        } catch (H5::Exception&) {
+            return false;
+        }
+    };
+
+    auto load_fixed_matrix_double = [&](H5::Group& group, const std::string& dataset_name,
+                                        size_t expected_rows, size_t expected_cols,
+                                        std::vector<double>& out) -> bool {
+        try {
+            if (!group.nameExists(dataset_name)) {
+                return false;
+            }
+            std::vector<hsize_t> dims;
+            out = load_from_dataset(group, dataset_name, dims);
+            return dims.size() == 2 && static_cast<size_t>(dims[0]) == expected_rows &&
+                   static_cast<size_t>(dims[1]) == expected_cols;
+        } catch (H5::Exception&) {
+            return false;
+        }
+    };
+
+    auto clear_aa_state = [&](std::vector<std::vector<int>>& bonds,
+                              std::vector<std::vector<int>>& status,
+                              std::vector<std::vector<int>>& lifetime) {
+        for (int i = 0; i < actin.n; ++i) {
+            std::fill(bonds[i].begin(), bonds[i].end(), 0);
+            std::fill(status[i].begin(), status[i].end(), 0);
+            std::fill(lifetime[i].begin(), lifetime[i].end(), 0);
+        }
+    };
+
+    auto clear_am_state = [&](std::vector<std::vector<int>>& bonds) {
+        for (int i = 0; i < actin.n; ++i) {
+            std::fill(bonds[i].begin(), bonds[i].end(), 0);
+        }
+    };
+
+    auto restore_aa_state_from_pairs = [&](H5::Group& group,
+                                           const std::string& count_name,
+                                           const std::string& pair_name,
+                                           const std::string& status_name,
+                                           const std::string& lifetime_name,
+                                           std::vector<std::vector<int>>& bonds,
+                                           std::vector<std::vector<int>>& status,
+                                           std::vector<std::vector<int>>& lifetime) -> bool {
+        std::vector<int> counts;
+        std::vector<int> pairs;
+        std::vector<int> flat_status;
+        std::vector<int> flat_lifetime;
+        const size_t max_aa_pairs = static_cast<size_t>(actin.n) *
+                                    static_cast<size_t>(std::max(10, 2 * max_myosin_bonds));
+        if (!load_state_vector(group, count_name, 1, counts) ||
+            !load_state_tensor_int(group, pair_name, max_aa_pairs, 2, pairs) ||
+            !load_state_tensor_int(group, status_name, max_aa_pairs, 1, flat_status) ||
+            !load_state_tensor_int(group, lifetime_name, max_aa_pairs, 1, flat_lifetime)) {
+            return false;
+        }
+        const size_t count = static_cast<size_t>(std::max(0, counts[0]));
+        clear_aa_state(bonds, status, lifetime);
+        for (size_t idx = 0; idx < count; ++idx) {
+            const int a = pairs[2 * idx];
+            const int b = pairs[2 * idx + 1];
+            if (a < 0 || a >= actin.n || b < 0 || b >= actin.n || a == b) {
+                continue;
+            }
+            bonds[a][b] = 1;
+            bonds[b][a] = 1;
+            status[a][b] = flat_status[idx];
+            status[b][a] = flat_status[idx];
+            lifetime[a][b] = flat_lifetime[idx];
+            lifetime[b][a] = flat_lifetime[idx];
+        }
+        return true;
+    };
+
+    auto restore_am_state_from_pairs = [&](H5::Group& group,
+                                           const std::string& count_name,
+                                           const std::string& pair_name,
+                                           std::vector<std::vector<int>>& bonds) -> bool {
+        std::vector<int> counts;
+        std::vector<int> pairs;
+        const size_t max_am_pairs = static_cast<size_t>(myosin.n) *
+                                    static_cast<size_t>(max_myosin_bonds);
+        if (!load_state_vector(group, count_name, 1, counts) ||
+            !load_state_tensor_int(group, pair_name, max_am_pairs, 2, pairs)) {
+            return false;
+        }
+        const size_t count = static_cast<size_t>(std::max(0, counts[0]));
+        clear_am_state(bonds);
+        for (size_t idx = 0; idx < count; ++idx) {
+            const int a = pairs[2 * idx];
+            const int m = pairs[2 * idx + 1];
+            if (a < 0 || a >= actin.n || m < 0 || m >= myosin.n) {
+                continue;
+            }
+            bonds[a][m] = 1;
+        }
+        return true;
+    };
+
+    auto restore_aa_state_from_fixed_pairs = [&](H5::Group& group,
+                                                 const std::string& count_name,
+                                                 const std::string& pair_name,
+                                                 const std::string& status_name,
+                                                 const std::string& lifetime_name,
+                                                 std::vector<std::vector<int>>& bonds,
+                                                 std::vector<std::vector<int>>& status,
+                                                 std::vector<std::vector<int>>& lifetime) -> bool {
+        std::vector<int> counts;
+        std::vector<int> pairs;
+        std::vector<int> flat_status;
+        std::vector<int> flat_lifetime;
+        const size_t max_aa_pairs = static_cast<size_t>(actin.n) *
+                                    static_cast<size_t>(std::max(10, 2 * max_myosin_bonds));
+        if (!load_fixed_vector_int(group, count_name, 1, counts) ||
+            !load_fixed_matrix_int(group, pair_name, max_aa_pairs, 2, pairs) ||
+            !load_fixed_matrix_int(group, status_name, max_aa_pairs, 1, flat_status) ||
+            !load_fixed_matrix_int(group, lifetime_name, max_aa_pairs, 1, flat_lifetime)) {
+            return false;
+        }
+        const size_t count = static_cast<size_t>(std::max(0, counts[0]));
+        clear_aa_state(bonds, status, lifetime);
+        for (size_t idx = 0; idx < count; ++idx) {
+            const int a = pairs[2 * idx];
+            const int b = pairs[2 * idx + 1];
+            if (a < 0 || a >= actin.n || b < 0 || b >= actin.n || a == b) {
+                continue;
+            }
+            bonds[a][b] = 1;
+            bonds[b][a] = 1;
+            status[a][b] = flat_status[idx];
+            status[b][a] = flat_status[idx];
+            lifetime[a][b] = flat_lifetime[idx];
+            lifetime[b][a] = flat_lifetime[idx];
+        }
+        return true;
+    };
+
+    auto restore_am_state_from_fixed_pairs = [&](H5::Group& group,
+                                                 const std::string& count_name,
+                                                 const std::string& pair_name,
+                                                 std::vector<std::vector<int>>& bonds) -> bool {
+        std::vector<int> counts;
+        std::vector<int> pairs;
+        const size_t max_am_pairs = static_cast<size_t>(myosin.n) *
+                                    static_cast<size_t>(max_myosin_bonds);
+        if (!load_fixed_vector_int(group, count_name, 1, counts) ||
+            !load_fixed_matrix_int(group, pair_name, max_am_pairs, 2, pairs)) {
+            return false;
+        }
+        const size_t count = static_cast<size_t>(std::max(0, counts[0]));
+        clear_am_state(bonds);
+        for (size_t idx = 0; idx < count; ++idx) {
+            const int a = pairs[2 * idx];
+            const int m = pairs[2 * idx + 1];
+            if (a < 0 || a >= actin.n || m < 0 || m >= myosin.n) {
+                continue;
+            }
+            bonds[a][m] = 1;
+        }
+        return true;
+    };
+
     bool loaded_state_group = false;
     bool restored_neighbor_cache = false;
+    bool loaded_resume_snapshot = false;
     try {
         H5::H5File file(filename, H5F_ACC_RDONLY);
         H5::Group group_state(file.openGroup("/state"));
@@ -1818,18 +2298,33 @@ int Sarcomere::load_state(int& n_frames, int frame_index){
             current_step = 0;
         }
 
-        if (load_state_vector(group_state, "actin_actin_bonds_prev", aa_stride, flat)) {
-            assign_aa_matrix(flat, actin_actin_bonds_prev);
+        bool have_prev_aa_pairs = restore_aa_state_from_pairs(
+            group_state,
+            "aa_pairs_prev_count",
+            "aa_pairs_prev",
+            "aa_status_prev",
+            "aa_lifetime_prev",
+            actin_actin_bonds_prev,
+            actin_actin_status_prev,
+            actin_actin_lifetime_prev);
+        if (!have_prev_aa_pairs) {
+            if (load_state_vector(group_state, "actin_actin_bonds_prev", aa_stride, flat)) {
+                assign_aa_matrix(flat, actin_actin_bonds_prev);
+            }
+            if (load_state_vector(group_state, "actin_actin_status_prev", aa_stride, flat)) {
+                assign_aa_matrix(flat, actin_actin_status_prev);
+            }
+            if (load_state_vector(group_state, "actin_actin_lifetime_prev", aa_stride, flat)) {
+                assign_aa_matrix(flat, actin_actin_lifetime_prev);
+            }
         }
-        if (load_state_vector(group_state, "actin_actin_status_prev", aa_stride, flat)) {
-            assign_aa_matrix(flat, actin_actin_status_prev);
-        }
-        if (load_state_vector(group_state, "actin_actin_lifetime_prev", aa_stride, flat)) {
-            assign_aa_matrix(flat, actin_actin_lifetime_prev);
-        }
-        if (load_state_vector(group_state, "am_bonds_prev", am_stride, flat)) {
+
+        bool have_prev_am_pairs = restore_am_state_from_pairs(
+            group_state, "am_pairs_prev_count", "am_pairs_prev", am_bonds_prev);
+        if (!have_prev_am_pairs && load_state_vector(group_state, "am_bonds_prev", am_stride, flat)) {
             assign_am_matrix(flat, am_bonds_prev);
         }
+
         if (load_state_vector(group_state, "actin_recovery_until", aa_stride, flat)) {
             for (int i = 0; i < actin.n; ++i) {
                 for (int j = 0; j < actin.n; ++j) {
@@ -1837,44 +2332,68 @@ int Sarcomere::load_state(int& n_frames, int frame_index){
                         static_cast<size_t>(flat[static_cast<size_t>(i) * actin.n + j]);
                 }
             }
-        }
-
-        bool have_current_bonds = load_state_vector(group_state, "actin_actin_bonds_current", aa_stride, flat);
-        if (have_current_bonds) {
-            assign_aa_matrix(flat, actin_actin_bonds);
-        }
-
-        bool have_current_status = load_state_vector(group_state, "actin_actin_status_current", aa_stride, flat);
-        if (have_current_status) {
-            assign_aa_matrix(flat, actin_actin_status);
         } else {
-            // Legacy fallback: /actin/bonds stores only strong bonds.
             for (int i = 0; i < actin.n; ++i) {
-                for (int j = 0; j < actin.n; ++j) {
-                    actin_actin_status[i][j] = (actin_actin_bonds[i][j] == 1) ? 2 : 0;
-                }
+                std::fill(actin_recovery_until[i].begin(), actin_recovery_until[i].end(), 0);
             }
         }
 
-        bool have_current_lifetime = load_state_vector(group_state, "actin_actin_lifetime_current", aa_stride, flat);
-        if (have_current_lifetime) {
-            assign_aa_matrix(flat, actin_actin_lifetime);
-        } else {
-            for (int i = 0; i < actin.n; ++i) {
-                for (int j = 0; j < actin.n; ++j) {
-                    if (actin_actin_bonds[i][j] == 1) {
-                        actin_actin_lifetime[i][j] = std::max(1, actin_actin_lifetime_prev[i][j]);
-                    } else {
-                        actin_actin_lifetime[i][j] = 0;
+        bool have_current_aa_pairs = restore_aa_state_from_pairs(
+            group_state,
+            "aa_pairs_current_count",
+            "aa_pairs_current",
+            "aa_status_current",
+            "aa_lifetime_current",
+            actin_actin_bonds,
+            actin_actin_status,
+            actin_actin_lifetime);
+        bool have_current_bonds = false;
+        bool have_current_status = false;
+        bool have_current_lifetime = false;
+        if (!have_current_aa_pairs) {
+            have_current_bonds = load_state_vector(group_state, "actin_actin_bonds_current", aa_stride, flat);
+            if (have_current_bonds) {
+                assign_aa_matrix(flat, actin_actin_bonds);
+            }
+
+            have_current_status = load_state_vector(group_state, "actin_actin_status_current", aa_stride, flat);
+            if (have_current_status) {
+                assign_aa_matrix(flat, actin_actin_status);
+            } else {
+                // Legacy fallback: /actin/bonds stores only strong bonds.
+                for (int i = 0; i < actin.n; ++i) {
+                    for (int j = 0; j < actin.n; ++j) {
+                        actin_actin_status[i][j] = (actin_actin_bonds[i][j] == 1) ? 2 : 0;
+                    }
+                }
+            }
+
+            have_current_lifetime = load_state_vector(group_state, "actin_actin_lifetime_current", aa_stride, flat);
+            if (have_current_lifetime) {
+                assign_aa_matrix(flat, actin_actin_lifetime);
+            } else {
+                for (int i = 0; i < actin.n; ++i) {
+                    for (int j = 0; j < actin.n; ++j) {
+                        if (actin_actin_bonds[i][j] == 1) {
+                            actin_actin_lifetime[i][j] = std::max(1, actin_actin_lifetime_prev[i][j]);
+                        } else {
+                            actin_actin_lifetime[i][j] = 0;
+                        }
                     }
                 }
             }
         }
 
-        bool have_current_am = load_state_vector(group_state, "am_bonds_current", am_stride, flat);
-        if (have_current_am) {
+        bool loaded_current_am_from_pairs = restore_am_state_from_pairs(
+            group_state, "am_pairs_current_count", "am_pairs_current", am_bonds);
+        bool loaded_current_am_from_dense = false;
+        if (!loaded_current_am_from_pairs) {
+            loaded_current_am_from_dense =
+                load_state_vector(group_state, "am_bonds_current", am_stride, flat);
+        }
+        if (loaded_current_am_from_dense) {
             assign_am_matrix(flat, am_bonds);
-        } else {
+        } else if (!loaded_current_am_from_pairs) {
             for (int i = 0; i < actin.n; ++i) {
                 std::fill(am_bonds[i].begin(), am_bonds[i].end(), 0);
             }
@@ -2001,6 +2520,174 @@ int Sarcomere::load_state(int& n_frames, int frame_index){
             restored_neighbor_cache = true;
         }
 
+        if (frame_index < 0) {
+            try {
+                H5::Group group_resume(file.openGroup("/resume"));
+                std::vector<int> ints;
+                std::vector<double> doubles;
+
+                if (load_fixed_vector_int(group_resume, "current_step", 1, ints)) {
+                    current_step = static_cast<size_t>(std::max(0, ints[0]));
+                }
+                if (load_fixed_matrix_double(group_resume, "actin_center", static_cast<size_t>(actin.n), 3, doubles)) {
+                    for (int i = 0; i < actin.n; ++i) {
+                        actin.center[i].x = doubles[3 * i];
+                        actin.center[i].y = doubles[3 * i + 1];
+                        actin.center[i].z = doubles[3 * i + 2];
+                    }
+                }
+                if (load_fixed_matrix_double(group_resume, "actin_direction", static_cast<size_t>(actin.n), 3, doubles)) {
+                    for (int i = 0; i < actin.n; ++i) {
+                        actin.direction[i].x = doubles[3 * i];
+                        actin.direction[i].y = doubles[3 * i + 1];
+                        actin.direction[i].z = doubles[3 * i + 2];
+                    }
+                }
+                if (load_fixed_matrix_double(group_resume, "myosin_center", static_cast<size_t>(myosin.n), 3, doubles)) {
+                    for (int i = 0; i < myosin.n; ++i) {
+                        myosin.center[i].x = doubles[3 * i];
+                        myosin.center[i].y = doubles[3 * i + 1];
+                        myosin.center[i].z = doubles[3 * i + 2];
+                    }
+                }
+                if (load_fixed_matrix_double(group_resume, "myosin_direction", static_cast<size_t>(myosin.n), 3, doubles)) {
+                    for (int i = 0; i < myosin.n; ++i) {
+                        myosin.direction[i].x = doubles[3 * i];
+                        myosin.direction[i].y = doubles[3 * i + 1];
+                        myosin.direction[i].z = doubles[3 * i + 2];
+                    }
+                }
+                actin.update_endpoints();
+                myosin.update_endpoints();
+
+                restore_aa_state_from_fixed_pairs(
+                    group_resume,
+                    "aa_pairs_prev_count",
+                    "aa_pairs_prev",
+                    "aa_status_prev",
+                    "aa_lifetime_prev",
+                    actin_actin_bonds_prev,
+                    actin_actin_status_prev,
+                    actin_actin_lifetime_prev);
+                restore_aa_state_from_fixed_pairs(
+                    group_resume,
+                    "aa_pairs_current_count",
+                    "aa_pairs_current",
+                    "aa_status_current",
+                    "aa_lifetime_current",
+                    actin_actin_bonds,
+                    actin_actin_status,
+                    actin_actin_lifetime);
+                for (int i = 0; i < actin.n; ++i) {
+                    std::fill(aa_attach_step[i].begin(), aa_attach_step[i].end(), -1);
+                }
+                {
+                    std::vector<int> counts_attach;
+                    std::vector<int> pairs_attach;
+                    std::vector<int> attach_values;
+                    const size_t max_aa_pairs = static_cast<size_t>(actin.n) *
+                                                static_cast<size_t>(std::max(10, 2 * max_myosin_bonds));
+                    if (load_fixed_vector_int(group_resume, "aa_pairs_current_count", 1, counts_attach) &&
+                        load_fixed_matrix_int(group_resume, "aa_pairs_current", max_aa_pairs, 2, pairs_attach) &&
+                        load_fixed_matrix_int(group_resume, "aa_attach_step_current", max_aa_pairs, 1, attach_values)) {
+                        const size_t count = static_cast<size_t>(std::max(0, counts_attach[0]));
+                        for (size_t idx = 0; idx < count; ++idx) {
+                            const int a = pairs_attach[2 * idx];
+                            const int b = pairs_attach[2 * idx + 1];
+                            if (a < 0 || a >= actin.n || b < 0 || b >= actin.n || a == b) {
+                                continue;
+                            }
+                            aa_attach_step[a][b] = attach_values[idx];
+                            aa_attach_step[b][a] = attach_values[idx];
+                        }
+                    }
+                }
+                restore_am_state_from_fixed_pairs(
+                    group_resume, "am_pairs_prev_count", "am_pairs_prev", am_bonds_prev);
+                restore_am_state_from_fixed_pairs(
+                    group_resume, "am_pairs_current_count", "am_pairs_current", am_bonds);
+
+                if (load_fixed_matrix_int(group_resume, "actin_recovery_until",
+                                          static_cast<size_t>(actin.n),
+                                          static_cast<size_t>(actin.n), ints)) {
+                    for (int i = 0; i < actin.n; ++i) {
+                        for (int j = 0; j < actin.n; ++j) {
+                            actin_recovery_until[i][j] =
+                                static_cast<size_t>(ints[static_cast<size_t>(i) * actin.n + j]);
+                        }
+                    }
+                }
+
+                if (rng != nullptr &&
+                    load_fixed_vector_int(group_resume, "rng_main_state", gsl_rng_size(rng), ints)) {
+                    auto* state_ptr = static_cast<unsigned char*>(gsl_rng_state(rng));
+                    for (size_t idx = 0; idx < ints.size(); ++idx) {
+                        state_ptr[idx] = static_cast<unsigned char>(std::clamp(ints[idx], 0, 255));
+                    }
+                }
+                if (!rng_engines.empty() && rng_engines[0] != nullptr &&
+                    load_fixed_vector_int(group_resume, "rng_thread_state_size", 1, ints)) {
+                    const int file_state_size = ints[0];
+                    if (load_fixed_vector_int(group_resume, "rng_thread_count", 1, ints)) {
+                        const int file_thread_count = ints[0];
+                        const size_t flat_width =
+                            static_cast<size_t>(std::max(0, file_thread_count)) *
+                            static_cast<size_t>(std::max(0, file_state_size));
+                        if (load_fixed_vector_int(group_resume, "rng_thread_state", flat_width, ints)) {
+                            const int restore_threads =
+                                std::min(static_cast<int>(rng_engines.size()), file_thread_count);
+                            for (int t = 0; t < restore_threads; ++t) {
+                                if (rng_engines[t] == nullptr) {
+                                    continue;
+                                }
+                                auto* local_ptr =
+                                    static_cast<unsigned char*>(gsl_rng_state(rng_engines[t]));
+                                const size_t local_size = gsl_rng_size(rng_engines[t]);
+                                const size_t copy_size =
+                                    std::min(local_size, static_cast<size_t>(std::max(0, file_state_size)));
+                                const size_t base =
+                                    static_cast<size_t>(t) * static_cast<size_t>(std::max(0, file_state_size));
+                                for (size_t idx = 0; idx < copy_size; ++idx) {
+                                    local_ptr[idx] =
+                                        static_cast<unsigned char>(std::clamp(ints[base + idx], 0, 255));
+                                }
+                            }
+                        }
+                    }
+                }
+
+                if (load_fixed_vector_double(group_resume, "neighbor_last_actin_x", static_cast<size_t>(actin.n), neighbor_last_actin_x) &&
+                    load_fixed_vector_double(group_resume, "neighbor_last_actin_y", static_cast<size_t>(actin.n), neighbor_last_actin_y) &&
+                    load_fixed_vector_double(group_resume, "neighbor_last_actin_z", static_cast<size_t>(actin.n), neighbor_last_actin_z) &&
+                    load_fixed_vector_double(group_resume, "neighbor_last_myosin_x", static_cast<size_t>(myosin.n), neighbor_last_myosin_x) &&
+                    load_fixed_vector_double(group_resume, "neighbor_last_myosin_y", static_cast<size_t>(myosin.n), neighbor_last_myosin_y) &&
+                    load_fixed_vector_double(group_resume, "neighbor_last_myosin_z", static_cast<size_t>(myosin.n), neighbor_last_myosin_z)) {
+                    neighbor_list.set_species_positions(neighbor_last_actin_x, neighbor_last_actin_y, neighbor_last_actin_z,
+                                                        neighbor_last_myosin_x, neighbor_last_myosin_y, neighbor_last_myosin_z);
+                    neighbor_list.rebuild_neighbor_list();
+                    neighbor_list.set_species_positions(actin.center_x, actin.center_y, actin.center_z,
+                                                        myosin.center_x, myosin.center_y, myosin.center_z);
+                    restored_neighbor_cache = true;
+                } else {
+                    restored_neighbor_cache = false;
+                }
+
+                if (!load_any_vector_double(group_resume, "cb_breakage_pending", cb_breakage_events)) {
+                    cb_breakage_events.clear();
+                }
+                if (!load_any_vector_double(group_resume, "cb_limit_pending", cb_limit_events)) {
+                    cb_limit_events.clear();
+                }
+                if (!load_any_vector_double(group_resume, "aa_completed_lifetimes_pending",
+                                            aa_completed_lifetimes)) {
+                    aa_completed_lifetimes.clear();
+                }
+                loaded_resume_snapshot = true;
+            } catch (H5::Exception&) {
+                loaded_resume_snapshot = false;
+            }
+        }
+
     } catch (H5::Exception&) {
         loaded_state_group = false;
     }
@@ -2030,6 +2717,26 @@ int Sarcomere::load_state(int& n_frames, int frame_index){
                                             myosin.center_x, myosin.center_y, myosin.center_z);
         neighbor_list.rebuild_neighbor_list();
     }
+
+    for (int i = 0; i < actin.n; ++i) {
+        myosinIndicesPerActin.deleteAllConnections(i);
+    }
+    for (int m = 0; m < myosin.n; ++m) {
+        actinIndicesPerMyosin.deleteAllConnections(m);
+        for (auto& temp_conn : actinIndicesPerMyosin_temp) {
+            temp_conn.deleteAllConnections(m);
+        }
+    }
+    for (int i = 0; i < actin.n; ++i) {
+        for (int m = 0; m < myosin.n; ++m) {
+            if (am_bonds[i][m] != 1) {
+                continue;
+            }
+            myosinIndicesPerActin.addConnection(i, m);
+            actinIndicesPerMyosin.addConnection(m, i);
+        }
+    }
+    has_myosin_bond_pairs = false;
 
     return target_frame;
 }

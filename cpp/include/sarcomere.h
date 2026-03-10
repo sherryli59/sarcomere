@@ -140,6 +140,7 @@ public:
     void set_periodicity(const std::array<bool,3>& periodic_axes);
     void new_file();
     void save_state();
+    void save_resume_snapshot();
     int load_state(int& n_frames, int frame_index = -1);
     // Debug helper to compute catch-bond statistics for a single frame
     void debug_cb_stats();

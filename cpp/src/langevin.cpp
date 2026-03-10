@@ -32,7 +32,7 @@ Langevin::Langevin(Sarcomere& model0, double& beta0, double& dt0, double& D0_act
         loaded_frame_index = frame_idx;
         // Frames are written at step multiples of save_every before integrating that step.
         // Resume should continue from that same step index.
-        start_step = frame_idx * save_every;
+        start_step = static_cast<int>(model.current_step);
         skip_initial_save = true;
         printf("Resuming from file %s at step %d (frame %d of %d, current_step=%zu)\n",
                model.filename.c_str(), start_step, frame_idx, n_frames, model.current_step);
@@ -102,6 +102,7 @@ void Langevin::run_langevin(int nsteps, gsl_rng* rng, int& fix_myosin) {
     }
     skip_initial_save = false;
     start_step = end_step;
+    model.save_resume_snapshot();
 }
 
 void Langevin::volume_exclusion(int nsteps, gsl_rng* rng, int& fix_myosin) {
@@ -132,6 +133,7 @@ void Langevin::volume_exclusion(int nsteps, gsl_rng* rng, int& fix_myosin) {
     }
     skip_initial_save = false;
     start_step = end_step;
+    model.save_resume_snapshot();
 }
 
 //---------------------------------------------------------------------
