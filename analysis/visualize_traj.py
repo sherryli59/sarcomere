@@ -6,13 +6,50 @@ import math
 import joblib
 from joblib import Parallel, delayed
 import os
+import shutil
 os.environ["HDF5_USE_FILE_LOCKING"] = "FALSE"
 import sys
 import argparse
 from mpl_toolkits.mplot3d import Axes3D  # required for 3D plotting
 from itertools import product
 import pyvista as pv
-pv.start_xvfb()  # Start Xvfb for off-screen rendering
+
+# Prefer native off-screen rendering; only attempt Xvfb if it is available.
+os.environ.setdefault("PYVISTA_OFF_SCREEN", "true")
+
+
+def configure_headless_rendering():
+    """Configure PyVista for headless rendering without requiring Xvfb."""
+    pv.OFF_SCREEN = True
+
+    # Try Xvfb only when installed. If unavailable or fails, continue using
+    # native off-screen rendering (EGL/OSMesa) so PNG/HTML export still works.
+    if shutil.which("Xvfb") is None:
+        print("Xvfb not found; using PyVista native off-screen rendering.")
+        return
+
+    try:
+        pv.start_xvfb()
+        print("Started Xvfb for PyVista off-screen rendering.")
+    except Exception as exc:
+        print(f"Warning: could not start Xvfb ({exc}); continuing with native off-screen rendering.")
+
+
+configure_headless_rendering()
+
+
+def should_use_matplotlib_backend(render_backend="auto"):
+    """Decide whether to use matplotlib fallback rendering."""
+    if render_backend == "matplotlib":
+        return True
+    if render_backend == "pyvista":
+        return False
+
+    # auto mode: if we're headless and Xvfb is unavailable, prefer matplotlib
+    # to avoid VTK/EGL/OSMesa crashes on cluster nodes.
+    headless = not bool(os.environ.get("DISPLAY"))
+    has_xvfb = shutil.which("Xvfb") is not None
+    return headless and (not has_xvfb)
 
 
 import h5py
@@ -197,7 +234,7 @@ def plot_system(frame, data, myosin_length, actin_length, Lx, Ly, Lz,
                 actin_velocity_available=False, myosin_velocity_available=False,
                 actin_force_thickness=3.0, myosin_force_thickness=3.0,
                 actin_velocity_thickness=1.5, myosin_velocity_thickness=1.5,
-                myosin_opacity=1.0):
+                myosin_opacity=1.0, render_backend=None, **kwargs):
     """Render the system for a single frame."""
     plotter = pv.Plotter(off_screen=True)
 
@@ -408,6 +445,93 @@ def plot_system(frame, data, myosin_length, actin_length, Lx, Ly, Lz,
     return plotter
 
 
+def plot_system_matplotlib(frame, data, myosin_length, actin_length, Lx, Ly, Lz,
+                           myosin_radius, myosin_display="all", actin_display="cb",
+                           myosin_opacity=1.0, **kwargs):
+    """Fallback renderer using matplotlib only (headless-safe)."""
+    fig = plt.figure(figsize=(10, 8))
+    ax = fig.add_subplot(111, projection='3d')
+
+    def draw_filaments(centers, directions, length, color, linewidth=1.0, alpha=1.0):
+        if centers.size == 0:
+            return
+        lengths = np.ones(centers.shape[0]) * length if np.isscalar(length) else np.asarray(length)
+        for c, d, l in zip(centers, directions, lengths):
+            if l < 0.01:
+                continue
+            p1 = c - 0.5 * l * d
+            p2 = c + 0.5 * l * d
+            ax.plot([p1[0], p2[0]], [p1[1], p2[1]], [p1[2], p2[2]],
+                    color=color, linewidth=linewidth, alpha=alpha)
+
+    # Actin
+    actin_center = data["/actin/center"][frame]
+    actin_direction = data["/actin/direction"][frame]
+    cb_status = data["/actin/cb_status"][frame].flatten()
+    if actin_display == "cb":
+        mask = cb_status == 2
+        print(f"Frame {frame}: {np.sum(mask)} actin filaments in catch-bond state")
+    else:
+        mask = np.ones_like(cb_status, dtype=bool)
+    actin_center = actin_center[mask]
+    actin_direction = actin_direction[mask]
+    draw_filaments(actin_center, actin_direction, actin_length, color='tab:blue', linewidth=1.2, alpha=0.9)
+
+    # Myosin selection logic
+    myosin_centers_frame = data["/myosin/center"][frame]
+    myosin_dirs_frame = data["/myosin/direction"][frame]
+    n_myosins = myosin_centers_frame.shape[0]
+
+    actin_myo_bonds_ds = data.get("/actin_myo/bonds")
+    actin_myo_bonds_frame = None
+    actin_myo_bonds_available = False
+    if actin_myo_bonds_ds is not None:
+        shape = getattr(actin_myo_bonds_ds, "shape", None)
+        total_am_frames = shape[0] if shape and len(shape) > 0 else 0
+        if frame < total_am_frames:
+            actin_myo_bonds_frame = actin_myo_bonds_ds[frame]
+            actin_myo_bonds_available = True
+
+    if myosin_display == "bonded":
+        myo_bonds = data["/myosin/bonds"][frame]
+        valid_pairs = myo_bonds[myo_bonds[:, 0] >= 0].astype(int)
+        bonded_indices = np.unique(valid_pairs.flatten()) if valid_pairs.size > 0 else np.empty(0, dtype=int)
+        display_indices = bonded_indices
+    elif myosin_display == "cb_attached":
+        if not actin_myo_bonds_available:
+            display_indices = np.arange(n_myosins)
+        else:
+            valid_pairs = actin_myo_bonds_frame[actin_myo_bonds_frame[:, 0] >= 0]
+            cb_indices = np.where(cb_status > 1)[0]
+            if valid_pairs.size == 0 or cb_indices.size == 0:
+                display_indices = np.empty(0, dtype=int)
+            else:
+                valid_pairs = valid_pairs.astype(int)
+                mask_cb_pairs = np.isin(valid_pairs[:, 0], cb_indices)
+                cb_pairs = valid_pairs[mask_cb_pairs]
+                display_indices = np.unique(cb_pairs[:, 1]) if cb_pairs.size > 0 else np.empty(0, dtype=int)
+    else:
+        display_indices = np.arange(n_myosins)
+
+    if display_indices.size > 0:
+        myosin_center = myosin_centers_frame[display_indices]
+        myosin_direction = myosin_dirs_frame[display_indices]
+        draw_filaments(myosin_center, myosin_direction, myosin_length,
+                       color='#f5a45b', linewidth=max(1.0, myosin_radius * 20), alpha=myosin_opacity)
+
+    # Box and axes
+    ax.set_xlim(-0.5 * Lx, 0.5 * Lx)
+    ax.set_ylim(-0.5 * Ly, 0.5 * Ly)
+    ax.set_zlim(-0.5 * Lz, 0.5 * Lz)
+    ax.set_xlabel('X')
+    ax.set_ylabel('Y')
+    ax.set_zlabel('Z')
+    ax.set_title(f'Frame {frame}')
+    ax.view_init(elev=25, azim=35)
+    plt.tight_layout()
+    return fig
+
+
 def plot(ind, nworkers, frame_indices, **kwargs):
     total = len(frame_indices)
     if total == 0:
@@ -415,15 +539,57 @@ def plot(ind, nworkers, frame_indices, **kwargs):
     start_idx = int(ind * total / nworkers)
     end_idx = int((ind + 1) * total / nworkers)
     end_idx = min(end_idx, total)
+    use_matplotlib = should_use_matplotlib_backend(kwargs.get("render_backend", "auto"))
     for frame in frame_indices[start_idx:end_idx]:
-        plotter = plot_system(frame=frame, **kwargs)
-        #plotter.export_vtksz('test.vtkjs')
-        plotter.export_html(html_format.format(frame_dir, frame))
-        plotter.screenshot(
-            file_format.format(frame_dir, frame),
-            window_size=(2400, 2000)   # or higher
-        )
-        plotter.close()
+        png_path = file_format.format(frame_dir, frame)
+        html_path = html_format.format(frame_dir, frame)
+
+        if use_matplotlib:
+            fig = plot_system_matplotlib(frame=frame, **kwargs)
+            fig.savefig(png_path, dpi=220)
+            plt.close(fig)
+            png_name = os.path.basename(png_path)
+            with open(html_path, "w", encoding="utf-8") as f:
+                f.write(
+                    "<!doctype html>\n"
+                    "<html><head><meta charset='utf-8'>"
+                    f"<title>Frame {frame}</title>"
+                    "<style>body{margin:0;background:#fff;display:flex;justify-content:center;}"
+                    "img{max-width:100vw;max-height:100vh;object-fit:contain;}</style>"
+                    "</head><body>"
+                    f"<img src='{png_name}' alt='frame {frame}'>"
+                    "</body></html>\n"
+                )
+        else:
+            plotter = plot_system(frame=frame, **kwargs)
+
+            # Always render PNG first.
+            plotter.screenshot(
+                png_path,
+                window_size=(2400, 2000)   # or higher
+            )
+
+            # Try interactive HTML export; if trame is unavailable, write a
+            # lightweight HTML wrapper that embeds the PNG.
+            try:
+                # plotter.export_vtksz('test.vtkjs')
+                plotter.export_html(html_path)
+            except Exception as exc:
+                print(f"Warning: interactive HTML export failed for frame {frame}: {exc}")
+                print("Writing static HTML wrapper around PNG instead.")
+                png_name = os.path.basename(png_path)
+                with open(html_path, "w", encoding="utf-8") as f:
+                    f.write(
+                        "<!doctype html>\n"
+                        "<html><head><meta charset='utf-8'>"
+                        f"<title>Frame {frame}</title>"
+                        "<style>body{margin:0;background:#fff;display:flex;justify-content:center;}"
+                        "img{max-width:100vw;max-height:100vh;object-fit:contain;}</style>"
+                        "</head><body>"
+                        f"<img src='{png_name}' alt='frame {frame}'>"
+                        "</body></html>\n"
+                    )
+            plotter.close()
 
 
 def hdf5_to_dict(hdf5_file):
@@ -504,6 +670,12 @@ def parse_args():
                         help="Multiplier for actin velocity arrow radii (higher → thicker).")
     parser.add_argument("--myosin_velocity_thickness", type=float, default=1.5,
                         help="Multiplier for myosin velocity arrow radii (higher → thicker).")
+    parser.add_argument(
+        "--render_backend",
+        choices=["auto", "pyvista", "matplotlib"],
+        default="auto",
+        help="Rendering backend: auto chooses matplotlib on headless nodes without Xvfb.",
+    )
     return parser.parse_args()
 
 
@@ -626,6 +798,7 @@ if __name__ == "__main__":
     myosin_force_thickness = args.myosin_force_thickness
     actin_velocity_thickness = args.actin_velocity_thickness
     myosin_velocity_thickness = args.myosin_velocity_thickness
+    render_backend = args.render_backend
 
     # Open the HDF5 file and convert to dictionary.
     traj = h5py.File(filename, 'r')
@@ -642,6 +815,10 @@ if __name__ == "__main__":
         print("Warning: --show_actin_velocity requested but /actin/velocity dataset is missing.")
     if show_myosin_velocity and not myosin_velocity_available:
         print("Warning: --show_myosin_velocity requested but /myosin/velocity dataset is missing.")
+    if should_use_matplotlib_backend(render_backend):
+        print("Using matplotlib fallback renderer (headless-safe).")
+    else:
+        print("Using PyVista renderer.")
     last_frame = data["/actin/center"].shape[0] - 1
     print_and_plot_last_frame(
         args.filename,
@@ -705,6 +882,7 @@ if __name__ == "__main__":
                       myosin_force_thickness=myosin_force_thickness,
                       actin_velocity_thickness=actin_velocity_thickness,
                       myosin_velocity_thickness=myosin_velocity_thickness,
-                      myosin_opacity=myosin_opacity)
+                      myosin_opacity=myosin_opacity,
+                      render_backend=render_backend)
         for i in range(cpu_workers)
     )

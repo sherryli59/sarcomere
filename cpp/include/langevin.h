@@ -40,6 +40,10 @@ public:
     bool is3D;
     bool skip_initial_save;
     int save_every, start_step, loaded_frame_index;
+    // When true, interpret `nsteps` argument to run_* as the total target
+    // number of steps (i.e., inclusive of previously-run steps) while
+    // resuming. Set in constructor when resume mode is active.
+    bool interpret_nsteps_as_total_when_resuming = false;
     Sarcomere& model;
 };
 

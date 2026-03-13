@@ -53,18 +53,23 @@ set(SOURCES
 # FetchContent is built into CMake from version 3.11 onward.
 include(FetchContent)
 
-# Optionally disable Google Benchmark's internal tests.
-set(BENCHMARK_ENABLE_TESTING OFF CACHE BOOL "Disable benchmark tests" FORCE)
+# Option to build Google Benchmark; disabled by default to avoid extra
+# external dependencies (curl/OpenSSL) on clusters with mixed libs.
+option(BUILD_BENCHMARK "Build Google Benchmark targets" OFF)
+if(BUILD_BENCHMARK)
+    # Optionally disable Google Benchmark's internal tests.
+    set(BENCHMARK_ENABLE_TESTING OFF CACHE BOOL "Disable benchmark tests" FORCE)
 
-# Declare and download the Google Benchmark repository.
-FetchContent_Declare(
-  benchmark
-  GIT_REPOSITORY https://github.com/google/benchmark.git
-  GIT_TAG v1.7.0  # Specify the desired tag/commit.
-)
+    # Declare and download the Google Benchmark repository.
+    FetchContent_Declare(
+        benchmark
+        GIT_REPOSITORY https://github.com/google/benchmark.git
+        GIT_TAG v1.7.0  # Specify the desired tag/commit.
+    )
 
-# Make the benchmark content available (it will be built as part of your project).
-FetchContent_MakeAvailable(benchmark)
+    # Make the benchmark content available (it will be built as part of your project).
+    FetchContent_MakeAvailable(benchmark)
+endif()
 
 
 # Create the library (STATIC or SHARED)
@@ -83,7 +88,7 @@ target_include_directories(my_library PUBLIC ${GSL_INCLUDE_DIRS} ${HDF5_INCLUDE_
 target_include_directories(${PROJECT_NAME} PRIVATE ${GSL_INCLUDE_DIRS} ${HDF5_INCLUDE_DIRS})
 
 #check if the benchmark.cpp file exists
-if(EXISTS ${SRC_DIR}/benchmark.cpp)
+if(BUILD_BENCHMARK AND EXISTS ${SRC_DIR}/benchmark.cpp)
     # Now create your target and link it against Google Benchmark.
     add_executable(my_benchmark ${SRC_DIR}/benchmark.cpp)
     target_link_libraries(my_benchmark PRIVATE my_library benchmark::benchmark)

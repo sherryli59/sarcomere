@@ -60,6 +60,9 @@ Langevin::Langevin(Sarcomere& model0, double& beta0, double& dt0, double& D0_act
         loaded_frame_index = -1;
         model.new_file();
     }
+    // If resume mode active, interpret nsteps argument as total target
+    // steps (i.e., inclusive of previously-run steps) when running.
+    interpret_nsteps_as_total_when_resuming = resume;
 }
 
 //---------------------------------------------------------------------
@@ -76,7 +79,13 @@ Langevin::~Langevin() {
 void Langevin::run_langevin(int nsteps, gsl_rng* rng, int& fix_myosin) {
     double start, end;
     bool skip_first_save = skip_initial_save;
-    int end_step = start_step + nsteps;
+    int end_step;
+    if (interpret_nsteps_as_total_when_resuming) {
+        // Here `nsteps` is interpreted as the absolute target total number of steps.
+        end_step = nsteps;
+    } else {
+        end_step = start_step + nsteps;
+    }
     for (int step = start_step; step < end_step; ++step) {
         bool should_save = (step % save_every == 0);
         if (skip_first_save && step == start_step) {
@@ -108,7 +117,12 @@ void Langevin::run_langevin(int nsteps, gsl_rng* rng, int& fix_myosin) {
 void Langevin::volume_exclusion(int nsteps, gsl_rng* rng, int& fix_myosin) {
     double start, end;
     bool skip_first_save = skip_initial_save;
-    int end_step = start_step + nsteps;
+    int end_step;
+    if (interpret_nsteps_as_total_when_resuming) {
+        end_step = nsteps;
+    } else {
+        end_step = start_step + nsteps;
+    }
     for (int step = start_step; step < end_step; ++step) {
         bool should_save = (step % save_every == 0);
         if (skip_first_save && step == start_step) {
