@@ -556,67 +556,69 @@ void Sarcomere::_process_actin_myosin_binding(int& i) {
         am_interaction[i][j] = geometry::analyze_am(
             actin.left_end[i], actin.right_end[i], myosin.left_end[j], myosin.right_end[j],
             am_cutoff, box, is_periodic, directional);
-        if (am_interaction[i][j].partial_binding_ratio > EPS || !directional) {
-            double partial_ratio = am_interaction[i][j].partial_binding_ratio;
-            double binding_ratio = am_interaction[i][j].myosin_binding_ratio;
-                if (actin_crosslink_ratio[i] > am_interaction[i][j].crosslinkable_ratio) {
-                    actin_crosslink_ratio[i] = am_interaction[i][j].crosslinkable_ratio;
-                    actin_crosslink_start[i] = am_interaction[i][j].crosslinkable_start;
-                    actin_crosslink_end[i] = am_interaction[i][j].crosslinkable_end;
-                    if (actin_crosslink_ratio[i] < EPS) {
-                        auto actin_neighbors = actin_neighbors_by_species[i].first;
-                        bool prev_catch_bonded = false;
-                        for (int idx = 0; idx < actin_neighbors.size(); idx++){
-                            if (actin_actin_status_prev[i][actin_neighbors[idx]] > 1){
-                                prev_catch_bonded = true;
-                                break;
+        if (am_interaction[i][j].myosin_binding_ratio > EPS) {
+            if (am_interaction[i][j].partial_binding_ratio > EPS || !directional) {
+                double partial_ratio = am_interaction[i][j].partial_binding_ratio;
+                double binding_ratio = am_interaction[i][j].myosin_binding_ratio;
+                    if (actin_crosslink_ratio[i] > am_interaction[i][j].crosslinkable_ratio) {
+                        actin_crosslink_ratio[i] = am_interaction[i][j].crosslinkable_ratio;
+                        actin_crosslink_start[i] = am_interaction[i][j].crosslinkable_start;
+                        actin_crosslink_end[i] = am_interaction[i][j].crosslinkable_end;
+                        if (actin_crosslink_ratio[i] < EPS) {
+                            auto actin_neighbors = actin_neighbors_by_species[i].first;
+                            bool prev_catch_bonded = false;
+                            for (int idx = 0; idx < actin_neighbors.size(); idx++){
+                                if (actin_actin_status_prev[i][actin_neighbors[idx]] > 1){
+                                    prev_catch_bonded = true;
+                                    break;
+                                }
+                            }
+                            if (prev_catch_bonded) {
+                                double angle = std::acos(std::abs(actin.direction[i].dot(myosin.direction[j]))) * 180.0 / M_PI;
+                                vec repulsive_force = compute_actin_myosin_repulsion(
+                                    actin,
+                                    myosin,
+                                    i,
+                                    j,
+                                    box,
+                                    am_cutoff*1.1,
+                                    10*k_aa);
+                                double force_magnitude = repulsive_force.norm();
+                                printf("Warning: Actin %d has zero crosslink ratio due to myosin %d,binding ratio is %f, partial binding ratio is %f, angle is %f, repulsion is %f\n", i, j, am_interaction[i][j].myosin_binding_ratio, 
+                                    am_interaction[i][j].partial_binding_ratio, angle, force_magnitude);
                             }
                         }
-                        if (prev_catch_bonded) {
-                            double angle = std::acos(std::abs(actin.direction[i].dot(myosin.direction[j]))) * 180.0 / M_PI;
-                            vec repulsive_force = compute_actin_myosin_repulsion(
-                                actin,
-                                myosin,
-                                i,
-                                j,
-                                box,
-                                am_cutoff*1.1,
-                                10*k_aa);
-                            double force_magnitude = repulsive_force.norm();
-                            printf("Warning: Actin %d has zero crosslink ratio due to myosin %d,binding ratio is %f, partial binding ratio is %f, angle is %f, repulsion is %f\n", i, j, am_interaction[i][j].myosin_binding_ratio, 
-                                am_interaction[i][j].partial_binding_ratio, angle, force_magnitude);
-                        }
                     }
-                }
-            if (!directional || partial_ratio > EPS) {
-                // Record all actin–myosin attachments regardless of bond state
-                local_actinIndicesPerMyosin.addConnection(j, i);
-                myosinIndicesPerActin.addConnection(i, j);
-                n_myosins_per_actin[i]++;
-                double abs_cos = std::abs(actin.direction[i].dot(myosin.direction[j]));
-                if (abs_cos > actin_basic_tension[i]) {
-                    actin_basic_tension[i] = abs_cos;
-                }
-                if (actin["partial_binding_ratio"][i] < partial_ratio) {
-                    actin["partial_binding_ratio"][i] = partial_ratio;
-                }
-                double binding_ratio = am_interaction[i][j].myosin_binding_ratio;
-                if (actin["myosin_binding_ratio"][i] < binding_ratio) {
-                    actin["myosin_binding_ratio"][i] = binding_ratio;
-                }
+                if (!directional || partial_ratio > EPS) {
+                    // Record all actin–myosin attachments regardless of bond state
+                    local_actinIndicesPerMyosin.addConnection(j, i);
+                    myosinIndicesPerActin.addConnection(i, j);
+                    n_myosins_per_actin[i]++;
+                    double abs_cos = std::abs(actin.direction[i].dot(myosin.direction[j]));
+                    if (abs_cos > actin_basic_tension[i]) {
+                        actin_basic_tension[i] = abs_cos;
+                    }
+                    if (actin["partial_binding_ratio"][i] < partial_ratio) {
+                        actin["partial_binding_ratio"][i] = partial_ratio;
+                    }
+                    double binding_ratio = am_interaction[i][j].myosin_binding_ratio;
+                    if (actin["myosin_binding_ratio"][i] < binding_ratio) {
+                        actin["myosin_binding_ratio"][i] = binding_ratio;
+                    }
 
-                // Immediately register a bond when geometrically allowed
-                am_bonds[i][j] = 1;
-                // estimate load on actin due to this myosin
-                double partial = am_interaction[i][j].partial_binding_ratio;
-                double abs_cos_angle = std::abs(actin.direction[i].dot(myosin.direction[j]));
-                double contrib = 3.0 * std::min(partial, 1.0/3.0);
-                double contrib_cb = contrib * abs_cos_angle;
-                if (contrib > f_load_contrib){
-                    f_load_contrib = contrib;
-                }
-                if (contrib_cb > f_load_contrib_cb) {
-                    f_load_contrib_cb = contrib_cb;
+                    // Immediately register a bond when geometrically allowed
+                    am_bonds[i][j] = 1;
+                    // estimate load on actin due to this myosin
+                    double partial = am_interaction[i][j].partial_binding_ratio;
+                    double abs_cos_angle = std::abs(actin.direction[i].dot(myosin.direction[j]));
+                    double contrib = 3.0 * std::min(partial, 1.0/3.0);
+                    double contrib_cb = contrib * abs_cos_angle;
+                    if (contrib > f_load_contrib){
+                        f_load_contrib = contrib;
+                    }
+                    if (contrib_cb > f_load_contrib_cb) {
+                        f_load_contrib_cb = contrib_cb;
+                    }
                 }
             }
         }
