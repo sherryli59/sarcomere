@@ -609,7 +609,8 @@ void Sarcomere::_process_actin_myosin_binding(int& i) {
                     // Immediately register a bond when geometrically allowed
                     am_bonds[i][j] = 1;
                     // estimate load on actin due to this myosin
-                    double partial = am_interaction[i][j].partial_binding_ratio;
+                    double partial = directional ? am_interaction[i][j].partial_binding_ratio
+                                                 : am_interaction[i][j].myosin_binding_ratio;
                     double abs_cos_angle = std::abs(actin.direction[i].dot(myosin.direction[j]));
                     double contrib = 3.0 * std::min(partial, 1.0/3.0);
                     double contrib_cb = contrib * abs_cos_angle;
@@ -803,7 +804,9 @@ void Sarcomere::_calc_am_force_velocity(int& i) {
         }
         //scale by angle between actin and myosin
         double abs_cos_angle = std::abs(actin.direction[i].dot(myosin.direction[j]));
-        double normalized_partial_ratio = 3.0 * std::min(am_interaction[i][j].partial_binding_ratio, 1.0/3.0);
+        double active_ratio = directional ? am_interaction[i][j].partial_binding_ratio
+                                          : am_interaction[i][j].myosin_binding_ratio;
+        double normalized_partial_ratio = 3.0 * std::min(active_ratio, 1.0/3.0);
         //apply exponential scaling to partial binding ratio
         normalized_partial_ratio = (1 - std::exp(-2 * normalized_partial_ratio)) / (1 - std::exp(-2));
         vector force_vec = compute_am_force_and_energy(
