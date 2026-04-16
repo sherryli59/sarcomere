@@ -128,6 +128,7 @@ Sarcomere::Sarcomere(int& n_actins, int& n_myosins, vector box0, double& actin_l
             this->skin_distance = skin_distance;
             this->filename = filename;
             this->rng = rng;
+            this->initial_seed = seed;
             this->fix_myosin = fix_myosin;
             this->dt = dt;
             this->am_cutoff = am_cutoff;
@@ -1603,6 +1604,7 @@ void Sarcomere::save_state(){
 
         const hsize_t actin_width = static_cast<hsize_t>(actin.n);
         const hsize_t myosin_width = static_cast<hsize_t>(myosin.n);
+        const hsize_t actin_recovery_width = actin_width * actin_width;
         const hsize_t max_aa_pairs = static_cast<hsize_t>(actin.n) *
                                      static_cast<hsize_t>(std::max(10, 2 * max_myosin_bonds));
         const hsize_t max_am_pairs = static_cast<hsize_t>(myosin.n) *
@@ -1629,8 +1631,10 @@ void Sarcomere::save_state(){
         ensure_state_pair_dataset("aa_pairs_current", max_aa_pairs, 2);
         ensure_state_pair_dataset("aa_status_current", max_aa_pairs, 1);
         ensure_state_pair_dataset("aa_lifetime_current", max_aa_pairs, 1);
+        ensure_state_pair_dataset("aa_attach_step_current", max_aa_pairs, 1);
         ensure_state_pair_dataset("am_pairs_prev", max_am_pairs, 2);
         ensure_state_pair_dataset("am_pairs_current", max_am_pairs, 2);
+        ensure_state_pair_dataset("actin_recovery_until", actin_recovery_width, 1);
         ensure_state_dataset_double("neighbor_last_actin_x", actin_width);
         ensure_state_dataset_double("neighbor_last_actin_y", actin_width);
         ensure_state_dataset_double("neighbor_last_actin_z", actin_width);
@@ -1664,6 +1668,13 @@ void Sarcomere::save_state(){
         std::vector<int> aa_current_pairs = aa_current.pairs;
         std::vector<int> aa_current_status = aa_current.status;
         std::vector<int> aa_current_lifetime = aa_current.lifetime;
+        std::vector<int> aa_current_attach_step;
+        aa_current_attach_step.reserve(aa_current.status.size());
+        for (size_t idx = 0; idx + 1 < aa_current.pairs.size(); idx += 2) {
+            const int a = aa_current.pairs[idx];
+            const int b = aa_current.pairs[idx + 1];
+            aa_current_attach_step.push_back(aa_attach_step[a][b]);
+        }
         std::vector<int> am_prev_pairs = am_prev;
         std::vector<int> am_current_pairs = am_current;
 
@@ -1673,6 +1684,7 @@ void Sarcomere::save_state(){
         pad_int_vector(aa_current_pairs, static_cast<size_t>(max_aa_pairs * 2), -1);
         pad_int_vector(aa_current_status, static_cast<size_t>(max_aa_pairs), 0);
         pad_int_vector(aa_current_lifetime, static_cast<size_t>(max_aa_pairs), 0);
+        pad_int_vector(aa_current_attach_step, static_cast<size_t>(max_aa_pairs), -1);
         pad_int_vector(am_prev_pairs, static_cast<size_t>(max_am_pairs * 2), -1);
         pad_int_vector(am_current_pairs, static_cast<size_t>(max_am_pairs * 2), -1);
 
@@ -1686,8 +1698,19 @@ void Sarcomere::save_state(){
         append_to_dataset_int(group_state, "aa_pairs_current", aa_current_pairs, {1, max_aa_pairs, 2});
         append_to_dataset_int(group_state, "aa_status_current", aa_current_status, {1, max_aa_pairs, 1});
         append_to_dataset_int(group_state, "aa_lifetime_current", aa_current_lifetime, {1, max_aa_pairs, 1});
+        append_to_dataset_int(group_state, "aa_attach_step_current", aa_current_attach_step, {1, max_aa_pairs, 1});
         append_to_dataset_int(group_state, "am_pairs_prev", am_prev_pairs, {1, max_am_pairs, 2});
         append_to_dataset_int(group_state, "am_pairs_current", am_current_pairs, {1, max_am_pairs, 2});
+
+        std::vector<int> recovery_flat;
+        recovery_flat.reserve(static_cast<size_t>(actin_recovery_width));
+        for (int i = 0; i < actin.n; ++i) {
+            for (int j = 0; j < actin.n; ++j) {
+                recovery_flat.push_back(static_cast<int>(actin_recovery_until[i][j]));
+            }
+        }
+        append_to_dataset_int(group_state, "actin_recovery_until", recovery_flat,
+                              {1, actin_recovery_width, 1});
 
         std::vector<double> neighbor_last_actin_x;
         std::vector<double> neighbor_last_actin_y;
@@ -2330,7 +2353,8 @@ int Sarcomere::load_state(int& n_frames, int frame_index){
             assign_am_matrix(flat, am_bonds_prev);
         }
 
-        if (load_state_vector(group_state, "actin_recovery_until", aa_stride, flat)) {
+        if (load_state_tensor_int(group_state, "actin_recovery_until", aa_stride, 1, flat) ||
+            load_state_vector(group_state, "actin_recovery_until", aa_stride, flat)) {
             for (int i = 0; i < actin.n; ++i) {
                 for (int j = 0; j < actin.n; ++j) {
                     actin_recovery_until[i][j] =
@@ -2385,6 +2409,30 @@ int Sarcomere::load_state(int& n_frames, int frame_index){
                             actin_actin_lifetime[i][j] = 0;
                         }
                     }
+                }
+            }
+        }
+        for (int i = 0; i < actin.n; ++i) {
+            std::fill(aa_attach_step[i].begin(), aa_attach_step[i].end(), -1);
+        }
+        {
+            std::vector<int> counts_attach;
+            std::vector<int> pairs_attach;
+            std::vector<int> attach_values;
+            const size_t max_aa_pairs = static_cast<size_t>(actin.n) *
+                                        static_cast<size_t>(std::max(10, 2 * max_myosin_bonds));
+            if (load_state_vector(group_state, "aa_pairs_current_count", 1, counts_attach) &&
+                load_state_tensor_int(group_state, "aa_pairs_current", max_aa_pairs, 2, pairs_attach) &&
+                load_state_tensor_int(group_state, "aa_attach_step_current", max_aa_pairs, 1, attach_values)) {
+                const size_t count = static_cast<size_t>(std::max(0, counts_attach[0]));
+                for (size_t idx = 0; idx < count; ++idx) {
+                    const int a = pairs_attach[2 * idx];
+                    const int b = pairs_attach[2 * idx + 1];
+                    if (a < 0 || a >= actin.n || b < 0 || b >= actin.n || a == b) {
+                        continue;
+                    }
+                    aa_attach_step[a][b] = attach_values[idx];
+                    aa_attach_step[b][a] = attach_values[idx];
                 }
             }
         }
@@ -2498,6 +2546,18 @@ int Sarcomere::load_state(int& n_frames, int frame_index){
                             local_ptr[idx] = static_cast<unsigned char>(byte_value);
                         }
                     }
+                    if (local_thread_count > file_thread_count) {
+                        for (int t = file_thread_count; t < local_thread_count; ++t) {
+                            if (rng_engines[t] == nullptr) {
+                                continue;
+                            }
+                            gsl_rng_set(
+                                rng_engines[t],
+                                static_cast<unsigned long>(initial_seed) +
+                                    static_cast<unsigned long>(t) +
+                                    static_cast<unsigned long>(current_step));
+                        }
+                    }
                 }
         }
 
@@ -2532,7 +2592,11 @@ int Sarcomere::load_state(int& n_frames, int frame_index){
                 std::vector<double> doubles;
 
                 if (load_fixed_vector_int(group_resume, "current_step", 1, ints)) {
-                    current_step = static_cast<size_t>(std::max(0, ints[0]));
+                    const size_t resume_step = static_cast<size_t>(std::max(0, ints[0]));
+                    if (resume_step < current_step) {
+                        throw H5::Exception("Sarcomere::load_state", "Stale resume snapshot");
+                    }
+                    current_step = resume_step;
                 }
                 if (load_fixed_matrix_double(group_resume, "actin_center", static_cast<size_t>(actin.n), 3, doubles)) {
                     for (int i = 0; i < actin.n; ++i) {
@@ -2655,6 +2719,19 @@ int Sarcomere::load_state(int& n_frames, int frame_index){
                                 for (size_t idx = 0; idx < copy_size; ++idx) {
                                     local_ptr[idx] =
                                         static_cast<unsigned char>(std::clamp(ints[base + idx], 0, 255));
+                                }
+                            }
+                            const int local_thread_count = static_cast<int>(rng_engines.size());
+                            if (local_thread_count > file_thread_count) {
+                                for (int t = file_thread_count; t < local_thread_count; ++t) {
+                                    if (rng_engines[t] == nullptr) {
+                                        continue;
+                                    }
+                                    gsl_rng_set(
+                                        rng_engines[t],
+                                        static_cast<unsigned long>(initial_seed) +
+                                            static_cast<unsigned long>(t) +
+                                            static_cast<unsigned long>(current_step));
                                 }
                             }
                         }

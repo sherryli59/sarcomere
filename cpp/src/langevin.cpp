@@ -109,6 +109,10 @@ void Langevin::run_langevin(int nsteps, gsl_rng* rng, int& fix_myosin) {
             skip_first_save = false;
         }
     }
+    if (end_step > start_step && (end_step % save_every == 0)) {
+        std::cout << "Step " << end_step << std::endl;
+        model.save_state();
+    }
     skip_initial_save = false;
     start_step = end_step;
     model.save_resume_snapshot();
@@ -144,6 +148,10 @@ void Langevin::volume_exclusion(int nsteps, gsl_rng* rng, int& fix_myosin) {
         if (skip_first_save && step == start_step) {
             skip_first_save = false;
         }
+    }
+    if (end_step > start_step && (end_step % save_every == 0)) {
+        std::cout << "Step " << end_step << std::endl;
+        model.save_state();
     }
     skip_initial_save = false;
     start_step = end_step;

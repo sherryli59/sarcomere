@@ -79,6 +79,7 @@ public:
         
     gsl_rng* rng;
     std::string filename;
+    int initial_seed = 0;
 
     std::vector<std::vector<vec>> actin_forces_temp,
                                     myosin_forces_temp, myosin_velocities_temp, actin_torques_temp, myosin_torques_temp;

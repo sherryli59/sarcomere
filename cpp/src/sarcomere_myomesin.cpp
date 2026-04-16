@@ -85,6 +85,7 @@ Sarcomere::Sarcomere(int& n_actins, int& n_myosins, vector box0, double& actin_l
             this->skin_distance = skin_distance;
             this->filename = filename;
             this->rng = rng;
+            this->initial_seed = seed;
             this->fix_myosin = fix_myosin;
             this->dt = dt;
             this->am_cutoff = am_cutoff;
