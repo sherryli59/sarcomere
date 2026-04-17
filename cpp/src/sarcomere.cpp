@@ -16,6 +16,11 @@ struct PackedAABondState {
     std::vector<int> lifetime;
 };
 
+struct PackedRecoveryState {
+    std::vector<int> pairs;
+    std::vector<int> until;
+};
+
 PackedAABondState pack_aa_bond_state(
     const std::vector<std::vector<int>>& bonds,
     const std::vector<std::vector<int>>& status,
@@ -47,6 +52,26 @@ std::vector<int> pack_am_bond_pairs(const std::vector<std::vector<int>>& bonds) 
             }
             packed.push_back(i);
             packed.push_back(j);
+        }
+    }
+    return packed;
+}
+
+PackedRecoveryState pack_recovery_state(
+    const std::vector<std::vector<size_t>>& recovery_until,
+    size_t current_step) {
+    PackedRecoveryState packed;
+    const int n = static_cast<int>(recovery_until.size());
+    for (int i = 0; i < n; ++i) {
+        for (int j = i + 1; j < n; ++j) {
+            const size_t until = recovery_until[i][j];
+            if (until <= current_step) {
+                continue;
+            }
+            packed.pairs.push_back(i);
+            packed.pairs.push_back(j);
+            packed.until.push_back(
+                static_cast<int>(std::min(until, static_cast<size_t>(std::numeric_limits<int>::max()))));
         }
     }
     return packed;
@@ -1604,11 +1629,11 @@ void Sarcomere::save_state(){
 
         const hsize_t actin_width = static_cast<hsize_t>(actin.n);
         const hsize_t myosin_width = static_cast<hsize_t>(myosin.n);
-        const hsize_t actin_recovery_width = actin_width * actin_width;
         const hsize_t max_aa_pairs = static_cast<hsize_t>(actin.n) *
                                      static_cast<hsize_t>(std::max(10, 2 * max_myosin_bonds));
         const hsize_t max_am_pairs = static_cast<hsize_t>(myosin.n) *
                                      static_cast<hsize_t>(max_myosin_bonds);
+        const hsize_t max_recovery_pairs = max_aa_pairs;
 
         auto ensure_state_pair_dataset = [&](const std::string& dataset_name, hsize_t rows, hsize_t cols) {
             const std::string full_path = "/state/" + dataset_name;
@@ -1634,7 +1659,9 @@ void Sarcomere::save_state(){
         ensure_state_pair_dataset("aa_attach_step_current", max_aa_pairs, 1);
         ensure_state_pair_dataset("am_pairs_prev", max_am_pairs, 2);
         ensure_state_pair_dataset("am_pairs_current", max_am_pairs, 2);
-        ensure_state_pair_dataset("actin_recovery_until", actin_recovery_width, 1);
+        ensure_state_dataset_int("aa_recovery_count", 1);
+        ensure_state_pair_dataset("aa_recovery_pairs", max_recovery_pairs, 2);
+        ensure_state_pair_dataset("aa_recovery_until_values", max_recovery_pairs, 1);
         ensure_state_dataset_double("neighbor_last_actin_x", actin_width);
         ensure_state_dataset_double("neighbor_last_actin_y", actin_width);
         ensure_state_dataset_double("neighbor_last_actin_z", actin_width);
@@ -1652,13 +1679,16 @@ void Sarcomere::save_state(){
             actin_actin_bonds, actin_actin_status, actin_actin_lifetime);
         auto am_prev = pack_am_bond_pairs(am_bonds_prev);
         auto am_current = pack_am_bond_pairs(am_bonds);
+        auto aa_recovery = pack_recovery_state(actin_recovery_until, current_step);
 
         const hsize_t aa_prev_count = static_cast<hsize_t>(aa_prev.status.size());
         const hsize_t aa_current_count = static_cast<hsize_t>(aa_current.status.size());
         const hsize_t am_prev_count = static_cast<hsize_t>(am_prev.size() / 2);
         const hsize_t am_current_count = static_cast<hsize_t>(am_current.size() / 2);
+        const hsize_t aa_recovery_count = static_cast<hsize_t>(aa_recovery.until.size());
         if (aa_prev_count > max_aa_pairs || aa_current_count > max_aa_pairs ||
-            am_prev_count > max_am_pairs || am_current_count > max_am_pairs) {
+            am_prev_count > max_am_pairs || am_current_count > max_am_pairs ||
+            aa_recovery_count > max_recovery_pairs) {
             throw std::runtime_error("Bond pair list exceeds configured compact state capacity.");
         }
 
@@ -1677,6 +1707,8 @@ void Sarcomere::save_state(){
         }
         std::vector<int> am_prev_pairs = am_prev;
         std::vector<int> am_current_pairs = am_current;
+        std::vector<int> aa_recovery_pairs = aa_recovery.pairs;
+        std::vector<int> aa_recovery_until_values = aa_recovery.until;
 
         pad_int_vector(aa_prev_pairs, static_cast<size_t>(max_aa_pairs * 2), -1);
         pad_int_vector(aa_prev_status, static_cast<size_t>(max_aa_pairs), 0);
@@ -1687,11 +1719,14 @@ void Sarcomere::save_state(){
         pad_int_vector(aa_current_attach_step, static_cast<size_t>(max_aa_pairs), -1);
         pad_int_vector(am_prev_pairs, static_cast<size_t>(max_am_pairs * 2), -1);
         pad_int_vector(am_current_pairs, static_cast<size_t>(max_am_pairs * 2), -1);
+        pad_int_vector(aa_recovery_pairs, static_cast<size_t>(max_recovery_pairs * 2), -1);
+        pad_int_vector(aa_recovery_until_values, static_cast<size_t>(max_recovery_pairs), 0);
 
         append_to_dataset_int(group_state, "aa_pairs_prev_count", {static_cast<int>(aa_prev_count)}, {1, 1});
         append_to_dataset_int(group_state, "aa_pairs_current_count", {static_cast<int>(aa_current_count)}, {1, 1});
         append_to_dataset_int(group_state, "am_pairs_prev_count", {static_cast<int>(am_prev_count)}, {1, 1});
         append_to_dataset_int(group_state, "am_pairs_current_count", {static_cast<int>(am_current_count)}, {1, 1});
+        append_to_dataset_int(group_state, "aa_recovery_count", {static_cast<int>(aa_recovery_count)}, {1, 1});
         append_to_dataset_int(group_state, "aa_pairs_prev", aa_prev_pairs, {1, max_aa_pairs, 2});
         append_to_dataset_int(group_state, "aa_status_prev", aa_prev_status, {1, max_aa_pairs, 1});
         append_to_dataset_int(group_state, "aa_lifetime_prev", aa_prev_lifetime, {1, max_aa_pairs, 1});
@@ -1701,16 +1736,10 @@ void Sarcomere::save_state(){
         append_to_dataset_int(group_state, "aa_attach_step_current", aa_current_attach_step, {1, max_aa_pairs, 1});
         append_to_dataset_int(group_state, "am_pairs_prev", am_prev_pairs, {1, max_am_pairs, 2});
         append_to_dataset_int(group_state, "am_pairs_current", am_current_pairs, {1, max_am_pairs, 2});
-
-        std::vector<int> recovery_flat;
-        recovery_flat.reserve(static_cast<size_t>(actin_recovery_width));
-        for (int i = 0; i < actin.n; ++i) {
-            for (int j = 0; j < actin.n; ++j) {
-                recovery_flat.push_back(static_cast<int>(actin_recovery_until[i][j]));
-            }
-        }
-        append_to_dataset_int(group_state, "actin_recovery_until", recovery_flat,
-                              {1, actin_recovery_width, 1});
+        append_to_dataset_int(group_state, "aa_recovery_pairs", aa_recovery_pairs,
+                              {1, max_recovery_pairs, 2});
+        append_to_dataset_int(group_state, "aa_recovery_until_values", aa_recovery_until_values,
+                              {1, max_recovery_pairs, 1});
 
         std::vector<double> neighbor_last_actin_x;
         std::vector<double> neighbor_last_actin_y;
@@ -1820,6 +1849,7 @@ void Sarcomere::save_resume_snapshot() {
                                  static_cast<hsize_t>(std::max(10, 2 * max_myosin_bonds));
     const hsize_t max_am_pairs = static_cast<hsize_t>(myosin.n) *
                                  static_cast<hsize_t>(max_myosin_bonds);
+    const hsize_t max_recovery_pairs = max_aa_pairs;
 
     auto replace_dataset_int = [&](const std::string& name,
                                    const std::vector<hsize_t>& dims,
@@ -1853,6 +1883,11 @@ void Sarcomere::save_resume_snapshot() {
         actin_actin_bonds, actin_actin_status, actin_actin_lifetime);
     auto am_prev = pack_am_bond_pairs(am_bonds_prev);
     auto am_current = pack_am_bond_pairs(am_bonds);
+    auto aa_recovery = pack_recovery_state(actin_recovery_until, current_step);
+
+    if (aa_recovery.until.size() > static_cast<size_t>(max_recovery_pairs)) {
+        throw std::runtime_error("Recovery pair list exceeds configured compact resume capacity.");
+    }
 
     std::vector<int> aa_prev_pairs = aa_prev.pairs;
     std::vector<int> aa_prev_status = aa_prev.status;
@@ -1869,6 +1904,8 @@ void Sarcomere::save_resume_snapshot() {
     }
     std::vector<int> am_prev_pairs = am_prev;
     std::vector<int> am_current_pairs = am_current;
+    std::vector<int> aa_recovery_pairs = aa_recovery.pairs;
+    std::vector<int> aa_recovery_until_values = aa_recovery.until;
 
     pad_int_vector(aa_prev_pairs, static_cast<size_t>(max_aa_pairs * 2), -1);
     pad_int_vector(aa_prev_status, static_cast<size_t>(max_aa_pairs), 0);
@@ -1879,6 +1916,8 @@ void Sarcomere::save_resume_snapshot() {
     pad_int_vector(aa_current_attach_step, static_cast<size_t>(max_aa_pairs), -1);
     pad_int_vector(am_prev_pairs, static_cast<size_t>(max_am_pairs * 2), -1);
     pad_int_vector(am_current_pairs, static_cast<size_t>(max_am_pairs * 2), -1);
+    pad_int_vector(aa_recovery_pairs, static_cast<size_t>(max_recovery_pairs * 2), -1);
+    pad_int_vector(aa_recovery_until_values, static_cast<size_t>(max_recovery_pairs), 0);
 
     replace_dataset_int("current_step", {1}, {static_cast<int>(current_step)});
     replace_dataset_double("actin_center", {n_actins, 3}, flatten_3d_array(actin.center));
@@ -1898,17 +1937,12 @@ void Sarcomere::save_resume_snapshot() {
     replace_dataset_int("aa_attach_step_current", {max_aa_pairs, 1}, aa_current_attach_step);
     replace_dataset_int("am_pairs_prev", {max_am_pairs, 2}, am_prev_pairs);
     replace_dataset_int("am_pairs_current", {max_am_pairs, 2}, am_current_pairs);
-
-    std::vector<int> recovery_flat;
-    recovery_flat.reserve(static_cast<size_t>(actin.n) * static_cast<size_t>(actin.n));
-    for (int i = 0; i < actin.n; ++i) {
-        for (int j = 0; j < actin.n; ++j) {
-            recovery_flat.push_back(static_cast<int>(actin_recovery_until[i][j]));
-        }
+    replace_dataset_int("aa_recovery_count", {1}, {static_cast<int>(aa_recovery.until.size())});
+    replace_dataset_int("aa_recovery_pairs", {max_recovery_pairs, 2}, aa_recovery_pairs);
+    replace_dataset_int("aa_recovery_until_values", {max_recovery_pairs, 1}, aa_recovery_until_values);
+    if (file.nameExists("/resume/actin_recovery_until")) {
+        H5Ldelete(file.getId(), "/resume/actin_recovery_until", H5P_DEFAULT);
     }
-    replace_dataset_int("actin_recovery_until",
-                        {static_cast<hsize_t>(actin.n), static_cast<hsize_t>(actin.n)},
-                        recovery_flat);
 
     std::vector<double> neighbor_last_actin_x;
     std::vector<double> neighbor_last_actin_y;
@@ -2177,6 +2211,12 @@ int Sarcomere::load_state(int& n_frames, int frame_index){
         }
     };
 
+    auto clear_recovery_state = [&]() {
+        for (int i = 0; i < actin.n; ++i) {
+            std::fill(actin_recovery_until[i].begin(), actin_recovery_until[i].end(), 0);
+        }
+    };
+
     auto restore_aa_state_from_pairs = [&](H5::Group& group,
                                            const std::string& count_name,
                                            const std::string& pair_name,
@@ -2236,6 +2276,35 @@ int Sarcomere::load_state(int& n_frames, int frame_index){
                 continue;
             }
             bonds[a][m] = 1;
+        }
+        return true;
+    };
+
+    auto restore_recovery_state_from_pairs = [&](H5::Group& group,
+                                                 const std::string& count_name,
+                                                 const std::string& pair_name,
+                                                 const std::string& value_name) -> bool {
+        std::vector<int> counts;
+        std::vector<int> pairs;
+        std::vector<int> until_values;
+        const size_t max_recovery_pairs = static_cast<size_t>(actin.n) *
+                                          static_cast<size_t>(std::max(10, 2 * max_myosin_bonds));
+        if (!load_state_vector(group, count_name, 1, counts) ||
+            !load_state_tensor_int(group, pair_name, max_recovery_pairs, 2, pairs) ||
+            !load_state_tensor_int(group, value_name, max_recovery_pairs, 1, until_values)) {
+            return false;
+        }
+        const size_t count = static_cast<size_t>(std::max(0, counts[0]));
+        clear_recovery_state();
+        for (size_t idx = 0; idx < count; ++idx) {
+            const int a = pairs[2 * idx];
+            const int b = pairs[2 * idx + 1];
+            if (a < 0 || a >= actin.n || b < 0 || b >= actin.n || a == b) {
+                continue;
+            }
+            const size_t until = static_cast<size_t>(std::max(0, until_values[idx]));
+            actin_recovery_until[a][b] = until;
+            actin_recovery_until[b][a] = until;
         }
         return true;
     };
@@ -2303,6 +2372,35 @@ int Sarcomere::load_state(int& n_frames, int frame_index){
         return true;
     };
 
+    auto restore_recovery_state_from_fixed_pairs = [&](H5::Group& group,
+                                                       const std::string& count_name,
+                                                       const std::string& pair_name,
+                                                       const std::string& value_name) -> bool {
+        std::vector<int> counts;
+        std::vector<int> pairs;
+        std::vector<int> until_values;
+        const size_t max_recovery_pairs = static_cast<size_t>(actin.n) *
+                                          static_cast<size_t>(std::max(10, 2 * max_myosin_bonds));
+        if (!load_fixed_vector_int(group, count_name, 1, counts) ||
+            !load_fixed_matrix_int(group, pair_name, max_recovery_pairs, 2, pairs) ||
+            !load_fixed_matrix_int(group, value_name, max_recovery_pairs, 1, until_values)) {
+            return false;
+        }
+        const size_t count = static_cast<size_t>(std::max(0, counts[0]));
+        clear_recovery_state();
+        for (size_t idx = 0; idx < count; ++idx) {
+            const int a = pairs[2 * idx];
+            const int b = pairs[2 * idx + 1];
+            if (a < 0 || a >= actin.n || b < 0 || b >= actin.n || a == b) {
+                continue;
+            }
+            const size_t until = static_cast<size_t>(std::max(0, until_values[idx]));
+            actin_recovery_until[a][b] = until;
+            actin_recovery_until[b][a] = until;
+        }
+        return true;
+    };
+
     bool loaded_state_group = false;
     bool restored_neighbor_cache = false;
     bool loaded_resume_snapshot = false;
@@ -2353,8 +2451,11 @@ int Sarcomere::load_state(int& n_frames, int frame_index){
             assign_am_matrix(flat, am_bonds_prev);
         }
 
-        if (load_state_tensor_int(group_state, "actin_recovery_until", aa_stride, 1, flat) ||
-            load_state_vector(group_state, "actin_recovery_until", aa_stride, flat)) {
+        if (restore_recovery_state_from_pairs(
+                group_state, "aa_recovery_count", "aa_recovery_pairs", "aa_recovery_until_values")) {
+            // loaded sparse recovery state
+        } else if (load_state_tensor_int(group_state, "actin_recovery_until", aa_stride, 1, flat) ||
+                   load_state_vector(group_state, "actin_recovery_until", aa_stride, flat)) {
             for (int i = 0; i < actin.n; ++i) {
                 for (int j = 0; j < actin.n; ++j) {
                     actin_recovery_until[i][j] =
@@ -2676,9 +2777,15 @@ int Sarcomere::load_state(int& n_frames, int frame_index){
                 restore_am_state_from_fixed_pairs(
                     group_resume, "am_pairs_current_count", "am_pairs_current", am_bonds);
 
-                if (load_fixed_matrix_int(group_resume, "actin_recovery_until",
-                                          static_cast<size_t>(actin.n),
-                                          static_cast<size_t>(actin.n), ints)) {
+                if (restore_recovery_state_from_fixed_pairs(
+                        group_resume,
+                        "aa_recovery_count",
+                        "aa_recovery_pairs",
+                        "aa_recovery_until_values")) {
+                    // loaded sparse recovery state
+                } else if (load_fixed_matrix_int(group_resume, "actin_recovery_until",
+                                                 static_cast<size_t>(actin.n),
+                                                 static_cast<size_t>(actin.n), ints)) {
                     for (int i = 0; i < actin.n; ++i) {
                         for (int j = 0; j < actin.n; ++j) {
                             actin_recovery_until[i][j] =
