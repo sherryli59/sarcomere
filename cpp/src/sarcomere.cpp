@@ -2412,6 +2412,25 @@ int Sarcomere::load_state(int& n_frames, int frame_index){
         std::vector<int> flat;
         std::vector<hsize_t> dims;
 
+        // Detect interrupted /state appends and rewind to the last complete checkpoint.
+        // rng_thread_state_size is written last in save_state(), so its frame count marks
+        // the number of fully committed state snapshots.
+        if (group_state.nameExists("rng_thread_state_size")) {
+            std::vector<double> dummy = load_from_dataset(group_state, "rng_thread_state_size", dims);
+            (void)dummy;
+            if (dims.size() >= 2) {
+                const int safe_frames = static_cast<int>(dims[0]);
+                if (target_frame >= safe_frames) {
+                    printf("Warning: Interrupted save detected. Trajectory has %d frames but /state has %d. Rolling back.\n",
+                           target_frame + 1, safe_frames);
+                    target_frame = safe_frames - 1;
+                    if (target_frame >= 0) {
+                        load_from_file(filename, actin, myosin, actin_actin_bonds, n_frames, target_frame);
+                    }
+                }
+            }
+        }
+
         // Load current_step (if missing, fallback handled below).
         if (group_state.nameExists("current_step")) {
             std::vector<double> step_data = load_from_dataset(group_state, "current_step", dims);
