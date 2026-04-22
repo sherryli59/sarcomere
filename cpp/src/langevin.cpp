@@ -101,6 +101,7 @@ void Langevin::run_langevin(int nsteps, gsl_rng* rng, int& fix_myosin) {
         model.update_system();
         sample_step(dt, rng, fix_myosin);
         if (should_save) {
+            model.save_resume_snapshot();
             end = omp_get_wtime();
             printf("Step %d took %f seconds\n", step, end - start);
             //model.debug_cb_stats();
@@ -142,6 +143,7 @@ void Langevin::volume_exclusion(int nsteps, gsl_rng* rng, int& fix_myosin) {
         model.update_system_sterics_only();
         sample_step(dt, rng, fix_myosin);
         if (should_save) {
+            model.save_resume_snapshot();
             end = omp_get_wtime();
             printf("Step %d took %f seconds\n", step, end - start);
         }

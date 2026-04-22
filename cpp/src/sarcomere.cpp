@@ -1837,9 +1837,9 @@ void Sarcomere::save_state(){
 void Sarcomere::save_resume_snapshot() {
     H5::H5File file(filename, H5F_ACC_RDWR);
     H5::Group group_resume;
-    try {
+    if (file.nameExists("/resume")) {
         group_resume = file.openGroup("/resume");
-    } catch (H5::Exception&) {
+    } else {
         group_resume = file.createGroup("/resume");
     }
 
@@ -2687,193 +2687,202 @@ int Sarcomere::load_state(int& n_frames, int frame_index){
         }
 
         if (frame_index < 0) {
-            try {
-                H5::Group group_resume(file.openGroup("/resume"));
-                std::vector<int> ints;
-                std::vector<double> doubles;
+            if (file.nameExists("/resume")) {
+                try {
+                    H5::Group group_resume(file.openGroup("/resume"));
+                    std::vector<int> ints;
+                    std::vector<double> doubles;
 
-                if (load_fixed_vector_int(group_resume, "current_step", 1, ints)) {
-                    const size_t resume_step = static_cast<size_t>(std::max(0, ints[0]));
-                    if (resume_step < current_step) {
-                        throw H5::Exception("Sarcomere::load_state", "Stale resume snapshot");
+                    if (load_fixed_vector_int(group_resume, "current_step", 1, ints)) {
+                        const size_t resume_step = static_cast<size_t>(std::max(0, ints[0]));
+                        if (resume_step < current_step) {
+                            throw H5::Exception("Sarcomere::load_state", "Stale resume snapshot");
+                        }
+                        current_step = resume_step;
                     }
-                    current_step = resume_step;
-                }
-                if (load_fixed_matrix_double(group_resume, "actin_center", static_cast<size_t>(actin.n), 3, doubles)) {
-                    for (int i = 0; i < actin.n; ++i) {
-                        actin.center[i].x = doubles[3 * i];
-                        actin.center[i].y = doubles[3 * i + 1];
-                        actin.center[i].z = doubles[3 * i + 2];
-                    }
-                }
-                if (load_fixed_matrix_double(group_resume, "actin_direction", static_cast<size_t>(actin.n), 3, doubles)) {
-                    for (int i = 0; i < actin.n; ++i) {
-                        actin.direction[i].x = doubles[3 * i];
-                        actin.direction[i].y = doubles[3 * i + 1];
-                        actin.direction[i].z = doubles[3 * i + 2];
-                    }
-                }
-                if (load_fixed_matrix_double(group_resume, "myosin_center", static_cast<size_t>(myosin.n), 3, doubles)) {
-                    for (int i = 0; i < myosin.n; ++i) {
-                        myosin.center[i].x = doubles[3 * i];
-                        myosin.center[i].y = doubles[3 * i + 1];
-                        myosin.center[i].z = doubles[3 * i + 2];
-                    }
-                }
-                if (load_fixed_matrix_double(group_resume, "myosin_direction", static_cast<size_t>(myosin.n), 3, doubles)) {
-                    for (int i = 0; i < myosin.n; ++i) {
-                        myosin.direction[i].x = doubles[3 * i];
-                        myosin.direction[i].y = doubles[3 * i + 1];
-                        myosin.direction[i].z = doubles[3 * i + 2];
-                    }
-                }
-                actin.update_endpoints();
-                myosin.update_endpoints();
-
-                restore_aa_state_from_fixed_pairs(
-                    group_resume,
-                    "aa_pairs_prev_count",
-                    "aa_pairs_prev",
-                    "aa_status_prev",
-                    "aa_lifetime_prev",
-                    actin_actin_bonds_prev,
-                    actin_actin_status_prev,
-                    actin_actin_lifetime_prev);
-                restore_aa_state_from_fixed_pairs(
-                    group_resume,
-                    "aa_pairs_current_count",
-                    "aa_pairs_current",
-                    "aa_status_current",
-                    "aa_lifetime_current",
-                    actin_actin_bonds,
-                    actin_actin_status,
-                    actin_actin_lifetime);
-                for (int i = 0; i < actin.n; ++i) {
-                    std::fill(aa_attach_step[i].begin(), aa_attach_step[i].end(), -1);
-                }
-                {
-                    std::vector<int> counts_attach;
-                    std::vector<int> pairs_attach;
-                    std::vector<int> attach_values;
-                    const size_t max_aa_pairs = static_cast<size_t>(actin.n) *
-                                                static_cast<size_t>(std::max(10, 2 * max_myosin_bonds));
-                    if (load_fixed_vector_int(group_resume, "aa_pairs_current_count", 1, counts_attach) &&
-                        load_fixed_matrix_int(group_resume, "aa_pairs_current", max_aa_pairs, 2, pairs_attach) &&
-                        load_fixed_matrix_int(group_resume, "aa_attach_step_current", max_aa_pairs, 1, attach_values)) {
-                        const size_t count = static_cast<size_t>(std::max(0, counts_attach[0]));
-                        for (size_t idx = 0; idx < count; ++idx) {
-                            const int a = pairs_attach[2 * idx];
-                            const int b = pairs_attach[2 * idx + 1];
-                            if (a < 0 || a >= actin.n || b < 0 || b >= actin.n || a == b) {
-                                continue;
-                            }
-                            aa_attach_step[a][b] = attach_values[idx];
-                            aa_attach_step[b][a] = attach_values[idx];
+                    if (load_fixed_matrix_double(group_resume, "actin_center", static_cast<size_t>(actin.n), 3, doubles)) {
+                        for (int i = 0; i < actin.n; ++i) {
+                            actin.center[i].x = doubles[3 * i];
+                            actin.center[i].y = doubles[3 * i + 1];
+                            actin.center[i].z = doubles[3 * i + 2];
                         }
                     }
-                }
-                restore_am_state_from_fixed_pairs(
-                    group_resume, "am_pairs_prev_count", "am_pairs_prev", am_bonds_prev);
-                restore_am_state_from_fixed_pairs(
-                    group_resume, "am_pairs_current_count", "am_pairs_current", am_bonds);
+                    if (load_fixed_matrix_double(group_resume, "actin_direction", static_cast<size_t>(actin.n), 3, doubles)) {
+                        for (int i = 0; i < actin.n; ++i) {
+                            actin.direction[i].x = doubles[3 * i];
+                            actin.direction[i].y = doubles[3 * i + 1];
+                            actin.direction[i].z = doubles[3 * i + 2];
+                        }
+                    }
+                    if (load_fixed_matrix_double(group_resume, "myosin_center", static_cast<size_t>(myosin.n), 3, doubles)) {
+                        for (int i = 0; i < myosin.n; ++i) {
+                            myosin.center[i].x = doubles[3 * i];
+                            myosin.center[i].y = doubles[3 * i + 1];
+                            myosin.center[i].z = doubles[3 * i + 2];
+                        }
+                    }
+                    if (load_fixed_matrix_double(group_resume, "myosin_direction", static_cast<size_t>(myosin.n), 3, doubles)) {
+                        for (int i = 0; i < myosin.n; ++i) {
+                            myosin.direction[i].x = doubles[3 * i];
+                            myosin.direction[i].y = doubles[3 * i + 1];
+                            myosin.direction[i].z = doubles[3 * i + 2];
+                        }
+                    }
+                    actin.update_endpoints();
+                    myosin.update_endpoints();
 
-                if (restore_recovery_state_from_fixed_pairs(
+                    restore_aa_state_from_fixed_pairs(
                         group_resume,
-                        "aa_recovery_count",
-                        "aa_recovery_pairs",
-                        "aa_recovery_until_values")) {
-                    // loaded sparse recovery state
-                } else if (load_fixed_matrix_int(group_resume, "actin_recovery_until",
-                                                 static_cast<size_t>(actin.n),
-                                                 static_cast<size_t>(actin.n), ints)) {
+                        "aa_pairs_prev_count",
+                        "aa_pairs_prev",
+                        "aa_status_prev",
+                        "aa_lifetime_prev",
+                        actin_actin_bonds_prev,
+                        actin_actin_status_prev,
+                        actin_actin_lifetime_prev);
+                    restore_aa_state_from_fixed_pairs(
+                        group_resume,
+                        "aa_pairs_current_count",
+                        "aa_pairs_current",
+                        "aa_status_current",
+                        "aa_lifetime_current",
+                        actin_actin_bonds,
+                        actin_actin_status,
+                        actin_actin_lifetime);
                     for (int i = 0; i < actin.n; ++i) {
-                        for (int j = 0; j < actin.n; ++j) {
-                            actin_recovery_until[i][j] =
-                                static_cast<size_t>(ints[static_cast<size_t>(i) * actin.n + j]);
-                        }
+                        std::fill(aa_attach_step[i].begin(), aa_attach_step[i].end(), -1);
                     }
-                }
-
-                if (rng != nullptr &&
-                    load_fixed_vector_int(group_resume, "rng_main_state", gsl_rng_size(rng), ints)) {
-                    auto* state_ptr = static_cast<unsigned char*>(gsl_rng_state(rng));
-                    for (size_t idx = 0; idx < ints.size(); ++idx) {
-                        state_ptr[idx] = static_cast<unsigned char>(std::clamp(ints[idx], 0, 255));
-                    }
-                }
-                if (!rng_engines.empty() && rng_engines[0] != nullptr &&
-                    load_fixed_vector_int(group_resume, "rng_thread_state_size", 1, ints)) {
-                    const int file_state_size = ints[0];
-                    if (load_fixed_vector_int(group_resume, "rng_thread_count", 1, ints)) {
-                        const int file_thread_count = ints[0];
-                        const size_t flat_width =
-                            static_cast<size_t>(std::max(0, file_thread_count)) *
-                            static_cast<size_t>(std::max(0, file_state_size));
-                        if (load_fixed_vector_int(group_resume, "rng_thread_state", flat_width, ints)) {
-                            const int restore_threads =
-                                std::min(static_cast<int>(rng_engines.size()), file_thread_count);
-                            for (int t = 0; t < restore_threads; ++t) {
-                                if (rng_engines[t] == nullptr) {
+                    {
+                        std::vector<int> counts_attach;
+                        std::vector<int> pairs_attach;
+                        std::vector<int> attach_values;
+                        const size_t max_aa_pairs = static_cast<size_t>(actin.n) *
+                                                    static_cast<size_t>(std::max(10, 2 * max_myosin_bonds));
+                        if (load_fixed_vector_int(group_resume, "aa_pairs_current_count", 1, counts_attach) &&
+                            load_fixed_matrix_int(group_resume, "aa_pairs_current", max_aa_pairs, 2, pairs_attach) &&
+                            load_fixed_matrix_int(group_resume, "aa_attach_step_current", max_aa_pairs, 1, attach_values)) {
+                            const size_t count = static_cast<size_t>(std::max(0, counts_attach[0]));
+                            for (size_t idx = 0; idx < count; ++idx) {
+                                const int a = pairs_attach[2 * idx];
+                                const int b = pairs_attach[2 * idx + 1];
+                                if (a < 0 || a >= actin.n || b < 0 || b >= actin.n || a == b) {
                                     continue;
                                 }
-                                auto* local_ptr =
-                                    static_cast<unsigned char*>(gsl_rng_state(rng_engines[t]));
-                                const size_t local_size = gsl_rng_size(rng_engines[t]);
-                                const size_t copy_size =
-                                    std::min(local_size, static_cast<size_t>(std::max(0, file_state_size)));
-                                const size_t base =
-                                    static_cast<size_t>(t) * static_cast<size_t>(std::max(0, file_state_size));
-                                for (size_t idx = 0; idx < copy_size; ++idx) {
-                                    local_ptr[idx] =
-                                        static_cast<unsigned char>(std::clamp(ints[base + idx], 0, 255));
-                                }
+                                aa_attach_step[a][b] = attach_values[idx];
+                                aa_attach_step[b][a] = attach_values[idx];
                             }
-                            const int local_thread_count = static_cast<int>(rng_engines.size());
-                            if (local_thread_count > file_thread_count) {
-                                for (int t = file_thread_count; t < local_thread_count; ++t) {
+                        }
+                    }
+
+                    restore_am_state_from_fixed_pairs(
+                        group_resume, "am_pairs_prev_count", "am_pairs_prev", am_bonds_prev);
+                    restore_am_state_from_fixed_pairs(
+                        group_resume, "am_pairs_current_count", "am_pairs_current", am_bonds);
+
+                    if (restore_recovery_state_from_fixed_pairs(
+                            group_resume,
+                            "aa_recovery_count",
+                            "aa_recovery_pairs",
+                            "aa_recovery_until_values")) {
+                        // loaded sparse recovery state
+                    } else if (load_fixed_matrix_int(group_resume, "actin_recovery_until",
+                                                     static_cast<size_t>(actin.n),
+                                                     static_cast<size_t>(actin.n), ints)) {
+                        for (int i = 0; i < actin.n; ++i) {
+                            for (int j = 0; j < actin.n; ++j) {
+                                actin_recovery_until[i][j] =
+                                    static_cast<size_t>(ints[static_cast<size_t>(i) * actin.n + j]);
+                            }
+                        }
+                    }
+
+                    if (rng != nullptr &&
+                        load_fixed_vector_int(group_resume, "rng_main_state", gsl_rng_size(rng), ints)) {
+                        auto* state_ptr = static_cast<unsigned char*>(gsl_rng_state(rng));
+                        for (size_t idx = 0; idx < ints.size(); ++idx) {
+                            state_ptr[idx] = static_cast<unsigned char>(std::clamp(ints[idx], 0, 255));
+                        }
+                    }
+                    if (!rng_engines.empty() && rng_engines[0] != nullptr &&
+                        load_fixed_vector_int(group_resume, "rng_thread_state_size", 1, ints)) {
+                        const int file_state_size = ints[0];
+                        if (load_fixed_vector_int(group_resume, "rng_thread_count", 1, ints)) {
+                            const int file_thread_count = ints[0];
+                            const size_t flat_width =
+                                static_cast<size_t>(std::max(0, file_thread_count)) *
+                                static_cast<size_t>(std::max(0, file_state_size));
+                            if (load_fixed_vector_int(group_resume, "rng_thread_state", flat_width, ints)) {
+                                const int restore_threads =
+                                    std::min(static_cast<int>(rng_engines.size()), file_thread_count);
+                                for (int t = 0; t < restore_threads; ++t) {
                                     if (rng_engines[t] == nullptr) {
                                         continue;
                                     }
-                                    gsl_rng_set(
-                                        rng_engines[t],
-                                        static_cast<unsigned long>(initial_seed) +
-                                            static_cast<unsigned long>(t) +
-                                            static_cast<unsigned long>(current_step));
+                                    auto* local_ptr =
+                                        static_cast<unsigned char*>(gsl_rng_state(rng_engines[t]));
+                                    const size_t local_size = gsl_rng_size(rng_engines[t]);
+                                    const size_t copy_size =
+                                        std::min(local_size, static_cast<size_t>(std::max(0, file_state_size)));
+                                    const size_t base =
+                                        static_cast<size_t>(t) * static_cast<size_t>(std::max(0, file_state_size));
+                                    for (size_t idx = 0; idx < copy_size; ++idx) {
+                                        local_ptr[idx] =
+                                            static_cast<unsigned char>(std::clamp(ints[base + idx], 0, 255));
+                                    }
+                                }
+                                const int local_thread_count = static_cast<int>(rng_engines.size());
+                                if (local_thread_count > file_thread_count) {
+                                    for (int t = file_thread_count; t < local_thread_count; ++t) {
+                                        if (rng_engines[t] == nullptr) {
+                                            continue;
+                                        }
+                                        gsl_rng_set(
+                                            rng_engines[t],
+                                            static_cast<unsigned long>(initial_seed) +
+                                                static_cast<unsigned long>(t) +
+                                                static_cast<unsigned long>(current_step));
+                                    }
                                 }
                             }
                         }
                     }
-                }
+                    
+                    if (load_fixed_vector_double(group_resume, "neighbor_last_actin_x", static_cast<size_t>(actin.n), neighbor_last_actin_x) &&
+                        load_fixed_vector_double(group_resume, "neighbor_last_actin_y", static_cast<size_t>(actin.n), neighbor_last_actin_y) &&
+                        load_fixed_vector_double(group_resume, "neighbor_last_actin_z", static_cast<size_t>(actin.n), neighbor_last_actin_z) &&
+                        load_fixed_vector_double(group_resume, "neighbor_last_myosin_x", static_cast<size_t>(myosin.n), neighbor_last_myosin_x) &&
+                        load_fixed_vector_double(group_resume, "neighbor_last_myosin_y", static_cast<size_t>(myosin.n), neighbor_last_myosin_y) &&
+                        load_fixed_vector_double(group_resume, "neighbor_last_myosin_z", static_cast<size_t>(myosin.n), neighbor_last_myosin_z)) {
+                        neighbor_list.set_species_positions(neighbor_last_actin_x, neighbor_last_actin_y, neighbor_last_actin_z,
+                                                            neighbor_last_myosin_x, neighbor_last_myosin_y, neighbor_last_myosin_z);
+                        neighbor_list.rebuild_neighbor_list();
+                        neighbor_list.set_species_positions(actin.center_x, actin.center_y, actin.center_z,
+                                                            myosin.center_x, myosin.center_y, myosin.center_z);
+                        restored_neighbor_cache = true;
+                    } else {
+                        restored_neighbor_cache = false;
+                    }
 
-                if (load_fixed_vector_double(group_resume, "neighbor_last_actin_x", static_cast<size_t>(actin.n), neighbor_last_actin_x) &&
-                    load_fixed_vector_double(group_resume, "neighbor_last_actin_y", static_cast<size_t>(actin.n), neighbor_last_actin_y) &&
-                    load_fixed_vector_double(group_resume, "neighbor_last_actin_z", static_cast<size_t>(actin.n), neighbor_last_actin_z) &&
-                    load_fixed_vector_double(group_resume, "neighbor_last_myosin_x", static_cast<size_t>(myosin.n), neighbor_last_myosin_x) &&
-                    load_fixed_vector_double(group_resume, "neighbor_last_myosin_y", static_cast<size_t>(myosin.n), neighbor_last_myosin_y) &&
-                    load_fixed_vector_double(group_resume, "neighbor_last_myosin_z", static_cast<size_t>(myosin.n), neighbor_last_myosin_z)) {
-                    neighbor_list.set_species_positions(neighbor_last_actin_x, neighbor_last_actin_y, neighbor_last_actin_z,
-                                                        neighbor_last_myosin_x, neighbor_last_myosin_y, neighbor_last_myosin_z);
-                    neighbor_list.rebuild_neighbor_list();
-                    neighbor_list.set_species_positions(actin.center_x, actin.center_y, actin.center_z,
-                                                        myosin.center_x, myosin.center_y, myosin.center_z);
-                    restored_neighbor_cache = true;
-                } else {
-                    restored_neighbor_cache = false;
+                    if (!load_any_vector_double(group_resume, "cb_breakage_pending", cb_breakage_events)) {
+                        cb_breakage_events.clear();
+                    }
+                    if (!load_any_vector_double(group_resume, "cb_limit_pending", cb_limit_events)) {
+                        cb_limit_events.clear();
+                    }
+                    if (!load_any_vector_double(group_resume, "aa_completed_lifetimes_pending",
+                                                aa_completed_lifetimes)) {
+                        aa_completed_lifetimes.clear();
+                    }
+                    loaded_resume_snapshot = true;
+                } catch (H5::Exception&) {
+                    loaded_resume_snapshot = loaded_state_group;
+                    printf("Warning: Could not load /resume snapshot from %s. Using /state as substitute.\n",
+                           filename.c_str());
                 }
-
-                if (!load_any_vector_double(group_resume, "cb_breakage_pending", cb_breakage_events)) {
-                    cb_breakage_events.clear();
-                }
-                if (!load_any_vector_double(group_resume, "cb_limit_pending", cb_limit_events)) {
-                    cb_limit_events.clear();
-                }
-                if (!load_any_vector_double(group_resume, "aa_completed_lifetimes_pending",
-                                            aa_completed_lifetimes)) {
-                    aa_completed_lifetimes.clear();
-                }
-                loaded_resume_snapshot = true;
-            } catch (H5::Exception&) {
-                loaded_resume_snapshot = false;
+            } else {
+                loaded_resume_snapshot = loaded_state_group;
+                printf("Warning: /resume snapshot missing in %s. Using /state as substitute.\n",
+                       filename.c_str());
             }
         }
 
