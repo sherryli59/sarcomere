@@ -2,8 +2,95 @@
 #include <stdexcept>
 #include <cmath>
 #include <algorithm>
+#include <chrono>
+#include <cstdlib>
+#include <numeric>
+#include <thread>
 #include "omp.h"
 #include "geometry.h"
+
+namespace {
+
+int read_scalar_int_dataset(H5::H5File& file, const std::string& full_path, int default_value) {
+    if (!file.nameExists(full_path)) {
+        return default_value;
+    }
+    const auto slash = full_path.find_last_of('/');
+    const std::string group_name = (slash == 0) ? "/" : full_path.substr(0, slash);
+    const std::string dataset_name = full_path.substr(slash + 1);
+    H5::Group group = (group_name == "/") ? file.openGroup("/") : file.openGroup(group_name);
+    H5::DataSet dataset = group.openDataSet(dataset_name);
+    H5::DataSpace dataspace = dataset.getSpace();
+    const int rank = dataspace.getSimpleExtentNdims();
+    std::vector<hsize_t> dims(std::max(rank, 1), 1);
+    if (rank > 0) {
+        dataspace.getSimpleExtentDims(dims.data(), nullptr);
+    }
+    const size_t total = (rank == 0) ? 1 : std::accumulate(dims.begin(), dims.end(), static_cast<size_t>(1), std::multiplies<size_t>());
+    if (total == 0) {
+        return default_value;
+    }
+    std::vector<int> values(total, default_value);
+    dataset.read(values.data(), H5::PredType::STD_I32LE);
+    return values.front();
+}
+
+void write_scalar_int_dataset(H5::H5File& file, const std::string& full_path, int value) {
+    const auto slash = full_path.find_last_of('/');
+    const std::string group_name = (slash == 0) ? "/" : full_path.substr(0, slash);
+    const std::string dataset_name = full_path.substr(slash + 1);
+    H5::Group group;
+    if (group_name == "/") {
+        group = file.openGroup("/");
+    } else if (file.nameExists(group_name)) {
+        group = file.openGroup(group_name);
+    } else {
+        group = file.createGroup(group_name);
+    }
+    if (!group.nameExists(dataset_name)) {
+        const hsize_t dims[1] = {1};
+        H5::DataSpace dataspace(1, dims);
+        H5::IntType datatype(H5::PredType::STD_I32LE);
+        group.createDataSet(dataset_name, datatype, dataspace);
+    }
+    H5::DataSet dataset = group.openDataSet(dataset_name);
+    dataset.write(&value, H5::PredType::STD_I32LE);
+}
+
+void maybe_test_sleep(const char* env_name, const char* label) {
+    const char* raw = std::getenv(env_name);
+    if (raw == nullptr || raw[0] == '\0') {
+        return;
+    }
+    const int sleep_seconds = std::max(0, std::atoi(raw));
+    if (sleep_seconds <= 0) {
+        return;
+    }
+    std::printf("[TEST_HOOK] %s sleeping for %d seconds before commit\n", label, sleep_seconds);
+    std::fflush(stdout);
+    std::this_thread::sleep_for(std::chrono::seconds(sleep_seconds));
+}
+
+void truncate_dataset_first_dim(H5::Group& group, const std::string& dataset_name, hsize_t keep_frames) {
+    if (!group.nameExists(dataset_name)) {
+        return;
+    }
+    H5::DataSet dataset = group.openDataSet(dataset_name);
+    H5::DataSpace filespace = dataset.getSpace();
+    const int rank = filespace.getSimpleExtentNdims();
+    if (rank <= 0) {
+        return;
+    }
+    std::vector<hsize_t> dims(rank, 0);
+    filespace.getSimpleExtentDims(dims.data(), nullptr);
+    if (dims.empty() || dims[0] <= keep_frames) {
+        return;
+    }
+    dims[0] = keep_frames;
+    dataset.extend(dims.data());
+}
+
+}  // namespace
 
 //---------------------------------------------------------------------
 // Function Definitions
@@ -170,17 +257,21 @@ void append_to_dataset(H5::Group& group, const std::string& datasetName,
     catch (H5::FileIException& error) {
         error.printErrorStack();
         std::cerr << "Error appending data to dataset in group: " << datasetName << std::endl;
+        throw;
     }
     catch (H5::DataSetIException& error) {
         error.printErrorStack();
         std::cerr << "Error appending data to dataset in group: " << datasetName << std::endl;
+        throw;
     }
     catch (H5::DataSpaceIException& error) {
         error.printErrorStack();
         std::cerr << "Error appending data to dataset in group: " << datasetName << std::endl;
+        throw;
     }
     catch (std::runtime_error& error) {
         std::cerr << "Runtime error: " << error.what() << std::endl;
+        throw;
     }
 }
 
@@ -224,6 +315,7 @@ void append_to_dataset_int(H5::Group& group, const std::string& datasetName,
     catch (H5::Exception& error) {
         error.printErrorStack();
         std::cerr << "Error appending int dataset: " << datasetName << std::endl;
+        throw;
     }
 }
 
@@ -341,6 +433,10 @@ void create_file(std::string& filename, Filament& actin, Myosin& myosin,
     maxDims     = {H5S_UNLIMITED, 1};
     chunkDims   = {10, 1};
     create_empty_dataset_int(file, "/state", "current_step", initialDims, maxDims, chunkDims);
+    create_empty_dataset_int(file, "/state", "state_commit_count", initialDims, maxDims, chunkDims);
+
+    const int zero = 0;
+    write_scalar_int_dataset(file, "/meta/committed_frames", zero);
 }
 
 
@@ -355,6 +451,7 @@ void append_to_file(std::string& filename, Filament& actin, Myosin& myosin,
     H5::Group group_actin(file.openGroup("/actin"));
     H5::Group group_myosin(file.openGroup("/myosin"));
     H5::Group group_am(file.openGroup("/actin_myo"));
+    const int committed_frames_before = read_scalar_int_dataset(file, "/meta/committed_frames", 0);
 
     hsize_t n_actins  = static_cast<hsize_t>(actin.n);
     hsize_t n_myosins = static_cast<hsize_t>(myosin.n);
@@ -511,6 +608,11 @@ void append_to_file(std::string& filename, Filament& actin, Myosin& myosin,
     append_to_dataset(group_myosin, "bonds", flatMyosinBonds, { newMyosinDims[0], newMyosinDims[1], newMyosinDims[2] });
     append_to_dataset(group_am, "bonds", flatActinMyosinBonds, { newAmDims[0], newAmDims[1], newAmDims[2] });
     append_to_dataset(group_am, "distance", actin_myo_distances, {1, static_cast<hsize_t>(max_n_am_bonds), 1});
+
+    file.flush(H5F_SCOPE_GLOBAL);
+    maybe_test_sleep("SARCOMERE_TEST_SLEEP_BEFORE_FRAME_COMMIT", "frame_commit");
+    write_scalar_int_dataset(file, "/meta/committed_frames", committed_frames_before + 1);
+    file.flush(H5F_SCOPE_GLOBAL);
     // int max_bonds = 10;
     // // Serialize actinIndicesPerActin.
     // auto serialized_indices = serializeActinIndicesPerActin(actinIndicesPerActin, actin.n, max_bonds);
@@ -555,7 +657,7 @@ std::vector<double> load_from_dataset(H5::Group& group, const std::string& datas
 int load_from_file(std::string& filename, Filament& actin, Myosin& myosin,
                     std::vector<std::vector<int>>& actin_actin_bonds, int& n_frames, int frame_index)
 {
-    H5::H5File file(filename, H5F_ACC_RDONLY);
+    H5::H5File file(filename, H5F_ACC_RDWR);
     H5::Group group_actin(file.openGroup("/actin"));
     H5::Group group_myosin(file.openGroup("/myosin"));
 
@@ -565,12 +667,50 @@ int load_from_file(std::string& filename, Filament& actin, Myosin& myosin,
     std::vector<hsize_t> dims;
     std::vector<double> actin_center_all = load_from_dataset(group_actin, "center", dims);
     n_frames = static_cast<int>(dims[0]);
-    if (n_frames <= 0) {
+    int committed_frames = n_frames;
+    try {
+        committed_frames = read_scalar_int_dataset(file, "/meta/committed_frames", n_frames);
+    } catch (const H5::Exception&) {
+        committed_frames = n_frames;
+    }
+    committed_frames = std::max(0, std::min(committed_frames, n_frames));
+    if (committed_frames <= 0) {
         throw std::runtime_error("No frames available in actin center dataset for resume.");
     }
+    if (committed_frames < n_frames) {
+        const std::vector<std::string> actin_datasets = {
+            "center", "velocity", "force", "torque", "direction", "cb_status", "f_load", "bonds", "bond_pair_load", "cb_distance"
+        };
+        const std::vector<std::string> myosin_datasets = {
+            "center", "velocity", "force", "torque", "direction", "bonds"
+        };
+        const std::vector<std::string> am_datasets = {
+            "bonds", "distance"
+        };
+        for (const auto& name : actin_datasets) {
+            truncate_dataset_first_dim(group_actin, name, static_cast<hsize_t>(committed_frames));
+        }
+        for (const auto& feature : actin.custom_features) {
+            truncate_dataset_first_dim(group_actin, feature.first, static_cast<hsize_t>(committed_frames));
+        }
+        for (const auto& name : myosin_datasets) {
+            truncate_dataset_first_dim(group_myosin, name, static_cast<hsize_t>(committed_frames));
+        }
+        for (const auto& feature : myosin.custom_features) {
+            truncate_dataset_first_dim(group_myosin, feature.first, static_cast<hsize_t>(committed_frames));
+        }
+        if (file.nameExists("/actin_myo")) {
+            H5::Group group_am(file.openGroup("/actin_myo"));
+            for (const auto& name : am_datasets) {
+                truncate_dataset_first_dim(group_am, name, static_cast<hsize_t>(committed_frames));
+            }
+        }
+        file.flush(H5F_SCOPE_GLOBAL);
+        n_frames = committed_frames;
+    }
     int target_frame = frame_index;
-    if (target_frame < 0 || target_frame >= n_frames) {
-        target_frame = n_frames - 1;
+    if (target_frame < 0 || target_frame >= committed_frames) {
+        target_frame = committed_frames - 1;
     }
 
     size_t actin_frame_stride = static_cast<size_t>(n_actins) * 3;

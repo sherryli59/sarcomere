@@ -49,7 +49,8 @@ public:
     vector box;
     double k_aa, kappa_aa, k_on, k_off,
            kappa_am, k_am, v_am, myosin_radius_ratio,
-           skin_distance, cutoff_radius, dt, base_lifetime, lifetime_coeff, diff_coeff_ratio;
+           skin_distance, cutoff_radius, dt, base_lifetime, directional_base_lifetime,
+           lifetime_coeff, diff_coeff_ratio;
     double am_cutoff, am_optimal;
     double aa_cutoff, aa_optimal;
     double k_mm = 0.0;
@@ -109,7 +110,8 @@ public:
     Sarcomere(int& n_actins, int& n_myosins, vector box0, double& actin_length, double& myosin_length,
         double& myosin_radius, double& myosin_radius_ratio, double& aa_cutoff, double& aa_optimal,
         double& k_on,
-        double& base_lifetime, double& lifetime_coeff, double& diff_coeff_ratio, double& k_aa, double& kappa_aa,
+        double& base_lifetime, double& directional_base_lifetime, double& lifetime_coeff,
+        double& diff_coeff_ratio, double& k_aa, double& kappa_aa,
         double& k_am, double& kappa_am, double& k_mm, double& v_am, std::string& filename, gsl_rng* rng, int& seed,
         int& fix_myosin, double& dt, bool& directional, std::string& boundary_condition,
         int max_myosin_bonds, int max_strong_actin_bonds, double max_actin_force_param,
@@ -117,7 +119,8 @@ public:
     Sarcomere(int& n_actins, int& n_myosins, vector box0, double& actin_length, double& myosin_length,
         double& myosin_radius, double& am_cutoff, double& am_optimal, double& aa_cutoff, double& aa_optimal,
          double& k_on, double& k_off,
-        double& base_lifetime, double& lifetime_coeff, double& diff_coeff_ratio, double& k_aa, double& kappa_aa, double& k_am, double& kappa_am, double& k_mm, double& v_am,
+        double& base_lifetime, double& directional_base_lifetime, double& lifetime_coeff,
+        double& diff_coeff_ratio, double& k_aa, double& kappa_aa, double& k_am, double& kappa_am, double& k_mm, double& v_am,
         std::string& filename, gsl_rng* rng, int& seed, int& fix_myosin, double& dt, double tau_rec,
         double titin_k, double titin_rest_length, bool& directional, int max_myosin_bonds,
         double max_actin_force_param, double max_myosin_force_param,

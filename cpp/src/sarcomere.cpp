@@ -1,14 +1,73 @@
 #include "sarcomere.h"
 #include <algorithm>
+#include <chrono>
 #include <cmath>
+#include <cstdlib>
 #include <cstdint>
 #include <cstring>
 #include <limits>
 #include <stdexcept>
+#include <thread>
 #include <tuple>
 #include <gsl/gsl_randist.h>
 
 namespace {
+
+void delete_link_if_exists(H5::H5File& file, const std::string& full_path) {
+    if (file.nameExists(full_path)) {
+        H5Ldelete(file.getId(), full_path.c_str(), H5P_DEFAULT);
+    }
+}
+
+void move_link(H5::H5File& file, const std::string& src_path, const std::string& dst_path) {
+    H5Lmove(file.getId(), src_path.c_str(), file.getId(), dst_path.c_str(), H5P_DEFAULT, H5P_DEFAULT);
+}
+
+void promote_temp_group(H5::H5File& file,
+                        const std::string& final_path,
+                        const std::string& temp_path,
+                        const std::string& backup_path) {
+    delete_link_if_exists(file, backup_path);
+    if (file.nameExists(final_path)) {
+        move_link(file, final_path, backup_path);
+    }
+    move_link(file, temp_path, final_path);
+    delete_link_if_exists(file, backup_path);
+    file.flush(H5F_SCOPE_GLOBAL);
+}
+
+void maybe_test_sleep(const char* env_name, const char* label) {
+    const char* raw = std::getenv(env_name);
+    if (raw == nullptr || raw[0] == '\0') {
+        return;
+    }
+    const int sleep_seconds = std::max(0, std::atoi(raw));
+    if (sleep_seconds <= 0) {
+        return;
+    }
+    printf("[TEST_HOOK] %s sleeping for %d seconds before commit\n", label, sleep_seconds);
+    fflush(stdout);
+    std::this_thread::sleep_for(std::chrono::seconds(sleep_seconds));
+}
+
+void truncate_dataset_first_dim(H5::Group& group, const std::string& dataset_name, hsize_t keep_frames) {
+    if (!group.nameExists(dataset_name)) {
+        return;
+    }
+    H5::DataSet dataset = group.openDataSet(dataset_name);
+    H5::DataSpace filespace = dataset.getSpace();
+    const int rank = filespace.getSimpleExtentNdims();
+    if (rank <= 0) {
+        return;
+    }
+    std::vector<hsize_t> dims(rank, 0);
+    filespace.getSimpleExtentDims(dims.data(), nullptr);
+    if (dims.empty() || dims[0] <= keep_frames) {
+        return;
+    }
+    dims[0] = keep_frames;
+    dataset.extend(dims.data());
+}
 
 struct PackedAABondState {
     std::vector<int> pairs;
@@ -90,7 +149,8 @@ void pad_int_vector(std::vector<int>& values, size_t target_size, int pad_value)
 Sarcomere::Sarcomere(int& n_actins, int& n_myosins, vector box0, double& actin_length, double& myosin_length,
         double& myosin_radius, double& am_cutoff, double& am_optimal, double& aa_cutoff, double& aa_optimal,
         double& k_on, double& k_off,
-        double& base_lifetime, double& lifetime_coeff, double& diff_coeff_ratio, double& k_aa, double& kappa_aa, double& k_am, double& kappa_am, double& k_mm, double& v_am,
+        double& base_lifetime, double& directional_base_lifetime, double& lifetime_coeff,
+        double& diff_coeff_ratio, double& k_aa, double& kappa_aa, double& k_am, double& kappa_am, double& k_mm, double& v_am,
         std::string& filename, gsl_rng* rng, int& seed, int& fix_myosin, double& dt, double tau_rec,
         double titin_k, double titin_rest_length, bool& directional, int max_myosin_bonds,
         double max_actin_force_param, double max_myosin_force_param,
@@ -161,6 +221,7 @@ Sarcomere::Sarcomere(int& n_actins, int& n_myosins, vector box0, double& actin_l
             this->aa_cutoff = aa_cutoff;
             this->aa_optimal = aa_optimal;
             this->base_lifetime = base_lifetime;
+            this->directional_base_lifetime = directional_base_lifetime;
             this->lifetime_coeff = lifetime_coeff;
             this->diff_coeff_ratio = diff_coeff_ratio;
             this->titin_k = titin_k;
@@ -253,7 +314,7 @@ void Sarcomere::update_system() {
         }
 
         #pragma omp barrier  
-        if (base_lifetime > 0 || lifetime_coeff > 0) {
+        if (base_lifetime > 0 || directional_base_lifetime > 0 || lifetime_coeff > 0) {
         // Step 4: Compute catch bonds
         #pragma omp for schedule(runtime)
         for (int i = 0; i < actin.n; i++) {
@@ -1237,12 +1298,16 @@ bool Sarcomere::_cb_decide(int& i, int& j, int status){
     double f_load_j = actin_f_load_cb ? (*actin_f_load_cb)[j] : actin.f_load[j];
     double f_load = abs_cos_angle * std::min(f_load_i, f_load_j);
     if (actin_actin_bonds_prev[i][j] == 1) {
-        double k_off_adjusted = dt /(base_lifetime + lifetime_coeff * f_load);
+        double active_base_lifetime = base_lifetime;
+        if (status == 2) {
+            active_base_lifetime += directional_base_lifetime;
+        }
+        double k_off_adjusted = dt / (active_base_lifetime + lifetime_coeff * f_load);
         if (rand < k_off_adjusted){
             if (f_load>0) {
             printf("k_off_adjusted: %f, rand: %f, f_load: %f, abs_cos_angle: %f, lifetime: %f\n",
                    k_off_adjusted, rand, f_load, abs_cos_angle,
-                   base_lifetime + lifetime_coeff * f_load);
+                   active_base_lifetime + lifetime_coeff * f_load);
             printf("actual lifetime: %f\n", (current_step - aa_attach_step[i][j]) * dt);
                 }
             // If this pair had an attach timestamp, record completed lifetime
@@ -1646,6 +1711,7 @@ void Sarcomere::save_state(){
         };
 
         ensure_state_dataset_int("current_step", 1);
+        ensure_state_dataset_int("state_commit_count", 1);
         ensure_state_dataset_int("aa_pairs_prev_count", 1);
         ensure_state_dataset_int("aa_pairs_current_count", 1);
         ensure_state_dataset_int("am_pairs_prev_count", 1);
@@ -1803,6 +1869,9 @@ void Sarcomere::save_state(){
                                       {static_cast<int>(thread_state_size)}, {1, 1});
             }
         }
+        maybe_test_sleep("SARCOMERE_TEST_SLEEP_BEFORE_STATE_COMMIT", "state_commit");
+        append_to_dataset_int(group_state, "state_commit_count", {1}, {1, 1});
+        file.flush(H5F_SCOPE_GLOBAL);
     }
 
     // Flush any recorded catch-bond events to the HDF5 file
@@ -1836,12 +1905,11 @@ void Sarcomere::save_state(){
 
 void Sarcomere::save_resume_snapshot() {
     H5::H5File file(filename, H5F_ACC_RDWR);
-    H5::Group group_resume;
-    if (file.nameExists("/resume")) {
-        group_resume = file.openGroup("/resume");
-    } else {
-        group_resume = file.createGroup("/resume");
-    }
+    const std::string final_resume_path = "/resume";
+    const std::string temp_resume_path = "/resume_new";
+    const std::string backup_resume_path = "/resume_prev";
+    delete_link_if_exists(file, temp_resume_path);
+    H5::Group group_resume = file.createGroup(temp_resume_path);
 
     const hsize_t n_actins = static_cast<hsize_t>(actin.n);
     const hsize_t n_myosins = static_cast<hsize_t>(myosin.n);
@@ -1854,7 +1922,7 @@ void Sarcomere::save_resume_snapshot() {
     auto replace_dataset_int = [&](const std::string& name,
                                    const std::vector<hsize_t>& dims,
                                    const std::vector<int>& data) {
-        const std::string full_path = "/resume/" + name;
+        const std::string full_path = temp_resume_path + "/" + name;
         if (file.nameExists(full_path)) {
             H5Ldelete(file.getId(), full_path.c_str(), H5P_DEFAULT);
         }
@@ -1867,7 +1935,7 @@ void Sarcomere::save_resume_snapshot() {
     auto replace_dataset_double = [&](const std::string& name,
                                       const std::vector<hsize_t>& dims,
                                       const std::vector<double>& data) {
-        const std::string full_path = "/resume/" + name;
+        const std::string full_path = temp_resume_path + "/" + name;
         if (file.nameExists(full_path)) {
             H5Ldelete(file.getId(), full_path.c_str(), H5P_DEFAULT);
         }
@@ -1940,8 +2008,8 @@ void Sarcomere::save_resume_snapshot() {
     replace_dataset_int("aa_recovery_count", {1}, {static_cast<int>(aa_recovery.until.size())});
     replace_dataset_int("aa_recovery_pairs", {max_recovery_pairs, 2}, aa_recovery_pairs);
     replace_dataset_int("aa_recovery_until_values", {max_recovery_pairs, 1}, aa_recovery_until_values);
-    if (file.nameExists("/resume/actin_recovery_until")) {
-        H5Ldelete(file.getId(), "/resume/actin_recovery_until", H5P_DEFAULT);
+    if (file.nameExists(temp_resume_path + "/actin_recovery_until")) {
+        H5Ldelete(file.getId(), (temp_resume_path + "/actin_recovery_until").c_str(), H5P_DEFAULT);
     }
 
     std::vector<double> neighbor_last_actin_x;
@@ -1999,6 +2067,9 @@ void Sarcomere::save_resume_snapshot() {
         replace_dataset_int("rng_thread_count", {1}, {thread_count});
         replace_dataset_int("rng_thread_state_size", {1}, {static_cast<int>(thread_state_size)});
     }
+    file.flush(H5F_SCOPE_GLOBAL);
+    maybe_test_sleep("SARCOMERE_TEST_SLEEP_BEFORE_RESUME_PROMOTE", "resume_promote");
+    promote_temp_group(file, final_resume_path, temp_resume_path, backup_resume_path);
 }
 
 int Sarcomere::load_state(int& n_frames, int frame_index){
@@ -2405,7 +2476,7 @@ int Sarcomere::load_state(int& n_frames, int frame_index){
     bool restored_neighbor_cache = false;
     bool loaded_resume_snapshot = false;
     try {
-        H5::H5File file(filename, H5F_ACC_RDONLY);
+        H5::H5File file(filename, H5F_ACC_RDWR);
         H5::Group group_state(file.openGroup("/state"));
         loaded_state_group = true;
 
@@ -2413,13 +2484,51 @@ int Sarcomere::load_state(int& n_frames, int frame_index){
         std::vector<hsize_t> dims;
 
         // Detect interrupted /state appends and rewind to the last complete checkpoint.
-        // rng_thread_state_size is written last in save_state(), so its frame count marks
+        // state_commit_count is appended last in save_state(), so its frame count marks
         // the number of fully committed state snapshots.
-        if (group_state.nameExists("rng_thread_state_size")) {
-            std::vector<double> dummy = load_from_dataset(group_state, "rng_thread_state_size", dims);
+        const std::string state_commit_dataset =
+            group_state.nameExists("state_commit_count") ? "state_commit_count" : "rng_thread_state_size";
+        if (group_state.nameExists(state_commit_dataset)) {
+            std::vector<double> dummy = load_from_dataset(group_state, state_commit_dataset, dims);
             (void)dummy;
             if (dims.size() >= 2) {
                 const int safe_frames = static_cast<int>(dims[0]);
+                const std::vector<std::string> state_datasets = {
+                    "current_step",
+                    "state_commit_count",
+                    "aa_pairs_prev_count",
+                    "aa_pairs_current_count",
+                    "am_pairs_prev_count",
+                    "am_pairs_current_count",
+                    "aa_pairs_prev",
+                    "aa_status_prev",
+                    "aa_lifetime_prev",
+                    "aa_pairs_current",
+                    "aa_status_current",
+                    "aa_lifetime_current",
+                    "aa_attach_step_current",
+                    "am_pairs_prev",
+                    "am_pairs_current",
+                    "aa_recovery_count",
+                    "aa_recovery_pairs",
+                    "aa_recovery_until_values",
+                    "neighbor_last_actin_x",
+                    "neighbor_last_actin_y",
+                    "neighbor_last_actin_z",
+                    "neighbor_last_myosin_x",
+                    "neighbor_last_myosin_y",
+                    "neighbor_last_myosin_z",
+                    "rng_main_state",
+                    "rng_thread_state",
+                    "rng_thread_count",
+                    "rng_thread_state_size"
+                };
+                if (safe_frames >= 0 && dims[0] > static_cast<hsize_t>(safe_frames)) {
+                    for (const auto& name : state_datasets) {
+                        truncate_dataset_first_dim(group_state, name, static_cast<hsize_t>(safe_frames));
+                    }
+                    file.flush(H5F_SCOPE_GLOBAL);
+                }
                 if (target_frame >= safe_frames) {
                     printf("Warning: Interrupted save detected. Trajectory has %d frames but /state has %d. Rolling back.\n",
                            target_frame + 1, safe_frames);
@@ -2706,11 +2815,19 @@ int Sarcomere::load_state(int& n_frames, int frame_index){
         }
 
         if (frame_index < 0) {
-            if (file.nameExists("/resume")) {
+            const std::string resume_group_path =
+                file.nameExists("/resume") ? "/resume" :
+                (file.nameExists("/resume_prev") ? "/resume_prev" : "");
+            if (!resume_group_path.empty()) {
                 try {
-                    H5::Group group_resume(file.openGroup("/resume"));
+                    if (resume_group_path == "/resume_prev") {
+                        printf("Warning: /resume missing in %s. Using /resume_prev backup.\n",
+                               filename.c_str());
+                    }
+                    H5::Group group_resume(file.openGroup(resume_group_path));
                     std::vector<int> ints;
                     std::vector<double> doubles;
+                    size_t resume_step_value = current_step;
 
                     if (load_fixed_vector_int(group_resume, "current_step", 1, ints)) {
                         const size_t resume_step = static_cast<size_t>(std::max(0, ints[0]));
@@ -2718,6 +2835,7 @@ int Sarcomere::load_state(int& n_frames, int frame_index){
                             throw H5::Exception("Sarcomere::load_state", "Stale resume snapshot");
                         }
                         current_step = resume_step;
+                        resume_step_value = resume_step;
                     }
                     if (load_fixed_matrix_double(group_resume, "actin_center", static_cast<size_t>(actin.n), 3, doubles)) {
                         for (int i = 0; i < actin.n; ++i) {
@@ -2892,15 +3010,18 @@ int Sarcomere::load_state(int& n_frames, int frame_index){
                                                 aa_completed_lifetimes)) {
                         aa_completed_lifetimes.clear();
                     }
+                    if (resume_step_value < current_step) {
+                        throw H5::Exception("Sarcomere::load_state", "Resume snapshot older than committed /state");
+                    }
                     loaded_resume_snapshot = true;
                 } catch (H5::Exception&) {
                     loaded_resume_snapshot = loaded_state_group;
-                    printf("Warning: Could not load /resume snapshot from %s. Using /state as substitute.\n",
-                           filename.c_str());
+                    printf("Warning: Could not load %s snapshot from %s. Reconstructing from committed /state.\n",
+                           resume_group_path.c_str(), filename.c_str());
                 }
             } else {
                 loaded_resume_snapshot = loaded_state_group;
-                printf("Warning: /resume snapshot missing in %s. Using /state as substitute.\n",
+                printf("Warning: /resume and /resume_prev missing in %s. Reconstructing from committed /state.\n",
                        filename.c_str());
             }
         }
@@ -2910,22 +3031,7 @@ int Sarcomere::load_state(int& n_frames, int frame_index){
     }
 
     if (!loaded_state_group) {
-        printf("Warning: Could not load /state group. Falling back to approximate resume state.\n");
-        current_step = 0;
-        for (int i = 0; i < actin.n; ++i) {
-            for (int j = 0; j < actin.n; ++j) {
-                actin_actin_bonds_prev[i][j] = actin_actin_bonds[i][j];
-                actin_actin_status_prev[i][j] = 0;
-                actin_actin_lifetime_prev[i][j] = 0;
-                actin_actin_status[i][j] = (actin_actin_bonds[i][j] == 1) ? 2 : 0;
-                actin_actin_lifetime[i][j] = 0;
-                actin_recovery_until[i][j] = 0;
-            }
-            for (int j = 0; j < myosin.n; ++j) {
-                am_bonds_prev[i][j] = 0;
-                am_bonds[i][j] = 0;
-            }
-        }
+        throw std::runtime_error("Could not load /state group for resume. Refusing approximate fallback.");
     }
 
     if (!restored_neighbor_cache) {

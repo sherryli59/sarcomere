@@ -30,6 +30,7 @@ int main(int argc, char* argv[]){
     double k_on;
     double k_off;
     double base_lifetime;
+    double directional_base_lifetime;
     double lifetime_coeff;
     double k_aa;
     double kappa_aa;
@@ -108,6 +109,7 @@ int main(int argc, char* argv[]){
             ("k_on", "k_on", cxxopts::value<double>(k_on)->default_value("1000"))
             ("k_off", "k_off", cxxopts::value<double>(k_off)->default_value("1"))
             ("base_lifetime", "Base lifetime", cxxopts::value<double>(base_lifetime)->default_value("0.001"))
+            ("directional_base_lifetime", "Constant base lifetime bonus for directional bonds", cxxopts::value<double>(directional_base_lifetime)->default_value("0.0"))
             ("lifetime_coeff", "Lifetime coefficient", cxxopts::value<double>(lifetime_coeff)->default_value("0.4"))
             ("k_aa", "k_aa", cxxopts::value<double>(k_aa)->default_value("10"))
             ("kappa_aa", "kappa_aa", cxxopts::value<double>(kappa_aa)->default_value("100"))
@@ -241,7 +243,7 @@ int main(int argc, char* argv[]){
     Sarcomere model(n_actins, n_myosins, box, actin_length, myosin_length,
                         myosin_radius, am_cutoff, am_optimal, aa_cutoff, aa_optimal,
                         k_on, k_off,
-                        base_lifetime, lifetime_coeff, diff_coeff_ratio,
+                        base_lifetime, directional_base_lifetime, lifetime_coeff, diff_coeff_ratio,
                           k_aa, kappa_aa, k_am, kappa_am, k_mm, v_am,
                         filename,rng, seed, n_fixed_myosins, dt, tau_rec,
                         titin_k, titin_rest_length,
