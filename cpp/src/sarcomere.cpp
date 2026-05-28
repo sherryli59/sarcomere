@@ -175,6 +175,10 @@ Sarcomere::Sarcomere(int& n_actins, int& n_myosins, vector box0, double& actin_l
                 myosin_f_load_temp(omp_get_max_threads(), std::vector<std::array<double, 2>>(n_myosins, {0.0, 0.0})),
                 cb_breakage_events_temp(omp_get_max_threads()),
                 aa_completed_lifetimes_temp(omp_get_max_threads()),
+                actin_chem_entropy_delta_temp(omp_get_max_threads(), std::vector<double>(n_actins, 0.0)),
+                actin_chem_input_delta_temp(omp_get_max_threads(), std::vector<double>(n_actins, 0.0)),
+                actin_chem_binding_delta_temp(omp_get_max_threads(), std::vector<double>(n_actins, 0.0)),
+                actin_chem_unbinding_delta_temp(omp_get_max_threads(), std::vector<double>(n_actins, 0.0)),
                 myosin_f_load(n_myosins, {0.0, 0.0}),
                 actinIndicesPerMyosin_temp(omp_get_max_threads(), utils::MoleculeConnection(n_myosins)),
                 rng_engines(omp_get_max_threads(), nullptr),
@@ -262,6 +266,10 @@ Sarcomere::Sarcomere(int& n_actins, int& n_myosins, vector box0, double& actin_l
             }
             actin.register_feature("f_load_cb");
             actin_f_load_cb = &actin["f_load_cb"];
+            actin.register_feature("cumulative_chem_entropy");
+            actin.register_feature("cumulative_chem_input");
+            actin.register_feature("cumulative_chem_binding_events");
+            actin.register_feature("cumulative_chem_unbinding_events");
             actin.register_feature("myosin_binding_ratio");
             actin.register_feature("crosslink_ratio");
             actin.register_feature("partial_binding_ratio");
@@ -285,6 +293,10 @@ void Sarcomere::update_system() {
     // Advance global step counter each time the system is updated
     current_step++;
     const double bundle_strength = _current_bundle_strength();
+    auto& cumulative_chem_entropy = actin["cumulative_chem_entropy"];
+    auto& cumulative_chem_input = actin["cumulative_chem_input"];
+    auto& cumulative_chem_binding_events = actin["cumulative_chem_binding_events"];
+    auto& cumulative_chem_unbinding_events = actin["cumulative_chem_unbinding_events"];
     _update_neighbors();
     #pragma omp parallel
     {   
@@ -322,6 +334,17 @@ void Sarcomere::update_system() {
         }
         }
         #pragma omp barrier  
+
+        #pragma omp for
+        for (int i = 0; i < actin.n; ++i) {
+            for (int t = 0; t < omp_get_num_threads(); ++t) {
+                cumulative_chem_entropy[i] += actin_chem_entropy_delta_temp[t][i];
+                cumulative_chem_input[i] += actin_chem_input_delta_temp[t][i];
+                cumulative_chem_binding_events[i] += actin_chem_binding_delta_temp[t][i];
+                cumulative_chem_unbinding_events[i] += actin_chem_unbinding_delta_temp[t][i];
+            }
+        }
+        #pragma omp barrier
 
         // Step 5: Reduce actin catch-bond status using max over threads
         #pragma omp for
@@ -563,6 +586,10 @@ void Sarcomere::_set_to_zero() {
             actin_forces_temp[t][i] = {0, 0, 0};
             actin_torques_temp[t][i] = {0, 0, 0};
             actin_cb_status_temp[t][i] = 0;
+            actin_chem_entropy_delta_temp[t][i] = 0.0;
+            actin_chem_input_delta_temp[t][i] = 0.0;
+            actin_chem_binding_delta_temp[t][i] = 0.0;
+            actin_chem_unbinding_delta_temp[t][i] = 0.0;
         }
     }
 
@@ -1279,6 +1306,22 @@ int Sarcomere::determine_cb_status(int& i, int& j){
     return 1;
 }
 
+void Sarcomere::_record_chem_transition(int& i, int& j, double affinity, bool binding) {
+    int thread_id = omp_get_thread_num();
+    double split_entropy = 0.5 * affinity;
+    double split_input = 0.5 * std::abs(affinity);
+    actin_chem_entropy_delta_temp[thread_id][i] += split_entropy;
+    actin_chem_entropy_delta_temp[thread_id][j] += split_entropy;
+    actin_chem_input_delta_temp[thread_id][i] += split_input;
+    actin_chem_input_delta_temp[thread_id][j] += split_input;
+    if (binding) {
+        actin_chem_binding_delta_temp[thread_id][i] += 0.5;
+        actin_chem_binding_delta_temp[thread_id][j] += 0.5;
+    } else {
+        actin_chem_unbinding_delta_temp[thread_id][i] += 0.5;
+        actin_chem_unbinding_delta_temp[thread_id][j] += 0.5;
+    }
+}
 
 bool Sarcomere::_cb_decide(int& i, int& j, int status){
     if (status == 0){
@@ -1302,12 +1345,17 @@ bool Sarcomere::_cb_decide(int& i, int& j, int status){
         if (status == 2) {
             active_base_lifetime += directional_base_lifetime;
         }
-        double k_off_adjusted = dt / (active_base_lifetime + lifetime_coeff * f_load);
+        double lifetime = active_base_lifetime + lifetime_coeff * f_load;
+        double k_off_adjusted = dt / lifetime;
         if (rand < k_off_adjusted){
+            if (actin_actin_status_prev[i][j] == 2) {
+                double affinity = std::log(std::max(k_on, EPS) * std::max(lifetime, EPS));
+                _record_chem_transition(i, j, -affinity, false);
+            }
             if (f_load>0) {
             printf("k_off_adjusted: %f, rand: %f, f_load: %f, abs_cos_angle: %f, lifetime: %f\n",
                    k_off_adjusted, rand, f_load, abs_cos_angle,
-                   active_base_lifetime + lifetime_coeff * f_load);
+                   lifetime);
             printf("actual lifetime: %f\n", (current_step - aa_attach_step[i][j]) * dt);
                 }
             // If this pair had an attach timestamp, record completed lifetime
@@ -1338,6 +1386,11 @@ bool Sarcomere::_cb_decide(int& i, int& j, int status){
             //     i, j, status, rand, k_on*dt, f_load, abs_cos_angle);
             //}
             return false;
+        }
+        if (status == 2) {
+            double lifetime = base_lifetime + directional_base_lifetime + lifetime_coeff * f_load;
+            double affinity = std::log(std::max(k_on, EPS) * std::max(lifetime, EPS));
+            _record_chem_transition(i, j, affinity, true);
         }
     //     if (status==2){
     //     printf("Actins %d and %d form/maintain catch bond with status %d, rand %f, f_load %f, abs_cos_angle %f\n",

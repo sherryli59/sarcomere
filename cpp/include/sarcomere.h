@@ -88,6 +88,10 @@ public:
     std::vector<std::vector<std::array<double, 2>>> myosin_f_load_temp;
     std::vector<std::vector<double>> cb_breakage_events_temp;
     std::vector<std::vector<double>> aa_completed_lifetimes_temp;
+    std::vector<std::vector<double>> actin_chem_entropy_delta_temp;
+    std::vector<std::vector<double>> actin_chem_input_delta_temp;
+    std::vector<std::vector<double>> actin_chem_binding_delta_temp;
+    std::vector<std::vector<double>> actin_chem_unbinding_delta_temp;
     std::vector<std::array<double, 2>> myosin_f_load;
     std::vector<utils::MoleculeConnection> actinIndicesPerMyosin_temp;
     std::vector<gsl_rng*> rng_engines;
@@ -164,6 +168,7 @@ private:
     void _actin_repulsion(int& i, int& j);
     int determine_cb_status(int& i, int& j);
     bool _cb_decide(int& i, int& j, int status);
+    void _record_chem_transition(int& i, int& j, double affinity, bool binding);
     void compute_actin_f_load(int& i);
     void _set_cb(int& i, int& j, int status);
     void _set_cb(int& i, std::vector<int> indices, std::vector<int> status);

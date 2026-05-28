@@ -748,17 +748,16 @@ int load_from_file(std::string& filename, Filament& actin, Myosin& myosin,
             actin.f_load[i] = 0.0;
         }
     }
-    auto feature_cb_it = actin.custom_features.find("f_load_cb");
-    if (feature_cb_it != actin.custom_features.end()) {
+    for (auto& feature : actin.custom_features) {
         try {
-            std::vector<double> actin_f_load_cb_all = load_from_dataset(group_actin, "f_load_cb", dims);
-            size_t load_stride = static_cast<size_t>(n_actins);
-            size_t load_start = static_cast<size_t>(target_frame) * load_stride;
+            std::vector<double> feature_all = load_from_dataset(group_actin, feature.first, dims);
+            size_t feature_stride = static_cast<size_t>(n_actins);
+            size_t feature_start = static_cast<size_t>(target_frame) * feature_stride;
             for (int i = 0; i < actin.n; ++i) {
-                feature_cb_it->second[i] = actin_f_load_cb_all[load_start + i];
+                feature.second[i] = feature_all[feature_start + i];
             }
         } catch (const H5::Exception&) {
-            std::fill(feature_cb_it->second.begin(), feature_cb_it->second.end(), 0.0);
+            std::fill(feature.second.begin(), feature.second.end(), 0.0);
         }
     }
     actin.update_endpoints();
