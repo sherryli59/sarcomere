@@ -1,3 +1,4 @@
+#include <iostream>
 #include "h5_utils.h"
 #include <stdexcept>
 #include <cmath>
@@ -12,7 +13,13 @@
 namespace {
 
 int read_scalar_int_dataset(H5::H5File& file, const std::string& full_path, int default_value) {
-    if (!file.nameExists(full_path)) {
+    bool exists = false;
+    try {
+        exists = file.nameExists(full_path);
+    } catch (H5::Exception&) {
+        exists = false;
+    }
+    if (!exists) {
         return default_value;
     }
     const auto slash = full_path.find_last_of('/');
@@ -42,12 +49,17 @@ void write_scalar_int_dataset(H5::H5File& file, const std::string& full_path, in
     H5::Group group;
     if (group_name == "/") {
         group = file.openGroup("/");
-    } else if (file.nameExists(group_name)) {
-        group = file.openGroup(group_name);
     } else {
-        group = file.createGroup(group_name);
+        group = file.nameExists(group_name)
+            ? file.openGroup(group_name) : file.createGroup(group_name);
     }
-    if (!group.nameExists(dataset_name)) {
+    bool dataset_exists = false;
+    try {
+        dataset_exists = group.nameExists(dataset_name);
+    } catch (H5::Exception&) {
+        dataset_exists = false;
+    }
+    if (!dataset_exists) {
         const hsize_t dims[1] = {1};
         H5::DataSpace dataspace(1, dims);
         H5::IntType datatype(H5::PredType::STD_I32LE);
@@ -66,7 +78,6 @@ void maybe_test_sleep(const char* env_name, const char* label) {
     if (sleep_seconds <= 0) {
         return;
     }
-    std::printf("[TEST_HOOK] %s sleeping for %d seconds before commit\n", label, sleep_seconds);
     std::fflush(stdout);
     std::this_thread::sleep_for(std::chrono::seconds(sleep_seconds));
 }
@@ -370,7 +381,7 @@ void create_file(std::string& filename, Filament& actin, Myosin& myosin,
     }
     
 
-    hsize_t max_n_actin_bonds = n_actins * 5;
+    hsize_t max_n_actin_bonds = n_actins * 8;
 
     initialDims = {0, max_n_actin_bonds, 2};
     maxDims     = {H5S_UNLIMITED, max_n_actin_bonds, 2};
@@ -385,13 +396,15 @@ void create_file(std::string& filename, Filament& actin, Myosin& myosin,
     // Each catch-bonded actin pair (i, j) gets an entry containing their current distance.
     create_empty_dataset(file, "/actin", "cb_distance", initialDims, maxDims, chunkDims);
 
-    hsize_t max_n_myosin_bonds = n_myosins * 4;
+    // Observed >10500 myosin bonds at 640 myosins in v8 production;
+    // n*4 truncated the dataset silently.
+    hsize_t max_n_myosin_bonds = n_myosins * 24;
     initialDims = {0, max_n_myosin_bonds, 2};
     maxDims     = {H5S_UNLIMITED, max_n_myosin_bonds, 2};
     chunkDims   = {10, max_n_myosin_bonds, 2};
     create_empty_dataset(file, "/myosin", "bonds", initialDims, maxDims, chunkDims);
 
-    hsize_t max_n_am_bonds = n_myosins * max_myosin_bonds;
+    hsize_t max_n_am_bonds = std::max<hsize_t>(n_myosins * max_myosin_bonds, n_actins * 12);
     initialDims = {0, max_n_am_bonds, 2};
     maxDims     = {H5S_UNLIMITED, max_n_am_bonds, 2};
     chunkDims   = {10, max_n_am_bonds, 2};
@@ -401,6 +414,15 @@ void create_file(std::string& filename, Filament& actin, Myosin& myosin,
     maxDims     = {H5S_UNLIMITED, max_n_am_bonds, 1};
     chunkDims   = {10, max_n_am_bonds, 1};
     create_empty_dataset(file, "/actin_myo", "distance", initialDims, maxDims, chunkDims);
+
+    // AM state-transition events. Columns:
+    // actin, myosin, step, old_state, new_state, reason, activation,
+    // axial_strain, signed_motor_force, preceding_actin_cb_status.
+    const hsize_t am_transition_width = 10;
+    initialDims = {0, am_transition_width};
+    maxDims     = {H5S_UNLIMITED, am_transition_width};
+    chunkDims   = {100, am_transition_width};
+    create_empty_dataset(file, "/actin_myo", "transitions", initialDims, maxDims, chunkDims);
 
     // Dataset to record catch-bond breakage events:
     // columns: i, j, step, distance, cos_angle,
@@ -428,6 +450,25 @@ void create_file(std::string& filename, Filament& actin, Myosin& myosin,
     chunkDims   = {100};
     create_empty_dataset(file, "/catch_bond", "completed_lifetimes", initialDims, maxDims, chunkDims);
 
+    // AA bond/status transition events. Columns:
+    // actin_i, actin_j, step, old_bond, new_bond, old_status, new_status,
+    // motor_force_i, motor_force_j, strong_count_i, strong_count_j, load_i, load_j.
+    const hsize_t aa_state_width = 13;
+    initialDims = {0, aa_state_width};
+    maxDims     = {H5S_UNLIMITED, aa_state_width};
+    chunkDims   = {100, aa_state_width};
+    create_empty_dataset(file, "/catch_bond", "state_transitions", initialDims, maxDims, chunkDims);
+
+    // Force audit for each AA bond/status transition. Columns (schema 2):
+    // actin_i, actin_j, step, old_status, new_status, motor_only_load,
+    // opposed_drive, transmitted_load, combined_candidate,
+    // selected_classifier_load, polarity_dot.
+    const hsize_t aa_load_width = 11;
+    initialDims = {0, aa_load_width};
+    maxDims     = {H5S_UNLIMITED, aa_load_width};
+    chunkDims   = {100, aa_load_width};
+    create_empty_dataset(file, "/catch_bond", "load_transitions", initialDims, maxDims, chunkDims);
+
     // current_step: 2D dataset with shape (n_frames, 1) to match save_state append {1,1}
     initialDims = {0, 1};
     maxDims     = {H5S_UNLIMITED, 1};
@@ -451,7 +492,19 @@ void append_to_file(std::string& filename, Filament& actin, Myosin& myosin,
     H5::Group group_actin(file.openGroup("/actin"));
     H5::Group group_myosin(file.openGroup("/myosin"));
     H5::Group group_am(file.openGroup("/actin_myo"));
-    const int committed_frames_before = read_scalar_int_dataset(file, "/meta/committed_frames", 0);
+    int existing_frames = 0;
+    try {
+        H5::DataSet center_dataset = group_actin.openDataSet("center");
+        H5::DataSpace center_space = center_dataset.getSpace();
+        if (center_space.getSimpleExtentNdims() >= 1) {
+            std::vector<hsize_t> center_dims(center_space.getSimpleExtentNdims(), 0);
+            center_space.getSimpleExtentDims(center_dims.data(), nullptr);
+            existing_frames = static_cast<int>(center_dims[0]);
+        }
+    } catch (H5::Exception&) {
+        existing_frames = 0;
+    }
+    const int committed_frames_before = read_scalar_int_dataset(file, "/meta/committed_frames", existing_frames);
 
     hsize_t n_actins  = static_cast<hsize_t>(actin.n);
     hsize_t n_myosins = static_cast<hsize_t>(myosin.n);
@@ -559,9 +612,9 @@ void append_to_file(std::string& filename, Filament& actin, Myosin& myosin,
     }
 
     // Compute maximum possible bonds per frame.
-    int max_n_actin_bonds = actin.n * 5;
-    int max_n_myosin_bonds = myosin.n * 4;
-    int max_n_am_bonds = myosin.n * max_myosin_bonds;
+    int max_n_actin_bonds = actin.n * 8;
+    int max_n_myosin_bonds = myosin.n * 24;
+    int max_n_am_bonds = std::max(myosin.n * max_myosin_bonds, actin.n * 12);
 
     // Compute current number of bonds (each bond occupies two entries).
     int current_n_actinBonds = static_cast<int>(flatActinBonds.size()) / 2;
@@ -586,6 +639,31 @@ void append_to_file(std::string& filename, Filament& actin, Myosin& myosin,
             flatMyosinBonds.push_back(-1);
         }
     }
+    // Bond buffers are sized from particle counts, not density.  A frame that
+    // produces more bonds than the dataset can hold used to hand an oversized
+    // buffer to a {1, max_n, 2} hyperslab, writing out of bounds (SIGSEGV).
+    // Clamp instead, and say so rather than silently dropping bonds.
+    auto clamp_bonds = [](std::vector<double>& flat, int current, int max_rows,
+                          const char* name, std::vector<double>* companion) {
+        if (current <= max_rows) return;
+        std::cerr << "[h5] warning: " << name << " frame has " << current
+                  << " bonds but capacity is " << max_rows
+                  << "; truncating for output" << std::endl;
+        flat.resize(static_cast<size_t>(max_rows) * 2);
+        if (companion) companion->resize(static_cast<size_t>(max_rows));
+    };
+    clamp_bonds(flatActinBonds, current_n_actinBonds, max_n_actin_bonds,
+                "actin/bonds", &actin_pair_loads);
+    if (static_cast<int>(actin_cb_distances.size()) > max_n_actin_bonds)
+        actin_cb_distances.resize(static_cast<size_t>(max_n_actin_bonds));
+    clamp_bonds(flatMyosinBonds, current_n_myosinBonds, max_n_myosin_bonds,
+                "myosin/bonds", nullptr);
+    clamp_bonds(flatActinMyosinBonds, current_n_amBonds, max_n_am_bonds,
+                "actin_myo/bonds", &actin_myo_distances);
+    current_n_actinBonds = std::min(current_n_actinBonds, max_n_actin_bonds);
+    current_n_myosinBonds = std::min(current_n_myosinBonds, max_n_myosin_bonds);
+    current_n_amBonds = std::min(current_n_amBonds, max_n_am_bonds);
+
     // Pad actin-myosin bonds if needed.
     if (current_n_amBonds < max_n_am_bonds) {
         int padRows = max_n_am_bonds - current_n_amBonds;
@@ -655,7 +733,7 @@ std::vector<double> load_from_dataset(H5::Group& group, const std::string& datas
 }
 
 int load_from_file(std::string& filename, Filament& actin, Myosin& myosin,
-                    std::vector<std::vector<int>>& actin_actin_bonds, int& n_frames, int frame_index)
+                    std::vector<std::vector<std::uint8_t>>& actin_actin_bonds, int& n_frames, int frame_index)
 {
     H5::H5File file(filename, H5F_ACC_RDWR);
     H5::Group group_actin(file.openGroup("/actin"));

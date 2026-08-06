@@ -50,6 +50,19 @@ public:
         return iterator == slots_.end() ? nullptr : &iterator->second;
     }
 
+    void erase(int first, int second) {
+        const auto iterator = slots_.find(pair_key(first, second));
+        if (iterator == slots_.end()) return;
+        const Slot slot = iterator->second;
+        if (slot.first >= 0 && slot.first < static_cast<int>(degree_.size())) {
+            --degree_[static_cast<std::size_t>(slot.first)];
+        }
+        if (slot.second >= 0 && slot.second < static_cast<int>(degree_.size())) {
+            --degree_[static_cast<std::size_t>(slot.second)];
+        }
+        slots_.erase(iterator);
+    }
+
     bool reserve(int first, int second, Step current_step,
                  int maximum_degree, bool pinned = false) {
         if (first == second || first < 0 || second < 0) return false;

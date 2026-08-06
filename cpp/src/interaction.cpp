@@ -1,5 +1,6 @@
 #include "interaction.h"
 #include "geometry.h"
+#include "rod_mobility.h"
 #include <cstdio>
 #include <cstdlib>  // For exit()
 #include <cmath>
@@ -36,12 +37,11 @@ real am_energy1(const ArrayXreal& center1, const double& length1, const ArrayXre
     dot_val = std::max(real(-1), std::min(real(1), dot_val));  // clamp
     real angle_energy = 0.5 * kappa_am * (1.0 - dot_val * dot_val); 
     if (dist > cutoff) {
-        printf("something's wrong. dist: %f\n", dist.val());
         return angle_energy;
     }
     else {
-        real offset = (dist - optimal)/optimal;
-        real energy = 0.5 * k_am * strength * offset * offset + angle_energy;
+        const real extension = dist - optimal;
+        real energy = 0.5 * k_am * strength * extension * extension + angle_energy;
         // real repulsion_threshold = real(0.9) * optimal;
         // if (dist < repulsion_threshold) {
         //     real rep_offset = (repulsion_threshold - dist)/optimal;
@@ -67,7 +67,8 @@ real aa_energy(const ArrayXreal& center1, const double& length1,
     const ArrayXreal& dir2,
     const std::vector<double>& box, const std::array<bool,3>& periodic, 
     const double k_aa, const double kappa_aa,
-    const double cutoff, const double optimal)
+    const double cutoff, const double optimal,
+    const double antiparallel_overlap)
 {
     // Compute endpoints for filament 1 in 3D.
     ArrayXreal a = center1 - 0.5 * length1 * dir1;
@@ -87,13 +88,17 @@ real aa_energy(const ArrayXreal& center1, const double& length1,
     real dot_val = dir1[0]*dir2[0] + dir1[1]*dir2[1] + dir1[2]*dir2[2];
     dot_val = std::max(real(-1), std::min(real(1), dot_val));  // clamp for safety
     real angle_energy = 0.5 * kappa_aa * (1.0 - dot_val * dot_val);
-    if (cutoff > 0.0 && raw_dist > cutoff) {
-        return angle_energy;
-    }
-    real dist = (raw_dist - optimal)/optimal;
+    // `cutoff` is an association/capture criterion, not a rupture rule.  Once
+    // an AA bond exists its mechanical spring remains active until KMC breaks
+    // it; otherwise a strained bond silently loses all restoring force.
+    const real extension = raw_dist - optimal;
 
-    // ===== Axial-gap soft wall between barbed ends a (filament1) and c (filament2) =====
-    // Compute minimum-image displacement c - a
+    // Preserve the working coarse-grained geometry: ACTN2 registers the
+    // barbed-end overlap zone (`left_end`), not filament centers.  Parallel
+    // neighbors register their barbed ends, whereas antiparallel neighbors
+    // interdigitate by the prescribed Z-disc overlap.  The polarity weight is
+    // smooth, and using both filament projections makes an AA edge invariant
+    // to pair ordering.
     real dx = c_arr[0] - a_arr[0];
     real dy = c_arr[1] - a_arr[1];
     real dz = c_arr[2] - a_arr[2];
@@ -109,18 +114,15 @@ real aa_energy(const ArrayXreal& center1, const double& length1,
     if (periodic[2] && box_arr[2] != real(0.0)) {
         dz -= box_arr[2] * smooth_round(dz / box_arr[2]);
     }
-    // Axial offset along filament 1's axis
-    real ds = dx*dir1[0] + dy*dir1[1] + dz*dir1[2];
-    // One-sided quadratic penalty beyond s_tol
-    real U_ax = 0.0;
-    if (ds < 0.0) {
-        U_ax = 0.5 * 10 * k_aa * (ds/optimal) * (ds/optimal);
-        //printf("Axial gap penalty applied: ds = %f, U_ax = %f\n", ds.val(), U_ax.val());
-    }  
-    real ds_pos = (ds - 0.1*length1)/(0.1*length1);  // scaled positive excess
-    U_ax += 0.5 * k_aa * (ds_pos) * (ds_pos);
-    //printf("Axial gap penalty applied: ds = %f, U_ax = %f\n", ds.val(), U_ax.val());
-    real energy = 0.5 * (k_aa * dist * dist) + angle_energy + U_ax;
+    real ds1 = dx*dir1[0] + dy*dir1[1] + dz*dir1[2];
+    real ds2 = dx*dir2[0] + dy*dir2[1] + dz*dir2[2];
+    const real polarity_weight = 0.5 * (1.0 - dot_val);
+    const real target_overlap = std::max(0.0, antiparallel_overlap) * polarity_weight;
+    const real axial_error1 = ds1 - target_overlap;
+    const real axial_error2 = ds2 + target_overlap;
+    real U_ax = 0.25 * k_aa *
+        (axial_error1 * axial_error1 + axial_error2 * axial_error2);
+    real energy = 0.5 * k_aa * extension * extension + angle_energy + U_ax;
     return energy;
 }
 
@@ -129,30 +131,186 @@ std::vector<double> compute_aa_force_and_energy(Filament& actin,
                                                 int& actin1_index, int& actin2_index,
                                                 const std::vector<double>& box,
                                                 const double k_aa, const double kappa_aa,
-                                                const double cutoff, const double optimal)
+                                                const double cutoff, const double optimal,
+                                                const double antiparallel_overlap)
 {
+    // Canonicalize an unordered AA edge before differentiating.  Besides
+    // avoiding ambiguous closest-point choices for exactly parallel,
+    // overlapping rods, this guarantees that asking for (i,j) or (j,i)
+    // describes the same physical edge.
+    const bool reversed = actin1_index > actin2_index;
+    const int canonical_first = reversed ? actin2_index : actin1_index;
+    const int canonical_second = reversed ? actin1_index : actin2_index;
+
     // Construct 3D centers.
     ArrayXreal center1(3);
-    center1 << actin.center[actin1_index].x, actin.center[actin1_index].y, actin.center[actin1_index].z;
+    center1 << actin.center[canonical_first].x, actin.center[canonical_first].y, actin.center[canonical_first].z;
     ArrayXreal dir1(3);
-    dir1 << actin.direction[actin1_index].x, actin.direction[actin1_index].y, actin.direction[actin1_index].z;
+    dir1 << actin.direction[canonical_first].x, actin.direction[canonical_first].y, actin.direction[canonical_first].z;
 
     ArrayXreal center2(3);
-    center2 << actin.center[actin2_index].x, actin.center[actin2_index].y, actin.center[actin2_index].z;
+    center2 << actin.center[canonical_second].x, actin.center[canonical_second].y, actin.center[canonical_second].z;
     ArrayXreal dir2(3);
-    dir2 << actin.direction[actin2_index].x, actin.direction[actin2_index].y, actin.direction[actin2_index].z;
+    dir2 << actin.direction[canonical_second].x, actin.direction[canonical_second].y, actin.direction[canonical_second].z;
 
-    real u;
-    std::vector<double> forces;
-    // Compute the gradient of aa_energy with respect to center1, theta1, phi1, theta2, and phi2.
-    VectorXd forces_2 = -gradient(aa_energy, wrt(center1, dir1, dir2),
-                                    at(center1, actin.length, dir1,
-                                       center2, actin.length, dir2, box, actin.periodic_axes,
-                                       k_aa, kappa_aa, cutoff, optimal), u);
-    forces.resize(forces_2.size());
-    VectorXd::Map(&forces[0], forces_2.size()) = forces_2;
+    real energy;
+    const VectorXd gradient_result = -gradient(
+        aa_energy, wrt(center1, dir1, dir2),
+        at(center1, actin.length, dir1,
+           center2, actin.length, dir2,
+           box, actin.periodic_axes, k_aa, kappa_aa, cutoff, optimal,
+           antiparallel_overlap), energy);
+    std::vector<double> forces(9, 0.0);
+    for (int component = 0; component < 3; ++component) {
+        forces[component] = (reversed ? -1.0 : 1.0) *
+                            gradient_result[component];
+        forces[3 + component] = gradient_result[
+            (reversed ? 6 : 3) + component];
+        forces[6 + component] = gradient_result[
+            (reversed ? 3 : 6) + component];
+    }
     return forces;
 
+}
+
+LocalAALinkResult compute_local_aa_link(
+    const Filament& actin, int first, int second,
+    double s_first, double s_second,
+    const std::vector<double>& box,
+    double radial_stiffness, double perpendicular_stiffness,
+    double alignment_stiffness,
+    double preferred_centerline,
+    double antiparallel_overlap,
+    double axial_stiffness_ratio,
+    double axial_saturation_error,
+    double axial_force_max) {
+    LocalAALinkResult result;
+    const vec& direction_first = actin.direction[first];
+    const vec& direction_second = actin.direction[second];
+    const vec center_first = actin.center[first];
+    const vec center_second = actin.center[second];
+    result.connector = center_second + s_second * direction_second -
+                       center_first - s_first * direction_first;
+    result.connector.pbc_wrap(box, actin.periodic_axes);
+    result.length = result.connector.norm();
+
+    const double radial_k = std::max(0.0, radial_stiffness);
+    const double perpendicular_k = std::max(0.0, perpendicular_stiffness);
+    const double alignment_k = std::max(0.0, alignment_stiffness);
+    const double rest_length = std::max(0.0, preferred_centerline);
+    const double projection_first = result.connector.dot(direction_first);
+    const double projection_second = result.connector.dot(direction_second);
+    const double direction_dot = std::max(
+        -1.0, std::min(1.0, direction_first.dot(direction_second)));
+    result.direction_dot = direction_dot;
+    const double extension = result.length - rest_length;
+
+    result.energy = 0.5 * radial_k * extension * extension +
+                    0.5 * perpendicular_k *
+                        (projection_first * projection_first +
+                         projection_second * projection_second) +
+                    0.5 * alignment_k *
+                        (1.0 - direction_dot * direction_dot);
+
+    // Exact gradient of the same energy previously differentiated with
+    // autodiff. The minimum-image shift is constant except exactly at a box
+    // boundary, just as smooth_round was in the autodiff implementation.
+    vec connector_gradient {0.0, 0.0, 0.0};
+    if (radial_k > 0.0 && result.length > 1e-14) {
+        connector_gradient +=
+            (radial_k * extension / result.length) * result.connector;
+    }
+    connector_gradient += perpendicular_k *
+        (projection_first * direction_first +
+         projection_second * direction_second);
+    // Status-2-only barbed-end registration. The caller disables this term for
+    // status 1 by passing axial_stiffness_ratio=0. The same bounded energy is
+    // differentiated for translations and orientations, so it cannot create
+    // the force-only, unbounded prestress of the previous implementation.
+    vec axial_force_first {0.0, 0.0, 0.0};
+    vec axial_grad_dir_first {0.0, 0.0, 0.0};
+    vec axial_grad_dir_second {0.0, 0.0, 0.0};
+    const double antiparallel_ov = std::max(0.0, antiparallel_overlap);
+    if (antiparallel_ov > 0.0) {
+        const double link_length = actin.length;
+        vec end_first = center_first - 0.5 * link_length * direction_first;
+        vec end_second = center_second - 0.5 * link_length * direction_second;
+        vec axial_connector = end_second - end_first;
+        axial_connector.pbc_wrap(box, actin.periodic_axes);
+        const double ds_first = axial_connector.dot(direction_first);
+        const double ds_second = axial_connector.dot(direction_second);
+        const double polarity_weight = 0.5 * (1.0 - direction_dot);
+        const double target_overlap = antiparallel_ov * polarity_weight;
+        const double axial_error_first = ds_first - target_overlap;
+        const double axial_error_second = ds_second + target_overlap;
+        result.registry_error = std::sqrt(0.5 *
+            (axial_error_first * axial_error_first +
+             axial_error_second * axial_error_second));
+        const double axial_k = std::max(0.0, axial_stiffness_ratio) * radial_k;
+        // Small-error stiffness, shared by both branches so that a registered
+        // pair sees identical mechanics either way.
+        const double small_error_k = 0.5 * axial_k;
+        double grad_first = 0.0;
+        double grad_second = 0.0;
+        if (axial_force_max > 0.0 && small_error_k > 0.0) {
+            // Saturating register: U = F*s*[log cosh(e1/s) + log cosh(e2/s)]
+            // with s = F/small_error_k. dU/de -> small_error_k*e as e->0 and
+            // -> +/-F as |e| grows, so a pair that starts far out of register
+            // keeps being pulled toward the target instead of feeling nothing.
+            const double scale = axial_force_max / small_error_k;
+            auto log_cosh = [](double x) {
+                const double magnitude = std::abs(x);
+                // log(cosh x) -> |x| - log 2 to machine precision well before
+                // cosh(x) itself would overflow.
+                return magnitude > 20.0 ? magnitude - std::log(2.0)
+                                        : std::log(std::cosh(x));
+            };
+            grad_first = axial_force_max * std::tanh(axial_error_first / scale);
+            grad_second = axial_force_max * std::tanh(axial_error_second / scale);
+            result.energy += axial_force_max * scale *
+                (log_cosh(axial_error_first / scale) +
+                 log_cosh(axial_error_second / scale));
+        } else {
+            const double sigma = std::max(1e-12, axial_saturation_error);
+            const double attenuation_first = std::exp(
+                -0.5 * axial_error_first * axial_error_first / (sigma * sigma));
+            const double attenuation_second = std::exp(
+                -0.5 * axial_error_second * axial_error_second / (sigma * sigma));
+            grad_first = small_error_k * axial_error_first * attenuation_first;
+            grad_second = small_error_k * axial_error_second * attenuation_second;
+            result.energy += 0.5 * axial_k * sigma * sigma *
+                (2.0 - attenuation_first - attenuation_second);
+        }
+        axial_force_first = grad_first * direction_first +
+                            grad_second * direction_second;
+        axial_grad_dir_first =
+            grad_first *
+                (axial_connector + (0.5 * link_length) * direction_first +
+                 (0.5 * antiparallel_ov) * direction_second) +
+            grad_second *
+                ((0.5 * (link_length - antiparallel_ov)) * direction_second);
+        axial_grad_dir_second =
+            grad_first *
+                ((-0.5 * (link_length - antiparallel_ov)) * direction_first) +
+            grad_second *
+                (axial_connector - (0.5 * link_length) * direction_second -
+                 (0.5 * antiparallel_ov) * direction_first);
+    }
+    result.force_on_first = connector_gradient + axial_force_first;
+
+    const vec gradient_direction_first =
+        -s_first * connector_gradient +
+        perpendicular_k * projection_first * result.connector -
+        alignment_k * direction_dot * direction_second +
+        axial_grad_dir_first;
+    const vec gradient_direction_second =
+        s_second * connector_gradient +
+        perpendicular_k * projection_second * result.connector -
+        alignment_k * direction_dot * direction_first +
+        axial_grad_dir_second;
+    result.torque_on_first = -gradient_direction_first;
+    result.torque_on_second = -gradient_direction_second;
+    return result;
 }
 
 std::vector<double> compute_am_force_and_energy(Filament& actin, Myosin& myosin,
@@ -188,32 +346,10 @@ std::vector<double> compute_am_force_and_energy(Filament& actin, Myosin& myosin,
                                    k_am, kappa_am, cutoff, optimal), u);
         forces.resize(forces_3.size());
         VectorXd::Map(&forces[0], forces_3.size()) = forces_3;
-        // Now add in the myosin centerstop forces        
-        // Signed axial coordinate of the actin *right* tip relative to myosin center
-        vec actin_dir = actin.direction[actin_index];
-        double am_dot = actin.direction[actin_index].dot(myosin.direction[myosin_index]);
-        vec myosin_end;
-        if (am_dot > 0) {
-            myosin_end = myosin.left_end[myosin_index];
-        }
-        else {
-            myosin_end = myosin.right_end[myosin_index];
-        }
-        vec actin_tip = actin.right_end[actin_index];
-        vec tip_disp = actin_tip - myosin_end;
-        tip_disp.pbc_wrap(box, actin.periodic_axes);
-        double s = std::fabs(tip_disp.dot(myosin.direction[myosin_index]));  // +s toward "right" tip, −s toward "left"
-        double Lm = 0.4 * myosin.length;                     // half-length of myosin
-        vec endstop_force = {0.0, 0.0, 0.0};
-        if (s >= Lm) {
-            double dist_to_end = s - Lm;   
-            double mag_mid = 5 * k_am * (dist_to_end)/Lm;         // increase toward center
-            // choose outward sign; for s==0 pick +1 by convention
-            endstop_force = - mag_mid * actin_dir;         // pushes toward the nearer end
-        }
-        forces[0] += endstop_force.x;
-        forces[1] += endstop_force.y;
-        forces[2] += endstop_force.z;
+        // The passive AM interaction is radial proximity only.  The former
+        // axial "endstop" generated propulsion-like forces even with v_am=0,
+        // duplicating motor mechanics and ejecting a correctly overlapped thin
+        // filament. Axial force belongs exclusively to explicit bound heads.
     }
     else {
         forces_3 = -gradient(am_energy, wrt(dir1, dir2),
@@ -226,6 +362,527 @@ std::vector<double> compute_am_force_and_energy(Filament& actin, Myosin& myosin,
         VectorXd::Map(&forces[3], forces_3.size()) = forces_3;
     }
     return forces;
+}
+
+AMTetherResult compute_am_proximity_tether(const Filament& actin,
+                                           const Myosin& myosin,
+                                           int actin_index,
+                                           int myosin_index,
+                                           const std::vector<double>& box,
+                                           double stiffness,
+                                           double optimal,
+                                           bool directional) {
+    AMTetherResult result;
+    vec myosin_start = myosin.left_end[myosin_index];
+    vec myosin_end = myosin.right_end[myosin_index];
+    if (directional) {
+        // Restrict the attachment point to the productive, head-bearing outer
+        // third selected by actin polarity.  This prevents the moment arm from
+        // drifting into the bare zone or the wrong half of a bipolar filament.
+        const vec full_axis = myosin_end - myosin_start;
+        if (actin.direction[actin_index].dot(myosin.direction[myosin_index]) > 0.0) {
+            myosin_end = myosin_start +
+                          geometry::am_head_bearing_fraction * full_axis;
+        } else {
+            myosin_start = myosin_end -
+                            geometry::am_head_bearing_fraction * full_axis;
+        }
+    }
+    const auto closest = geometry::segment_segment_distance_w_normal(
+        actin.left_end[actin_index], actin.right_end[actin_index],
+        myosin_start, myosin_end,
+        box, actin.periodic_axes);
+    result.actin_attachment = closest.second.start;
+    result.myosin_attachment = closest.second.end;
+
+    vec axis_a = actin.direction[actin_index];
+    vec axis_m = myosin.direction[myosin_index];
+    if (axis_a.dot(axis_m) < 0.0) axis_m = -axis_m;
+    vec common_axis = axis_a + axis_m;
+    if (common_axis.norm() <= 1e-12) common_axis = axis_a;
+    common_axis.normalize();
+
+    vec transverse = closest.second.normal -
+                     common_axis * closest.second.normal.dot(common_axis);
+    const double distance = transverse.norm();
+    result.transverse_distance = distance;
+    if (!(stiffness > 0.0) || !(optimal > 0.0) || distance <= 1e-12) {
+        return result;
+    }
+    const vec unit = transverse / distance;
+    const double magnitude = -stiffness * (distance - optimal) /
+                             (optimal * optimal);
+    result.force_on_actin = magnitude * unit;
+    result.force_on_myosin = -result.force_on_actin;
+    return result;
+}
+
+AMTetherResult compute_am_head_tether(const Filament& actin,
+                                      const Myosin& myosin,
+                                      int actin_index,
+                                      int myosin_index,
+                                      const std::vector<double>& box,
+                                      double myosin_anchor_axial,
+                                      double stiffness,
+                                      double optimal,
+                                      double myosin_anchor_azimuth,
+                                      double myosin_radial_offset,
+                                      const vec* material_e1,
+                                      const vec* material_e2,
+                                      double actin_radius,
+                                      double radial_slack) {
+    AMTetherResult result;
+    vec axis_a = actin.direction[actin_index];
+    vec axis_m = myosin.direction[myosin_index];
+    axis_a.normalize();
+    axis_m.normalize();
+
+    const auto axis_geometry = geometry::segment_segment_distance_w_normal(
+        actin.left_end[actin_index], actin.right_end[actin_index],
+        myosin.left_end[myosin_index], myosin.right_end[myosin_index],
+        box, actin.periodic_axes);
+    result.centerline_distance = axis_geometry.first;
+    result.surface_gap = result.centerline_distance -
+                         (myosin.radius + std::max(0.0, actin_radius));
+
+    vec transverse_1;
+    vec transverse_2;
+    if (material_e1 != nullptr && material_e2 != nullptr) {
+        transverse_1 = *material_e1 - axis_m * material_e1->dot(axis_m);
+        if (transverse_1.norm() <= 1e-12) transverse_1 = *material_e2;
+        transverse_1.normalize();
+        transverse_2 = axis_m.cross(transverse_1);
+        transverse_2.normalize();
+        if (transverse_2.dot(*material_e2) < 0.0) transverse_2 = -transverse_2;
+    } else {
+        vec reference = std::abs(axis_m.z) < 0.9
+            ? vec{0.0, 0.0, 1.0} : vec{0.0, 1.0, 0.0};
+        transverse_1 = axis_m.cross(reference);
+        if (transverse_1.norm() <= 1e-12) transverse_1 = {1.0, 0.0, 0.0};
+        transverse_1.normalize();
+        transverse_2 = axis_m.cross(transverse_1);
+        transverse_2.normalize();
+    }
+    const vec radial_anchor = myosin_radial_offset *
+        (std::cos(myosin_anchor_azimuth) * transverse_1 +
+         std::sin(myosin_anchor_azimuth) * transverse_2);
+    result.myosin_attachment = static_cast<vec>(myosin.center[myosin_index]) +
+                                myosin_anchor_axial * axis_m + radial_anchor;
+    vec center_disp = static_cast<vec>(actin.center[actin_index]) -
+                      result.myosin_attachment;
+    center_disp.pbc_wrap(box, actin.periodic_axes);
+    const vec actin_center_image = result.myosin_attachment + center_disp;
+    result.unbounded_actin_coordinate =
+        (result.myosin_attachment - actin_center_image).dot(axis_a);
+    const double actin_half_length = 0.5 * actin.length;
+    result.projection_inside_actin =
+        result.unbounded_actin_coordinate >= -actin_half_length &&
+        result.unbounded_actin_coordinate <= actin_half_length;
+    const double actin_coordinate = std::clamp(
+        result.unbounded_actin_coordinate,
+        -actin_half_length, actin_half_length);
+    result.actin_coordinate = actin_coordinate;
+    result.actin_attachment = actin_center_image + actin_coordinate * axis_a;
+
+    if (axis_a.dot(axis_m) < 0.0) axis_m = -axis_m;
+    vec common_axis = axis_a + axis_m;
+    if (common_axis.norm() <= 1e-12) common_axis = axis_a;
+    common_axis.normalize();
+    vec connector = result.actin_attachment - result.myosin_attachment;
+    connector.pbc_wrap(box, actin.periodic_axes);
+    result.head_connector_distance = connector.norm();
+    result.head_reach_surface_distance =
+        result.head_connector_distance - std::max(0.0, actin_radius);
+    vec transverse = connector - common_axis * connector.dot(common_axis);
+    result.transverse_distance = transverse.norm();
+    result.head_surface_distance = result.transverse_distance -
+                                   std::max(0.0, actin_radius);
+    if (!(stiffness > 0.0) || !(optimal > 0.0) ||
+        result.centerline_distance <= 1e-12) return result;
+
+    const vec unit_normal = axis_geometry.second.normal /
+                            result.centerline_distance;
+    const double extension = result.centerline_distance - optimal;
+    const double slack = std::max(0.0, radial_slack);
+    double loaded_extension = 0.0;
+    if (extension > slack) loaded_extension = extension - slack;
+    if (extension < -slack) loaded_extension = extension + slack;
+    const double magnitude = -stiffness * loaded_extension;
+    result.force_on_actin = magnitude * unit_normal;
+    result.force_on_myosin = -result.force_on_actin;
+    return result;
+}
+
+AMTwoSpringHeadResult compute_am_two_spring_head(
+    const Filament& actin, const Myosin& myosin,
+    int actin_index, int myosin_index, const std::vector<double>& box,
+    double actin_coordinate, double myosin_anchor_axial,
+    double myosin_anchor_azimuth, double myosin_radial_offset,
+    const vec* material_e1, const vec* material_e2,
+    double radial_preferred, double radial_stiffness, double radial_slack,
+    double axial_stiffness, double stroke_progress, double stall_force,
+    bool strong, bool bidirectional_strong) {
+    AMTwoSpringHeadResult result;
+    vec axis_a = actin.direction[actin_index];
+    vec axis_m = myosin.direction[myosin_index];
+    if (axis_a.norm() <= 1e-12 || axis_m.norm() <= 1e-12) return result;
+    axis_a.normalize();
+    axis_m.normalize();
+
+    vec e1;
+    vec e2;
+    if (material_e1 != nullptr && material_e2 != nullptr) {
+        e1 = *material_e1 - axis_m * material_e1->dot(axis_m);
+        if (e1.norm() <= 1e-12) e1 = *material_e2;
+        e1.normalize();
+        e2 = axis_m.cross(e1);
+        e2.normalize();
+        if (e2.dot(*material_e2) < 0.0) e2 = -1.0 * e2;
+    } else {
+        const vec reference = std::abs(axis_m.z) < 0.9
+            ? vec{0.0, 0.0, 1.0} : vec{0.0, 1.0, 0.0};
+        e1 = axis_m.cross(reference);
+        if (e1.norm() <= 1e-12) e1 = {1.0, 0.0, 0.0};
+        e1.normalize();
+        e2 = axis_m.cross(e1);
+        e2.normalize();
+    }
+    const vec radial_anchor = std::max(0.0, myosin_radial_offset) *
+        (std::cos(myosin_anchor_azimuth) * e1 +
+         std::sin(myosin_anchor_azimuth) * e2);
+    result.myosin_attachment = static_cast<vec>(myosin.center[myosin_index]) +
+        myosin_anchor_axial * axis_m + radial_anchor;
+
+    vec center_disp = static_cast<vec>(actin.center[actin_index]) -
+                      result.myosin_attachment;
+    center_disp.pbc_wrap(box, actin.periodic_axes);
+    const vec actin_center_image = result.myosin_attachment + center_disp;
+    const double bounded_coordinate = std::clamp(
+        actin_coordinate, -0.5 * actin.length, 0.5 * actin.length);
+    result.actin_attachment = actin_center_image + bounded_coordinate * axis_a;
+    result.connector = result.actin_attachment - result.myosin_attachment;
+    result.connector.pbc_wrap(box, actin.periodic_axes);
+
+    const double z = result.connector.dot(axis_a);
+    const vec transverse = result.connector - z * axis_a;
+    const double rho = transverse.norm();
+    result.longitudinal_extension = z;
+    result.transverse_distance = rho;
+    result.head_reach_surface_distance = result.connector.norm() -
+                                         std::max(0.0, radial_preferred);
+
+    vec gradient_h {0.0, 0.0, 0.0};
+    vec explicit_gradient_axis {0.0, 0.0, 0.0};
+
+    const double radial_extension = rho - std::max(0.0, radial_preferred);
+    const double slack = std::max(0.0, radial_slack);
+    double loaded_radial_extension = 0.0;
+    if (radial_extension > slack) {
+        loaded_radial_extension = radial_extension - slack;
+    } else if (radial_extension < -slack) {
+        loaded_radial_extension = radial_extension + slack;
+    }
+    if (radial_stiffness > 0.0 && rho > 1e-12 &&
+        loaded_radial_extension != 0.0) {
+        const double dU_drho = radial_stiffness * loaded_radial_extension;
+        gradient_h += (dU_drho / rho) * transverse;
+        // rho^2 = h.h - (h.u)^2.  This explicit orientation derivative is
+        // required in addition to the material-point lever arm.
+        explicit_gradient_axis += -(dU_drho * z / rho) * result.connector;
+        result.radial_energy = 0.5 * radial_stiffness *
+                               loaded_radial_extension * loaded_radial_extension;
+        result.energy += result.radial_energy;
+    }
+
+    double dU_dz = 0.0;
+    if (strong) {
+        result.productive_strain = stroke_progress - z;
+        // The attached head is an elastic element whose rest coordinate is
+        // advanced one-way by the power stroke.  Tension-only rectification
+        // makes an overshooting thin filament feel exactly zero force, so
+        // nothing opposes penetration past the M-line.  In bidirectional mode
+        // the head is a signed spring about stroke_progress: it pulls while the
+        // actin lags and pushes back once the actin overshoots, matching the
+        // weak-head branch below and real cross-bridge elasticity.
+        const bool axial_active = axial_stiffness > 0.0 &&
+            (bidirectional_strong ? result.productive_strain != 0.0
+                                  : result.productive_strain > 0.0);
+        if (axial_active) {
+            const double uncapped_force =
+                axial_stiffness * result.productive_strain;
+            const double magnitude = std::abs(uncapped_force);
+            result.active_force = stall_force > 0.0
+                ? std::copysign(std::min(magnitude, stall_force), uncapped_force)
+                : uncapped_force;
+            dU_dz = -result.active_force;
+            const double strain_magnitude = std::abs(result.productive_strain);
+            if (stall_force > 0.0 && magnitude > stall_force) {
+                result.axial_energy = stall_force * strain_magnitude -
+                    0.5 * stall_force * stall_force / axial_stiffness;
+            } else {
+                result.axial_energy = 0.5 * axial_stiffness *
+                    result.productive_strain * result.productive_strain;
+            }
+            result.energy += result.axial_energy;
+        }
+    } else {
+        result.productive_strain = -z;
+        if (axial_stiffness > 0.0) {
+            dU_dz = axial_stiffness * z;
+            result.axial_energy = 0.5 * axial_stiffness * z * z;
+            result.energy += result.axial_energy;
+        }
+    }
+    gradient_h += dU_dz * axis_a;
+    explicit_gradient_axis += dU_dz * result.connector;
+
+    result.force_on_actin = -1.0 * gradient_h;
+    result.force_on_myosin = gradient_h;
+    result.axial_force_on_actin = -dU_dz * axis_a;
+    result.radial_force_on_actin =
+        result.force_on_actin - result.axial_force_on_actin;
+
+    const vec actin_axis_gradient =
+        bounded_coordinate * gradient_h + explicit_gradient_axis;
+    result.physical_torque_on_actin =
+        -1.0 * axis_a.cross(actin_axis_gradient);
+    vec myosin_lever = result.myosin_attachment -
+                       static_cast<vec>(myosin.center[myosin_index]);
+    myosin_lever.pbc_wrap(box, actin.periodic_axes);
+    result.physical_torque_on_myosin = myosin_lever.cross(gradient_h);
+    return result;
+}
+
+double select_am_binding_azimuth(
+    const Filament& actin, const Myosin& myosin,
+    int actin_index, int myosin_index, const std::vector<double>& box,
+    double myosin_anchor_axial, double crown_azimuth, double max_swing,
+    const vec& material_e1, const vec& material_e2) {
+    vec axis_m = myosin.direction[myosin_index];
+    vec axis_a = actin.direction[actin_index];
+    if (axis_m.norm() <= 1e-12 || axis_a.norm() <= 1e-12) {
+        return crown_azimuth;
+    }
+    axis_m.normalize();
+    axis_a.normalize();
+    vec e1 = material_e1 - axis_m * material_e1.dot(axis_m);
+    if (e1.norm() <= 1e-12) return crown_azimuth;
+    e1.normalize();
+    vec e2 = axis_m.cross(e1);
+    e2.normalize();
+    if (e2.dot(material_e2) < 0.0) e2 = -1.0 * e2;
+
+    const vec axial_anchor = static_cast<vec>(myosin.center[myosin_index]) +
+                             myosin_anchor_axial * axis_m;
+    vec center_disp = static_cast<vec>(actin.center[actin_index]) - axial_anchor;
+    center_disp.pbc_wrap(box, actin.periodic_axes);
+    const vec actin_center_image = axial_anchor + center_disp;
+    const double actin_coordinate = std::clamp(
+        (axial_anchor - actin_center_image).dot(axis_a),
+        -0.5 * actin.length, 0.5 * actin.length);
+    const vec closest_actin = actin_center_image + actin_coordinate * axis_a;
+    vec radial = closest_actin - axial_anchor;
+    radial -= axis_m * radial.dot(axis_m);
+    if (radial.norm() <= 1e-12) return crown_azimuth;
+    radial.normalize();
+    const double target = std::atan2(radial.dot(e2), radial.dot(e1));
+    const double delta = std::remainder(target - crown_azimuth, 2.0 * M_PI);
+    const double bounded = std::clamp(delta, -std::max(0.0, max_swing),
+                                     std::max(0.0, max_swing));
+    return crown_azimuth + bounded;
+}
+
+namespace {
+
+vec regularized_steric_normal(
+    vec first_axis, vec second_axis, vec center_displacement,
+    int first_id, int second_id) {
+    constexpr double eps = 1e-12;
+    first_axis.normalize();
+    second_axis.normalize();
+
+    // A true nonparallel intersection has zero distance and therefore no
+    // unique signed distance gradient.  The normal to both axes is the local
+    // capsule-separation direction; its sign is selected by the resolved
+    // center displacement when possible.  Swapping the rods reverses both the
+    // cross product and center displacement, preserving pair antisymmetry.
+    vec normal = first_axis.cross(second_axis);
+    if (normal.norm() > eps) {
+        normal.normalize();
+        const double projection = normal.dot(center_displacement);
+        if (projection < -eps) normal = -normal;
+        return normal;
+    }
+
+    // Parallel/coincident rods use their transverse center separation.  If
+    // that also vanishes, choose a deterministic pair-specific transverse
+    // direction so exact coincidence still experiences a reciprocal force.
+    if (first_axis.dot(second_axis) < 0.0) second_axis = -second_axis;
+    vec common_axis = first_axis + second_axis;
+    if (common_axis.norm() <= eps) common_axis = first_axis;
+    common_axis.normalize();
+    normal = center_displacement -
+             common_axis * center_displacement.dot(common_axis);
+    if (normal.norm() > eps) {
+        normal.normalize();
+        return normal;
+    }
+
+    const std::uint64_t low =
+        static_cast<std::uint64_t>(std::min(first_id, second_id) + 1);
+    const std::uint64_t high =
+        static_cast<std::uint64_t>(std::max(first_id, second_id) + 1);
+    const std::uint64_t hash =
+        (low * 0x9e3779b97f4a7c15ULL) ^
+        (high * 0xbf58476d1ce4e5b9ULL);
+    const std::array<vec, 3> references{
+        vec{1.0, 0.0, 0.0}, vec{0.0, 1.0, 0.0}, vec{0.0, 0.0, 1.0}};
+    vec reference = references[static_cast<size_t>(hash % 3ULL)];
+    if (std::abs(reference.dot(common_axis)) > 0.9) {
+        reference = references[static_cast<size_t>((hash + 1ULL) % 3ULL)];
+    }
+    normal = reference - common_axis * reference.dot(common_axis);
+    normal.normalize();
+    if (first_id > second_id) normal = -normal;
+    return normal;
+}
+
+vec steric_contact_orientation_drive(
+    const vec& center, vec axis, const vec& contact, const vec& force,
+    const std::vector<double>& box, const std::array<bool,3>& periodic,
+    const vec& other_axis) {
+    axis.normalize();
+    vec normalized_other = other_axis;
+    normalized_other.normalize();
+    // The closest point is non-unique along parallel overlapping rods.  Do
+    // not manufacture a torque from whichever endpoint the distance solver
+    // happened to choose; their reciprocal transverse force is sufficient.
+    if (axis.cross(normalized_other).norm() <= 1e-8) {
+        return {0.0, 0.0, 0.0};
+    }
+    vec lever = contact - center;
+    lever.pbc_wrap(box, periodic);
+    const vec physical_torque = lever.cross(force);
+    return physical_torque.cross(axis);
+}
+
+}  // namespace
+
+vec compute_actin_myosin_radial_repulsion(
+    const Filament& actin, const Myosin& myosin,
+    int actin_index, int myosin_index, const std::vector<double>& box,
+    double excluded_centerline_distance, double stiffness) {
+    return compute_actin_myosin_radial_repulsion_result(
+        actin, myosin, actin_index, myosin_index, box,
+        excluded_centerline_distance, stiffness).force_on_first;
+}
+
+RepulsionResult compute_actin_myosin_radial_repulsion_result(
+    const Filament& actin, const Myosin& myosin,
+    int actin_index, int myosin_index, const std::vector<double>& box,
+    double excluded_centerline_distance, double stiffness) {
+    RepulsionResult result{};
+    if (!(excluded_centerline_distance > 0.0) || !(stiffness > 0.0)) {
+        return result;
+    }
+    const auto geometry_result = geometry::segment_segment_distance_w_normal(
+        actin.left_end[actin_index], actin.right_end[actin_index],
+        myosin.left_end[myosin_index], myosin.right_end[myosin_index],
+        box, actin.periodic_axes);
+    const double distance = geometry_result.first;
+    result.segment_distance = distance;
+    if (distance >= excluded_centerline_distance) return result;
+    vec normal = geometry_result.second.normal;
+    if (normal.norm() <= 1e-12) {
+        vec center_displacement =
+            static_cast<vec>(actin.center[actin_index]) -
+            static_cast<vec>(myosin.center[myosin_index]);
+        center_displacement.pbc_wrap(box, actin.periodic_axes);
+        normal = regularized_steric_normal(
+            actin.direction[actin_index], myosin.direction[myosin_index],
+            center_displacement, actin_index, actin.n + myosin_index);
+    }
+    normal.normalize();
+    const vec force =
+        stiffness * (excluded_centerline_distance - distance) * normal;
+    result.applied = true;
+    result.force_on_first = force;
+    result.force_on_second = -force;
+    result.torque_on_first = steric_contact_orientation_drive(
+        actin.center[actin_index], actin.direction[actin_index],
+        geometry_result.second.start, force, box, actin.periodic_axes,
+        myosin.direction[myosin_index]);
+    result.torque_on_second = steric_contact_orientation_drive(
+        myosin.center[myosin_index], myosin.direction[myosin_index],
+        geometry_result.second.end, -force, box, myosin.periodic_axes,
+        actin.direction[actin_index]);
+    return result;
+}
+
+AMOffCenterTorqueResult compute_am_offcenter_torque(
+    const vec& center,
+    const vec& axis,
+    const vec& attachment,
+    const vec& force,
+    const std::vector<double>& box,
+    const std::array<bool,3>& periodic) {
+    AMOffCenterTorqueResult result;
+    result.lever_arm = attachment - center;
+    result.lever_arm.pbc_wrap(box, periodic);
+    result.physical_torque = result.lever_arm.cross(force);
+
+    vec unit_axis = axis;
+    if (unit_axis.norm() <= 1e-12) return result;
+    unit_axis.normalize();
+    result.orientation_drive = result.physical_torque.cross(unit_axis);
+    return result;
+}
+
+double project_nematic_alignment_drive(
+    const vec& moving_axis, const vec& target_axis,
+    const vec& orientation_drive) {
+    vec moving = moving_axis;
+    vec target = target_axis;
+    if (moving.norm() <= 1e-12 || target.norm() <= 1e-12) return 0.0;
+    moving.normalize();
+    target.normalize();
+    if (moving.dot(target) < 0.0) target = -1.0 * target;
+    vec tangent = target - moving * target.dot(moving);
+    if (tangent.norm() <= 1e-12) return 0.0;
+    tangent.normalize();
+    return orientation_drive.dot(tangent);
+}
+
+AMNematicTetherResult compute_am_nematic_flat_bottom_tether(
+    const vec& actin_axis, const vec& myosin_axis,
+    double stiffness, double slack_angle) {
+    AMNematicTetherResult result;
+    vec axis_a = actin_axis;
+    vec axis_m = myosin_axis;
+    if (!(stiffness > 0.0) ||
+        axis_a.norm() <= 1e-12 || axis_m.norm() <= 1e-12) {
+        return result;
+    }
+    axis_a.normalize();
+    axis_m.normalize();
+    const double dot = std::clamp(axis_a.dot(axis_m), -1.0, 1.0);
+    const double sine = std::sqrt(std::max(0.0, 1.0 - dot * dot));
+    result.angle = std::asin(std::clamp(sine, 0.0, 1.0));
+    const double bounded_slack = std::clamp(
+        slack_angle, 0.0, 0.5 * M_PI);
+    const double slack_sine = std::sin(bounded_slack);
+    if (sine <= slack_sine || sine <= 1e-12) return result;
+
+    const double excess = sine - slack_sine;
+    result.energy = 0.5 * stiffness * excess * excess;
+    // Negative constrained gradient of the nematic flat-bottom potential.
+    const double coefficient = stiffness * excess * dot / sine;
+    result.drive_on_actin =
+        coefficient * (axis_m - dot * axis_a);
+    result.drive_on_myosin =
+        coefficient * (axis_a - dot * axis_m);
+    result.active = true;
+    return result;
 }
 
 RepulsionResult compute_myosin_repulsion(const Filament& actin,
@@ -255,19 +912,12 @@ RepulsionResult compute_myosin_repulsion(const Filament& actin,
         return result;
     }
 
-    auto normal_it = geom.second.find("normal");
-    if (normal_it == geom.second.end()) {
-        return result;
-    }
-
-    vec normal_vector = normal_it->second;
+    vec normal_vector = geom.second.normal;
     double norm = normal_vector.norm();
     if (norm <= EPS) {
-        const double denom = std::max(center_displacement.norm(), EPS);
-        if (denom <= EPS) {
-            return result;
-        }
-        normal_vector = center_displacement / denom;
+        normal_vector = regularized_steric_normal(
+            myosin.direction[i], myosin.direction[j], center_displacement,
+            i, j);
     } else {
         normal_vector = normal_vector / norm;
     }
@@ -292,38 +942,127 @@ RepulsionResult compute_myosin_repulsion(const Filament& actin,
 
     if (i < fix_myosin) {
         result.force_on_second -= force_vec * 2.0;
-        return result;
-    }
-    if (j < fix_myosin) {
-        result.force_on_first += force_vec * 2.0;
-        return result;
-    }
-
-    int status_i = 0;
-    const auto& connections_i = actinIndicesPerMyosin.getConnections(i);
-    for (int act_idx : connections_i) {
-        status_i = std::max(status_i, actin.cb_status[act_idx]);
-    }
-
-    int status_j = 0;
-    const auto& connections_j = actinIndicesPerMyosin.getConnections(j);
-    for (int act_idx : connections_j) {
-        status_j = std::max(status_j, actin.cb_status[act_idx]);
-    }
-
-    if (status_i > 0 && status_j == 0) {
-        result.force_on_second -= force_vec * 2.0;
-    } else if (status_i == 0 && status_j > 0) {
+    } else if (j < fix_myosin) {
         result.force_on_first += force_vec * 2.0;
     } else {
+        // Biochemical occupancy does not make a thick filament immobile.
+        // Excluded volume must remain reciprocal unless the caller explicitly
+        // fixes a filament; otherwise binding injects net momentum and lets
+        // unlike-status rods interpenetrate.
         result.force_on_first += force_vec;
         result.force_on_second -= force_vec;
     }
+    result.torque_on_first = steric_contact_orientation_drive(
+        myosin.center[i], myosin.direction[i], geom.second.start,
+        result.force_on_first, box, myosin.periodic_axes,
+        myosin.direction[j]);
+    result.torque_on_second = steric_contact_orientation_drive(
+        myosin.center[j], myosin.direction[j], geom.second.end,
+        result.force_on_second, box, myosin.periodic_axes,
+        myosin.direction[i]);
     // if (overlap > 0.1) {
     //     printf("Myosin-myosin repulsion between myosins %d and %d: distance=%f, overlap=%f, force_mag=%f,force_vec=(%f, %f, %f)\n",
     //            i, j, distance, overlap, force_mag,
     //             force_vec.x, force_vec.y, force_vec.z);
     // }
+    return result;
+}
+
+ContactProjectionResult project_myosin_hard_contact(
+    Myosin& myosin,
+    int i,
+    int j,
+    const std::vector<double>& box,
+    int fix_myosin,
+    double target_distance,
+    double translation_weight,
+    double rotation_weight)
+{
+    ContactProjectionResult result{};
+    if (i == j || i < 0 || j < 0 || i >= myosin.n || j >= myosin.n ||
+        !std::isfinite(target_distance) || target_distance <= 0.0) {
+        return result;
+    }
+
+    const auto geom = geometry::segment_segment_distance_w_normal(
+        myosin.left_end[i], myosin.right_end[i],
+        myosin.left_end[j], myosin.right_end[j],
+        box, myosin.periodic_axes);
+    result.distance_before = geom.first;
+    if (!std::isfinite(result.distance_before) ||
+        result.distance_before >= target_distance) {
+        return result;
+    }
+
+    const bool first_fixed = i < fix_myosin;
+    const bool second_fixed = j < fix_myosin;
+    if (first_fixed && second_fixed) return result;
+
+    vec center_displacement = myosin.center[i] - myosin.center[j];
+    center_displacement.pbc_wrap(box, myosin.periodic_axes);
+    vec normal = geom.second.normal;
+    if (normal.norm() <= 1e-9) {
+        normal = regularized_steric_normal(
+            myosin.direction[i], myosin.direction[j],
+            center_displacement, i, j);
+    } else {
+        normal.normalize();
+    }
+
+    // A tiny clearance avoids immediately re-entering the soft potential
+    // through roundoff.  This is 50 pm for a 50 nm thick-filament diameter.
+    const double clearance = std::max(1e-12, target_distance * 1e-6);
+    const double gap = target_distance - result.distance_before + clearance;
+    const double wt = (std::isfinite(translation_weight) &&
+                       translation_weight > 0.0)
+        ? translation_weight : 1.0;
+    const double wr = (std::isfinite(rotation_weight) &&
+                       rotation_weight > 0.0)
+        ? rotation_weight : 0.0;
+    const vec first_orientation_gradient = steric_contact_orientation_drive(
+        myosin.center[i], myosin.direction[i], geom.second.start,
+        normal, box, myosin.periodic_axes, myosin.direction[j]);
+    const vec second_orientation_gradient = steric_contact_orientation_drive(
+        myosin.center[j], myosin.direction[j], geom.second.end,
+        -normal, box, myosin.periodic_axes, myosin.direction[i]);
+    double denominator = 0.0;
+    if (!first_fixed) {
+        denominator += wt + wr * first_orientation_gradient.dot(
+            first_orientation_gradient);
+    }
+    if (!second_fixed) {
+        denominator += wt + wr * second_orientation_gradient.dot(
+            second_orientation_gradient);
+    }
+    if (!(denominator > 0.0) || !std::isfinite(denominator)) return result;
+    const double multiplier = gap / denominator;
+
+    vec first_delta = wt * multiplier * normal;
+    vec second_delta = -wt * multiplier * normal;
+    if (!first_fixed) {
+        double dx = first_delta.x, dy = first_delta.y, dz = first_delta.z;
+        myosin.displace(i, dx, dy, dz);
+        if (wr > 0.0 && first_orientation_gradient.norm() > 0.0) {
+            vec axis = myosin.direction[i];
+            axis.normalize();
+            myosin.direction[i] = rod_mobility::sphere_exp(
+                axis, wr * multiplier * first_orientation_gradient);
+            myosin.update_endpoints(i);
+        }
+    }
+    if (!second_fixed) {
+        double dx = second_delta.x, dy = second_delta.y, dz = second_delta.z;
+        myosin.displace(j, dx, dy, dz);
+        if (wr > 0.0 && second_orientation_gradient.norm() > 0.0) {
+            vec axis = myosin.direction[j];
+            axis.normalize();
+            myosin.direction[j] = rod_mobility::sphere_exp(
+                axis, wr * multiplier * second_orientation_gradient);
+            myosin.update_endpoints(j);
+        }
+    }
+    result.applied = true;
+    result.correction = gap;
     return result;
 }
 
@@ -350,26 +1089,17 @@ RepulsionResult compute_actin_repulsion(const Filament& actin,
         box, actin.periodic_axes);
 
     const double distance = geom.first;
+    result.segment_distance = distance;
     if (distance >= crosslinker_length) {
         return result;
     }
 
-    auto normal_it = geom.second.find("normal");
-    if (normal_it == geom.second.end()) {
-        return result;
-    }
-
-    vec normal_vector = normal_it->second;
+    vec normal_vector = geom.second.normal;
     double norm = normal_vector.norm();
     if (norm <= EPS) {
-        const vec dir_i = actin.direction[i];
-        const vec dir_j = actin.direction[j];
-        normal_vector = dir_i.cross(dir_j);
-        double fallback_norm = normal_vector.norm();
-        if (fallback_norm <= EPS) {
-            return result;
-        }
-        normal_vector = normal_vector / fallback_norm;
+        normal_vector = regularized_steric_normal(
+            actin.direction[i], actin.direction[j], center_displacement,
+            i, j);
     } else {
         normal_vector = normal_vector / norm;
     }
@@ -385,19 +1115,117 @@ RepulsionResult compute_actin_repulsion(const Filament& actin,
     }
     vec force_vec = force_mag * normal_vector;
 
-    const int status_i = actin.cb_status[i];
-    const int status_j = actin.cb_status[j];
-    const bool both_status_two = (status_i == 2 && status_j == 2);
-    const bool apply_first = (status_i < 2) || both_status_two;
-    const bool apply_second = (status_j < 2) || both_status_two;
+    // Excluded volume is independent of biochemical catch state.  Always
+    // apply an equal-and-opposite pair force; suppressing the reaction on a
+    // status-2 filament injects momentum and lets unlike-status rods overlap.
+    result.force_on_first += force_vec;
+    result.force_on_second -= force_vec;
+    result.torque_on_first = steric_contact_orientation_drive(
+        actin.center[i], actin.direction[i], geom.second.start,
+        result.force_on_first, box, actin.periodic_axes,
+        actin.direction[j]);
+    result.torque_on_second = steric_contact_orientation_drive(
+        actin.center[j], actin.direction[j], geom.second.end,
+        result.force_on_second, box, actin.periodic_axes,
+        actin.direction[i]);
+    result.applied = true;
+    return result;
+}
 
-    if (apply_first) {
-        result.force_on_first += force_vec;
+RepulsionResult compute_opposing_pointed_end_contact(
+    const Filament& actin,
+    int i,
+    int j,
+    const std::vector<double>& box,
+    double contact_diameter,
+    double epsilon,
+    double force_cap,
+    double antiparallel_dot_max)
+{
+    RepulsionResult result{};
+    if (i == j || i < 0 || j < 0 || i >= actin.n || j >= actin.n ||
+        !(contact_diameter > 0.0) || !(epsilon > 0.0) ||
+        !std::isfinite(contact_diameter) || !std::isfinite(epsilon)) {
+        return result;
     }
-    if (apply_second) {
-        result.force_on_second -= force_vec;
+
+    vec ui = actin.direction[i];
+    vec uj = actin.direction[j];
+    if (!(ui.norm() > 0.0) || !(uj.norm() > 0.0)) return result;
+    ui.normalize();
+    uj.normalize();
+    const double direction_dot = ui.dot(uj);
+    if (direction_dot > antiparallel_dot_max) return result;
+
+    // Filament::direction points from the barbed end to the pointed end, so
+    // center + L/2 direction is the material pointed-end cap.
+    const vec pointed_i = static_cast<vec>(actin.center[i]) +
+                          0.5 * actin.length * ui;
+    const vec pointed_j = static_cast<vec>(actin.center[j]) +
+                          0.5 * actin.length * uj;
+    vec separation = pointed_j - pointed_i;
+    separation.pbc_wrap(box, actin.periodic_axes);
+
+    // e points from i toward its pointed end and, for an antiparallel pair,
+    // toward j's pointed end before collision.  Preserve this signed order:
+    // after an attempted crossing axial_gap becomes negative instead of being
+    // mistaken for two separated endpoint spheres.
+    vec e = ui - uj;
+    if (!(e.norm() > 1e-12)) return result;
+    e.normalize();
+    const double axial_gap = separation.dot(e);
+    const vec transverse = separation - axial_gap * e;
+    const double transverse_distance = transverse.norm();
+    result.axial_gap = axial_gap;
+    result.transverse_distance = transverse_distance;
+    result.segment_distance = std::sqrt(
+        axial_gap * axial_gap +
+        transverse_distance * transverse_distance);
+
+    // Two circular end caps on distinct lattice tracks do not collide.  For
+    // caps in the same lane, their transverse offset leaves this much allowed
+    // axial clearance at first contact.
+    if (transverse_distance >= contact_diameter) return result;
+    const double allowed_gap = std::sqrt(std::max(
+        0.0, contact_diameter * contact_diameter -
+             transverse_distance * transverse_distance));
+    const double penetration = allowed_gap - axial_gap;
+    result.contact_penetration = std::max(0.0, penetration);
+    if (!(penetration > 0.0)) return result;
+
+    // Shift the WCA radial coordinate so the force is exactly zero at first
+    // contact (penetration=0) and rises steeply only under compression.
+    const double wca_cutoff = std::pow(2.0, 1.0 / 6.0) * contact_diameter;
+    const double minimum_r = 0.05 * contact_diameter;
+    const double r = std::max(minimum_r, wca_cutoff - penetration);
+    const double sr = contact_diameter / r;
+    const double sr2 = sr * sr;
+    const double sr6 = sr2 * sr2 * sr2;
+    const double sr12 = sr6 * sr6;
+    double force_magnitude =
+        24.0 * epsilon / r * (2.0 * sr12 - sr6);
+    force_magnitude = std::max(0.0, force_magnitude);
+    if (force_cap > 0.0 && std::isfinite(force_cap)) {
+        force_magnitude = std::min(force_magnitude, force_cap);
     }
-    result.applied = apply_first || apply_second;
+    if (!(force_magnitude > 0.0) || !std::isfinite(force_magnitude)) {
+        return result;
+    }
+
+    // Increase the signed gap.  The pair is reciprocal and therefore cannot
+    // inject net momentum.  Applying the forces at the material caps also
+    // supplies the correct off-axis rotation drive when the rods are skewed.
+    const vec force_on_i = -force_magnitude * e;
+    const vec force_on_j = -force_on_i;
+    result.force_on_first = force_on_i;
+    result.force_on_second = force_on_j;
+    result.torque_on_first = steric_contact_orientation_drive(
+        actin.center[i], ui, pointed_i, force_on_i,
+        box, actin.periodic_axes, uj);
+    result.torque_on_second = steric_contact_orientation_drive(
+        actin.center[j], uj, pointed_j, force_on_j,
+        box, actin.periodic_axes, ui);
+    result.applied = true;
     return result;
 }
 
@@ -460,11 +1288,7 @@ vec compute_actin_myosin_repulsion(const Filament& actin,
         //endstop_force = mag_mid * actin.direction[act_idx]; // pushes outward along actin direction
         endstop_force = mag_mid * (s >= 0 ? u : -u);      //force on actin pushes outward along myosin axis
         if (dist_to_end/Lm > 0.1){
-        printf("actin %d (center=(%f,%f,%f)) - myosin %d (center=(%f,%f,%f)): s=%f, dist_to_end=%f, mag_mid=%f, endstop_force=(%f,%f,%f)\n",
-               act_idx, actin.center[act_idx].x, actin.center[act_idx].y, actin.center[act_idx].z,
-               myo_idx, myosin.center[myo_idx].x, myosin.center[myo_idx].y, myosin.center[myo_idx].z,
-               s, dist_to_end, mag_mid,
-               endstop_force.x, endstop_force.y, endstop_force.z);}
+}
     }
     return endstop_force; //force on actin
 }

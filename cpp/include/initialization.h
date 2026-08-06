@@ -6,7 +6,9 @@
 namespace initialization {
     void partial_fix(Sarcomere& s, int& n_fixed);
     void cb(Sarcomere& s);
-    void set_myosin_direction_x_noise(Sarcomere& s, double noise_std);
+    void set_actin_direction_x_noise(Sarcomere& s, double noise_std);
+    void set_myosin_direction_x_noise(Sarcomere& s, double noise_std,
+                                       double tilt_deg = 0.0);
     void cb_off_angle(Sarcomere& s);
     void am_off_angle(Sarcomere& s);
     void sarcomeric_structure_tight(Sarcomere& s);

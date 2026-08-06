@@ -105,6 +105,18 @@ public:
 
 // Helper to reduce temporary arrays into VecArray targets
 void reduce_array(std::vector<std::vector<vec>>& temp_array, Filament::VecArray& target_array);
+void reduce_arrays(
+    std::vector<std::vector<vec>>& first_temp,
+    Filament::VecArray& first_target,
+    std::vector<std::vector<vec>>& second_temp,
+    Filament::VecArray& second_target);
+void reduce_arrays(
+    std::vector<std::vector<vec>>& first_temp,
+    Filament::VecArray& first_target,
+    std::vector<std::vector<vec>>& second_temp,
+    Filament::VecArray& second_target,
+    std::vector<std::vector<vec>>& third_temp,
+    Filament::VecArray& third_target);
 
 class Myosin : public Filament {
 public:

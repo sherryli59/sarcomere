@@ -99,33 +99,43 @@ double segment_segment_distance(const vec& A, const vec& B,
         // Search for the best (t,s) in [0,1]^2.
         double best_dist2 = std::numeric_limits<double>::infinity();
         double best_t = 0.0, best_s = 0.0;
-        
+
+        const double w2 = w.dot(w);
         auto evaluate = [&](double t, double s) {
-            vec diff = w + u * t - v * s;
-            double d2 = diff.norm_squared();
+            // ||w + t*u - s*v||^2 using the dot products above. This avoids
+            // constructing three temporary vectors for every candidate.
+            double d2 = w2 + a * t * t + c * s * s +
+                        2.0 * d_val * t - 2.0 * e_val * s -
+                        2.0 * b * t * s;
+            d2 = std::max(0.0, d2);
             if (d2 < best_dist2) {
                 best_dist2 = d2;
                 best_t = t;
                 best_s = s;
             }
         };
-        
-        // Evaluate the unconstrained optimum if it lies within [0,1]^2.
-        if (t_opt >= 0.0 && t_opt <= 1.0 && s_opt >= 0.0 && s_opt <= 1.0) {
+
+        // An interior closest point of two non-parallel infinite lines is
+        // already the constrained segment minimum. Avoid evaluating four
+        // endpoint candidates in this common case.
+        const bool interior_line_minimum =
+            std::fabs(denom) > EPS &&
+            t_opt >= 0.0 && t_opt <= 1.0 &&
+            s_opt >= 0.0 && s_opt <= 1.0;
+        if (interior_line_minimum) {
             evaluate(t_opt, s_opt);
-        }
-        
-        // Evaluate boundaries: t = 0 and t = 1, optimizing s.
-        for (int i = 0; i < 2; i++) {
-            double t_candidate = (i == 0) ? 0.0 : 1.0;
-            double s_candidate = clamp(v.dot(w + u * t_candidate) / c, 0.0, 1.0);
-            evaluate(t_candidate, s_candidate);
-        }
-        // Evaluate boundaries: s = 0 and s = 1, optimizing t.
-        for (int j = 0; j < 2; j++) {
-            double s_candidate = (j == 0) ? 0.0 : 1.0;
-            double t_candidate = clamp(u.dot(s_candidate * v - w) / a, 0.0, 1.0);
-            evaluate(t_candidate, s_candidate);
+        } else {
+            // Otherwise the constrained minimum lies on a boundary.
+            for (int i = 0; i < 2; i++) {
+                double t_candidate = (i == 0) ? 0.0 : 1.0;
+                double s_candidate = clamp((e_val + b * t_candidate) / c, 0.0, 1.0);
+                evaluate(t_candidate, s_candidate);
+            }
+            for (int j = 0; j < 2; j++) {
+                double s_candidate = (j == 0) ? 0.0 : 1.0;
+                double t_candidate = clamp((b * s_candidate - d_val) / a, 0.0, 1.0);
+                evaluate(t_candidate, s_candidate);
+            }
         }
         
         return std::sqrt(best_dist2);
@@ -144,7 +154,7 @@ double segment_segment_distance(const vec& A, const vec& B,
 // Compute the shortest distance between two line segments by solving
 // the constrained minimization problem.
 // Returns a pair: (distance, { "start": P, "end": Q, "normal": (P-Q) } ).
-std::pair<double, std::map<std::string, vec>> segment_segment_distance_w_normal(
+std::pair<double, SegmentInfo> segment_segment_distance_w_normal(
     const vec& A, const vec& B, 
     const vec& C, const vec& D, 
     const std::vector<double>& box,
@@ -212,33 +222,38 @@ std::pair<double, std::map<std::string, vec>> segment_segment_distance_w_normal(
     // Search for the best (t,s) in [0,1]^2.
     double best_dist2 = std::numeric_limits<double>::infinity();
     double best_t = 0.0, best_s = 0.0;
-    
+
+    const double w2 = w.dot(w);
     auto evaluate = [&](double t, double s) {
-        vec diff = w + u * t - v * s;
-        double d2 = diff.norm_squared();
+        double d2 = w2 + a * t * t + c * s * s +
+                    2.0 * d_val * t - 2.0 * e_val * s -
+                    2.0 * b * t * s;
+        d2 = std::max(0.0, d2);
         if (d2 < best_dist2) {
             best_dist2 = d2;
             best_t = t;
             best_s = s;
         }
     };
-    
-    // Evaluate the unconstrained optimum if it lies within [0,1]^2.
-    if (t_opt >= 0.0 && t_opt <= 1.0 && s_opt >= 0.0 && s_opt <= 1.0) {
+
+    const bool interior_line_minimum =
+        std::fabs(denom) > EPS &&
+        t_opt >= 0.0 && t_opt <= 1.0 &&
+        s_opt >= 0.0 && s_opt <= 1.0;
+    if (interior_line_minimum) {
         evaluate(t_opt, s_opt);
-    }
-    
-    // Evaluate boundaries: t = 0 and t = 1, optimizing s.
-    for (int i = 0; i < 2; i++) {
-        double t_candidate = (i == 0) ? 0.0 : 1.0;
-        double s_candidate = clamp(v.dot(w + u * t_candidate) / c, 0.0, 1.0);
-        evaluate(t_candidate, s_candidate);
-    }
-    // Evaluate boundaries: s = 0 and s = 1, optimizing t.
-    for (int j = 0; j < 2; j++) {
-        double s_candidate = (j == 0) ? 0.0 : 1.0;
-        double t_candidate = clamp(u.dot(s_candidate * v - w) / a, 0.0, 1.0);
-        evaluate(t_candidate, s_candidate);
+    } else {
+        // Otherwise the constrained minimum lies on a boundary.
+        for (int i = 0; i < 2; i++) {
+            double t_candidate = (i == 0) ? 0.0 : 1.0;
+            double s_candidate = clamp((e_val + b * t_candidate) / c, 0.0, 1.0);
+            evaluate(t_candidate, s_candidate);
+        }
+        for (int j = 0; j < 2; j++) {
+            double s_candidate = (j == 0) ? 0.0 : 1.0;
+            double t_candidate = clamp((b * s_candidate - d_val) / a, 0.0, 1.0);
+            evaluate(t_candidate, s_candidate);
+        }
     }
     
     double distance = std::sqrt(best_dist2);
@@ -250,15 +265,10 @@ std::pair<double, std::map<std::string, vec>> segment_segment_distance_w_normal(
     // Compute the normal vector from Q to P (using pbc_diff if further adjustment is needed).
     vec normal = pbc_diff(P, Q, box, periodic);
     
-    std::map<std::string, vec> info;
-    info["start"] = P;
-    info["end"] = Q;
-    info["normal"] = normal;
-    
-    return std::make_pair(distance, info);
+    return {distance, SegmentInfo{P, Q, normal}};
 }
 
-std::pair<double, std::map<std::string, vec>> segment_segment_distance_w_normal(
+std::pair<double, SegmentInfo> segment_segment_distance_w_normal(
     const vec& A, const vec& B,
     const vec& C, const vec& D,
     const std::vector<double>& box)
@@ -271,7 +281,7 @@ std::pair<double, std::map<std::string, vec>> segment_segment_distance_w_normal(
 
 void apply_pbc(vec& actin_left, vec& actin_right, 
                         vec& myosin_left, vec& myosin_right,
-                        std::vector<double> box, const std::array<bool,3>& periodic){
+                        const std::vector<double>& box, const std::array<bool,3>& periodic){
 
     vec actin_mid = (actin_left + actin_right) / 2;
     vec myosin_mid = (myosin_left + myosin_right) / 2;
@@ -299,7 +309,7 @@ void apply_pbc(vec& actin_left, vec& actin_right,
 
 void apply_pbc(vec& actin_left, vec& actin_right,
                         vec& myosin_left, vec& myosin_right,
-                        std::vector<double> box){
+                        const std::vector<double>& box){
     static const std::array<bool,3> default_periodic{true, true, true};
     apply_pbc(actin_left, actin_right, myosin_left, myosin_right, box, default_periodic);
 }
@@ -344,13 +354,51 @@ std::vector<double> solveQuadratic(double a, double b, double c) {
     return roots;
 }
 
-std::vector<double> compute_transitions(vec A, vec B, vec C, vec D) {
+namespace {
+struct SmallValues {
+    std::array<double, 8> values{};
+    size_t count = 0;
+
+    void push(double value) {
+        if (count < values.size()) values[count++] = value;
+    }
+    double& operator[](size_t i) { return values[i]; }
+    const double& operator[](size_t i) const { return values[i]; }
+    void sort_unique() {
+        std::sort(values.begin(), values.begin() + count);
+        auto last = std::unique(values.begin(), values.begin() + count,
+                                [](double a, double b) { return std::abs(a - b) < EPS; });
+        count = static_cast<size_t>(last - values.begin());
+    }
+};
+
+SmallValues solve_quadratic_small(double a, double b, double c) {
+    SmallValues roots;
+    const double discriminant = b * b - 4 * a * c;
+    if (discriminant < -EPS) return roots;
+    if (std::abs(discriminant) < EPS) {
+        roots.push(-b / (2 * a));
+    } else {
+        const double sqrt_disc = std::sqrt(discriminant);
+        roots.push((-b - sqrt_disc) / (2 * a));
+        roots.push((-b + sqrt_disc) / (2 * a));
+    }
+    return roots;
+}
+} // namespace
+
+SmallValues compute_transitions(vec A, vec B, vec C, vec D) {
     vec AB_dir = B - A;
     vec CD_dir = D - C;
     double CD_len_sq = CD_dir.dot(CD_dir);
     
     // Avoid division by zero if CD is a point
-    if (CD_len_sq < EPS) return {0.0, 1.0};
+    if (CD_len_sq < EPS) {
+        SmallValues result;
+        result.push(0.0);
+        result.push(1.0);
+        return result;
+    }
 
     // Compute s(t) coefficients
     vec AC = A - C;
@@ -369,23 +417,23 @@ std::vector<double> compute_transitions(vec A, vec B, vec C, vec D) {
     double t2 = (dist_D_sq - dist_C_sq) / (2 * AB_dir.dot(CD_dir));
 
     // Collect and clamp boundaries
-    std::vector<double> boundaries = {0.0, 1.0};
+    SmallValues boundaries;
+    boundaries.push(0.0);
+    boundaries.push(1.0);
     auto add_clamped = [&](double t) {
-        if (t > 0 && t < 1) boundaries.push_back(std::clamp(t, 0.0, 1.0));
+        if (t > 0 && t < 1) boundaries.push(std::clamp(t, 0.0, 1.0));
     };
     add_clamped(t0);
     add_clamped(t1);
     add_clamped(t2);
 
     // Remove duplicates
-    std::sort(boundaries.begin(), boundaries.end());
-    boundaries.erase(std::unique(boundaries.begin(), boundaries.end()), boundaries.end());
+    boundaries.sort_unique();
     return boundaries;
 }
 
 // Main function to find intervals on AB where distance to CD is less than d
 std::tuple<double,vec,vec> subsegment_within_distance(vec A, vec B, vec C, vec D, double d) {
-    std::vector<std::pair<vec, vec>> intervals;
     double interval_start = 1.0;
     double interval_end = 0.0;
     vec dirAB = B - A; // Direction vector of AB
@@ -393,21 +441,27 @@ std::tuple<double,vec,vec> subsegment_within_distance(vec A, vec B, vec C, vec D
     double lenAB_sq = dirAB.norm_squared();
     double lenCD_sq = dirCD.norm_squared();
 
-    //rule out the case where the midpoints of the two segments are more than d apart
-    vec AB_mid = (A + B) / 2;
-    vec CD_mid = (C + D) / 2;
-    if ((AB_mid - CD_mid).norm() > dirAB.norm() + dirCD.norm() + d) {
+    // Bounding spheres around the two segments cannot approach within d when
+    // their midpoint separation exceeds the sum of their half-lengths plus d.
+    // The previous test used full lengths, admitting many impossible pairs.
+    const vec midpoint_delta = 0.5 * ((A + B) - (C + D));
+    const double midpoint_reach = 0.5 * std::sqrt(lenAB_sq) +
+                                  0.5 * std::sqrt(lenCD_sq) +
+                                  std::max(0.0, d);
+    if (midpoint_delta.norm_squared() > midpoint_reach * midpoint_reach) {
         return std::make_tuple(0.0, A, A);
     }
     // Find transition points where closest point on CD changes
-    std::vector<double> boundaries = {0.0, 1.0};
+    SmallValues boundaries;
+    boundaries.push(0.0);
+    boundaries.push(1.0);
 
     if (lenAB_sq > EPS) {
         // Compute transition points
         boundaries = compute_transitions(A, B, C, D);
     }
     // Process each subsegment
-    for (size_t i = 0; i < boundaries.size() - 1; ++i) {
+    for (size_t i = 0; i + 1 < boundaries.count; ++i) {
         double t_start = boundaries[i];
         double t_end = boundaries[i + 1];
         if (t_end - t_start < EPS) {
@@ -443,29 +497,21 @@ std::tuple<double,vec,vec> subsegment_within_distance(vec A, vec B, vec C, vec D
             double C_coef = lenCD_sq * E.dot(E) - pow(dirCD.dot(E), 2) - lenCD_sq * d * d;
 
             // Solve quadratic equation A_coef * t^2 + B_coef * t + C_coef = 0
-            std::vector<double> roots = solveQuadratic(A_coef, B_coef, C_coef);
+            SmallValues roots = solve_quadratic_small(A_coef, B_coef, C_coef);
 
-            // Filter roots within [t_start, t_end]
-            std::vector<double> valid_roots;
-            for (double t_root : roots) {
+            SmallValues interval_points;
+            interval_points.push(t_start);
+            for (size_t root_idx = 0; root_idx < roots.count; ++root_idx) {
+                const double t_root = roots[root_idx];
                 if (t_root >= t_start - EPS && t_root <= t_end + EPS) {
-                    valid_roots.push_back(t_root);
+                    interval_points.push(t_root);
                 }
             }
-
-            // Collect interval points
-            std::vector<double> interval_points = {t_start};
-            interval_points.insert(interval_points.end(), valid_roots.begin(), valid_roots.end());
-            interval_points.push_back(t_end);
-
-            // Sort and remove duplicates
-            std::sort(interval_points.begin(), interval_points.end());
-            interval_points.erase(std::unique(interval_points.begin(), interval_points.end(), [](double a, double b) {
-                return std::abs(a - b) < EPS;
-            }), interval_points.end());
+            interval_points.push(t_end);
+            interval_points.sort_unique();
 
             // Determine intervals where D(t) < d
-            for (size_t j = 0; j < interval_points.size() - 1; ++j) {
+            for (size_t j = 0; j + 1 < interval_points.count; ++j) {
                 double t0 = interval_points[j];
                 double t1 = interval_points[j + 1];
 
@@ -485,15 +531,12 @@ std::tuple<double,vec,vec> subsegment_within_distance(vec A, vec B, vec C, vec D
 
                 if (dist_sq < d * d + EPS) {
                     // Interval where distance < d
-                    vec start_point = A + dirAB * t0;
-                    vec end_point = A + dirAB * t1;
                     if (t0<interval_start){
                         interval_start = t0;
                     }
                     if (t1>interval_end){
                         interval_end = t1;
                     }
-                    intervals.push_back({start_point, end_point});
                 }
             }
         } else {
@@ -507,29 +550,21 @@ std::tuple<double,vec,vec> subsegment_within_distance(vec A, vec B, vec C, vec D
             double c_quad = M.dot(M) - d * d;
 
             // Solve quadratic equation a_quad * t^2 + b_quad * t + c_quad = 0
-            std::vector<double> roots = solveQuadratic(a_quad, b_quad, c_quad);
+            SmallValues roots = solve_quadratic_small(a_quad, b_quad, c_quad);
 
-            // Filter roots within [t_start, t_end]
-            std::vector<double> valid_roots;
-            for (double t_root : roots) {
+            SmallValues interval_points;
+            interval_points.push(t_start);
+            for (size_t root_idx = 0; root_idx < roots.count; ++root_idx) {
+                const double t_root = roots[root_idx];
                 if (t_root >= t_start - EPS && t_root <= t_end + EPS) {
-                    valid_roots.push_back(t_root);
+                    interval_points.push(t_root);
                 }
             }
-
-            // Collect interval points
-            std::vector<double> interval_points = {t_start};
-            interval_points.insert(interval_points.end(), valid_roots.begin(), valid_roots.end());
-            interval_points.push_back(t_end);
-
-            // Sort and remove duplicates
-            std::sort(interval_points.begin(), interval_points.end());
-            interval_points.erase(std::unique(interval_points.begin(), interval_points.end(), [](double a, double b) {
-                return std::abs(a - b) < EPS;
-            }), interval_points.end());
+            interval_points.push(t_end);
+            interval_points.sort_unique();
 
             // Determine intervals where D(t) < d
-            for (size_t j = 0; j < interval_points.size() - 1; ++j) {
+            for (size_t j = 0; j + 1 < interval_points.count; ++j) {
                 double t0 = interval_points[j];
                 double t1 = interval_points[j + 1];
                 if (t1 - t0 < EPS) {
@@ -543,9 +578,6 @@ std::tuple<double,vec,vec> subsegment_within_distance(vec A, vec B, vec C, vec D
 
                 if (dist_sq < d * d + EPS) {
                     // Interval where distance < d
-                    vec start_point = A + dirAB * t0;
-                    vec end_point = A + dirAB * t1;
-                    intervals.push_back({start_point, end_point});
                     if (t0<interval_start){
                         interval_start = t0;
                     }
@@ -567,7 +599,7 @@ std::tuple<double,vec,vec> subsegment_within_distance(vec A, vec B, vec C, vec D
 
 // Function to calculate the points on segment 1 that are distance d away from segment 2
 am_interaction analyze_am(vec actin_left, vec actin_right, 
-                        vec myosin_left, vec myosin_right, double d, std::vector<double> box,
+                        vec myosin_left, vec myosin_right, double d, const std::vector<double>& box,
                         const std::array<bool,3>& periodic, bool directional) {
     apply_pbc(actin_left, actin_right, myosin_left, myosin_right, box, periodic);
     vec actin_mid = 0.5 * (actin_left + actin_right);
@@ -620,24 +652,70 @@ am_interaction analyze_am(vec actin_left, vec actin_right,
     vec partial_start, partial_end;
     if (dot>0){
         partial_start = myosin_left;
-        partial_end = myosin_left + (myosin_right-myosin_left)/3.0;
+        partial_end = myosin_left +
+            am_head_bearing_fraction * (myosin_right - myosin_left);
     }
     else{
-        partial_start = myosin_right - (myosin_right-myosin_left)/3.0;
+        partial_start = myosin_right -
+            am_head_bearing_fraction * (myosin_right - myosin_left);
         partial_end = myosin_right;
     }
     // printf("partial_start: %f %f\n",partial_start.x,partial_start.y);
     // printf("partial_end: %f %f\n",partial_end.x,partial_end.y);
     std::tuple<double, vec, vec> result2 = subsegment_within_distance(actin_left, actin_right, partial_start, partial_end, d);
-    interaction.partial_binding_ratio = std::get<0>(result2);
-    return interaction;   
+    // A finite-segment distance includes spherical end caps. Without an axial
+    // slab intersection, an actin lying wholly in the central bare zone can
+    // appear close enough to the first head at the bare-zone boundary and
+    // attach despite having zero head-bearing axial overlap. Intersect the
+    // radial capture interval with the actual head-bearing axial interval.
+    const vec actin_span = actin_right - actin_left;
+    const double actin_span_sq = actin_span.norm_squared();
+    const vec head_span = partial_end - partial_start;
+    const double head_length = head_span.norm();
+    double partial_ratio = 0.0;
+    if (actin_span_sq > EPS && head_length > EPS && std::get<0>(result2) > 0.0) {
+        const double distance_t0 = std::clamp(
+            actin_span.dot(std::get<1>(result2) - actin_left) /
+                actin_span_sq,
+            0.0, 1.0);
+        const double distance_t1 = std::clamp(
+            actin_span.dot(std::get<2>(result2) - actin_left) /
+                actin_span_sq,
+            0.0, 1.0);
+        const double capture_min = std::min(distance_t0, distance_t1);
+        const double capture_max = std::max(distance_t0, distance_t1);
+        const vec head_axis = head_span / head_length;
+        const double axial_at_zero =
+            (actin_left - partial_start).dot(head_axis);
+        const double axial_slope = actin_span.dot(head_axis);
+        double slab_min = 0.0;
+        double slab_max = 1.0;
+        if (std::abs(axial_slope) <= EPS) {
+            if (axial_at_zero < -EPS || axial_at_zero > head_length + EPS) {
+                slab_min = 1.0;
+                slab_max = 0.0;
+            }
+        } else {
+            const double first_crossing = -axial_at_zero / axial_slope;
+            const double second_crossing =
+                (head_length - axial_at_zero) / axial_slope;
+            slab_min = std::max(
+                0.0, std::min(first_crossing, second_crossing));
+            slab_max = std::min(
+                1.0, std::max(first_crossing, second_crossing));
+        }
+        const double clipped_min = std::max(capture_min, slab_min);
+        const double clipped_max = std::min(capture_max, slab_max);
+        partial_ratio = std::max(0.0, clipped_max - clipped_min);
+    }
+    interaction.partial_binding_ratio = partial_ratio;
+    return interaction;
 }
 
 am_interaction analyze_am(vec actin_left, vec actin_right, 
-                        vec myosin_left, vec myosin_right, double d, std::vector<double> box, bool directional) {
+                        vec myosin_left, vec myosin_right, double d, const std::vector<double>& box, bool directional) {
     static const std::array<bool,3> default_periodic{true, true, true};
     return analyze_am(actin_left, actin_right, myosin_left, myosin_right, d, box, default_periodic, directional);
 }
 
 } // namespace geometry
-

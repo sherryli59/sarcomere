@@ -35,10 +35,6 @@ NeighborList::NeighborList(double cutoff_radius, const std::vector<double>& box,
                 if (num_cells_x_ == 1 && dx != 0) continue;
                 if (num_cells_y_ == 1 && dy != 0) continue;
                 if (num_cells_z_ == 1 && dz != 0) continue;
-                // For two cells, only include positive offsets.
-                if (num_cells_x_ == 2 && dx == -1) continue;
-                if (num_cells_y_ == 2 && dy == -1) continue;
-                if (num_cells_z_ == 2 && dz == -1) continue;
                 // Otherwise include this neighbor.
                 neighboring_cells.emplace_back(std::make_tuple(dx, dy, dz));
             }
@@ -132,6 +128,12 @@ void NeighborList::computeNeighbors(std::vector<std::vector<std::pair<size_t, si
         #pragma omp for schedule(runtime)
         for (size_t i = 0; i < all_x_.size(); ++i) {
             auto cell = get_cell_index(all_x_[i], all_y_[i], all_z_[i]);
+            // With exactly two periodic cells, offsets -1 and +1 identify the
+            // same cell. Retain both directional offsets so a nonperiodic pair
+            // cannot disappear merely because the lower particle index lies
+            // in the upper cell, but visit each resolved cell only once.
+            std::vector<int> visited_neighbor_cells;
+            visited_neighbor_cells.reserve(neighboring_cells.size());
 
             // Check particles in the current cell and its neighbors in 3D.
             for (const auto& offset_tuple : neighboring_cells) {
@@ -157,6 +159,12 @@ void NeighborList::computeNeighbors(std::vector<std::vector<std::pair<size_t, si
                     continue;
                 }
                 int neighbor_index = neighbor_x + num_cells_x_ * (neighbor_y + num_cells_y_ * neighbor_z);
+                if (std::find(visited_neighbor_cells.begin(),
+                              visited_neighbor_cells.end(),
+                              neighbor_index) != visited_neighbor_cells.end()) {
+                    continue;
+                }
+                visited_neighbor_cells.push_back(neighbor_index);
                 if (cell_list_[neighbor_index].empty())
                     continue;
                 for (int j : cell_list_[neighbor_index]) {

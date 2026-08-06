@@ -147,7 +147,6 @@ Filament::Filament(int n0, double length0, std::vector<double> box0, gsl_rng* rn
 
 // Destructor.
 Filament::~Filament() {
-    printf("Filament destructor called\n");
 }
 
 // Copy constructor.
@@ -305,6 +304,46 @@ void reduce_array(std::vector<std::vector<vec>>& temp_array, Filament::VecArray&
     for (size_t i = 0; i < target_array.size(); ++i) {
         for (int t = 0; t < omp_get_num_threads(); ++t) {
             target_array[i] += temp_array[t][i];
+        }
+    }
+}
+
+// Reduce multiple fields over the same filament indices in one OpenMP pass.
+// Each field retains the original thread-index summation order, so this is
+// bitwise-equivalent to separate reduce_array calls for a fixed thread count.
+void reduce_arrays(
+    std::vector<std::vector<vec>>& first_temp,
+    Filament::VecArray& first_target,
+    std::vector<std::vector<vec>>& second_temp,
+    Filament::VecArray& second_target) {
+    #pragma omp for
+    for (size_t i = 0; i < first_target.size(); ++i) {
+        for (int t = 0; t < omp_get_num_threads(); ++t) {
+            first_target[i] += first_temp[t][i];
+        }
+        for (int t = 0; t < omp_get_num_threads(); ++t) {
+            second_target[i] += second_temp[t][i];
+        }
+    }
+}
+
+void reduce_arrays(
+    std::vector<std::vector<vec>>& first_temp,
+    Filament::VecArray& first_target,
+    std::vector<std::vector<vec>>& second_temp,
+    Filament::VecArray& second_target,
+    std::vector<std::vector<vec>>& third_temp,
+    Filament::VecArray& third_target) {
+    #pragma omp for
+    for (size_t i = 0; i < first_target.size(); ++i) {
+        for (int t = 0; t < omp_get_num_threads(); ++t) {
+            first_target[i] += first_temp[t][i];
+        }
+        for (int t = 0; t < omp_get_num_threads(); ++t) {
+            second_target[i] += second_temp[t][i];
+        }
+        for (int t = 0; t < omp_get_num_threads(); ++t) {
+            third_target[i] += third_temp[t][i];
         }
     }
 }

@@ -6,6 +6,7 @@
 #include <vector>
 #include <string>
 #include <cstdio>       // For std::remove
+#include <cstdint>
 #include "components.h" // This header must define Filament, Myosin, and utils::MoleculeConnection
 
 // For convenience, use the vec type from the utils namespace.
@@ -63,6 +64,6 @@ std::vector<double> load_from_dataset(H5::Group& group, const std::string& datas
 
 // Load actin and myosin data (and energy, if needed) from the file.
 int load_from_file(std::string& filename, Filament& actin, Myosin& myosin,
-    std::vector<std::vector<int>>& actin_actin_bonds, int& n_frames, int frame_index = -1);
+    std::vector<std::vector<std::uint8_t>>& actin_actin_bonds, int& n_frames, int frame_index = -1);
 
 #endif // H5_UTILS_H

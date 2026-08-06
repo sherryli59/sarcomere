@@ -185,7 +185,8 @@ real aa_energy(const ArrayXreal& center1, const double& length1,
     const ArrayXreal& dir2,
     const std::vector<double>& box, const std::array<bool,3>& periodic, 
     const double k_aa, const double kappa_aa,
-    const double cutoff, const double optimal);
+    const double cutoff, const double optimal,
+    const double antiparallel_overlap);
 
 // Compute the energy between an actin and a myosin segment in 3D.
 real am_energy1(const ArrayXreal& center1, const double& length1, const ArrayXreal& dir1,
@@ -201,7 +202,39 @@ std::vector<double> compute_aa_force_and_energy(Filament& actin,
                                                 int& actin1_index, int& actin2_index,
                                                 const std::vector<double>& box,
                                                 const double k_aa, const double kappa_aa,
-                                                const double cutoff, const double optimal);
+                                                const double cutoff, const double optimal,
+                                                const double antiparallel_overlap = 0.0);
+
+struct LocalAALinkResult {
+    vec force_on_first {0.0, 0.0, 0.0};
+    vec torque_on_first {0.0, 0.0, 0.0};
+    vec torque_on_second {0.0, 0.0, 0.0};
+    vec connector {0.0, 0.0, 0.0};
+    double length = 0.0;
+    double energy = 0.0;
+    double registry_error = 0.0;
+    double direction_dot = 1.0;
+};
+
+// One implicit ACTN2 molecule attached at fixed material coordinates on two
+// actin rods. The effective connector joins the rod centerlines; its rest
+// length therefore includes the actin radii and projected ACTN2 span.
+LocalAALinkResult compute_local_aa_link(
+    const Filament& actin, int first, int second,
+    double s_first, double s_second,
+    const std::vector<double>& box,
+    double radial_stiffness, double perpendicular_stiffness,
+    double alignment_stiffness,
+    double preferred_centerline,
+    double antiparallel_overlap = 0.0,
+    double axial_stiffness_ratio = 1.0,
+    double axial_saturation_error = 0.05,
+    // >0 switches the barbed-end register term from the Gaussian-attenuated
+    // form (whose restoring force vanishes far from the target) to a
+    // saturating form whose force approaches this ceiling in pN. The
+    // small-error stiffness is unchanged, so a registered pair behaves
+    // exactly as before; only badly mis-registered pairs feel a difference.
+    double axial_force_max = 0.0);
 
 
 // Compute forces and energy for actin–myosin interaction in 3D.
@@ -211,13 +244,190 @@ std::vector<double> compute_am_force_and_energy(Filament& actin, Myosin& myosin,
                                                 const double k_am, const double kappa_am,
                                                 const double cutoff, const double optimal);
 
+struct AMTetherResult {
+    vec force_on_actin {0.0, 0.0, 0.0};
+    vec force_on_myosin {0.0, 0.0, 0.0};
+    vec actin_attachment {0.0, 0.0, 0.0};
+    vec myosin_attachment {0.0, 0.0, 0.0};
+    double transverse_distance = 0.0;
+    double centerline_distance = 0.0;
+    double surface_gap = 0.0;
+    double head_surface_distance = 0.0;
+    // Full 3-D distance from the spatial myosin-head anchor to the closest
+    // finite actin centerline point, and the corresponding surface distance.
+    // Unlike transverse_distance these retain axial mismatch and therefore
+    // determine whether this particular material head can reach the actin.
+    double head_connector_distance = 0.0;
+    double head_reach_surface_distance = 0.0;
+    // Projection of the material head anchor onto the infinite actin axis.
+    // Association may only use this coordinate when it lies on the finite
+    // actin segment; actin_coordinate remains the clamped coordinate used to
+    // construct endpoint geometry for already-bound heads and diagnostics.
+    double unbounded_actin_coordinate = 0.0;
+    bool projection_inside_actin = false;
+    double actin_coordinate = 0.0;
+};
+
+// Passive proximity-only AM tether. It removes the common filament-axis
+// component from the closest-point connector so it does not propel or brake
+// longitudinal sliding.
+AMTetherResult compute_am_proximity_tether(const Filament& actin,
+                                           const Myosin& myosin,
+                                           int actin_index,
+                                           int myosin_index,
+                                           const std::vector<double>& box,
+                                           double stiffness,
+                                           double optimal,
+                                           bool directional = false);
+
+// Proximity tether for one explicit head rooted at a fixed material coordinate
+// along the myosin axis. The actin attachment is the closest point on its
+// segment; only transverse separation is penalized.
+AMTetherResult compute_am_head_tether(const Filament& actin,
+                                      const Myosin& myosin,
+                                      int actin_index,
+                                      int myosin_index,
+                                      const std::vector<double>& box,
+                                      double myosin_anchor_axial,
+                                      double stiffness,
+                                      double optimal,
+                                      double myosin_anchor_azimuth = 0.0,
+                                      double myosin_radial_offset = 0.0,
+                                      const vec* material_e1 = nullptr,
+                                      const vec* material_e2 = nullptr,
+                                      double actin_radius = 0.0,
+                                      double radial_slack = 0.0);
+
+// Energy-consistent explicit cross-bridge.  The myosin anchor is fixed in the
+// transported thick-filament material frame and actin_coordinate is fixed in
+// the thin-filament material frame for the lifetime of an attachment.
+// Forces and physical torques are negative derivatives of one objective
+// two-spring energy, so an isolated head conserves total force and torque.
+struct AMTwoSpringHeadResult {
+    vec actin_attachment {0.0, 0.0, 0.0};
+    vec myosin_attachment {0.0, 0.0, 0.0};
+    vec connector {0.0, 0.0, 0.0};
+    vec radial_force_on_actin {0.0, 0.0, 0.0};
+    vec axial_force_on_actin {0.0, 0.0, 0.0};
+    vec force_on_actin {0.0, 0.0, 0.0};
+    vec force_on_myosin {0.0, 0.0, 0.0};
+    vec physical_torque_on_actin {0.0, 0.0, 0.0};
+    vec physical_torque_on_myosin {0.0, 0.0, 0.0};
+    double energy = 0.0;
+    double transverse_distance = 0.0;
+    double head_reach_surface_distance = 0.0;
+    double longitudinal_extension = 0.0;
+    double productive_strain = 0.0;
+    double active_force = 0.0;
+    double radial_energy = 0.0;
+    double axial_energy = 0.0;
+};
+
+AMTwoSpringHeadResult compute_am_two_spring_head(
+    const Filament& actin, const Myosin& myosin,
+    int actin_index, int myosin_index, const std::vector<double>& box,
+    double actin_coordinate, double myosin_anchor_axial,
+    double myosin_anchor_azimuth, double myosin_radial_offset,
+    const vec* material_e1, const vec* material_e2,
+    double radial_preferred, double radial_stiffness, double radial_slack,
+    double axial_stiffness, double stroke_progress, double stall_force,
+    bool strong, bool bidirectional_strong = false);
+
+// Choose the closest azimuth reachable from a fixed crown anchor. The result
+// is clamped to crown_azimuth +/- max_swing and returned in radians.
+double select_am_binding_azimuth(
+    const Filament& actin, const Myosin& myosin,
+    int actin_index, int myosin_index, const std::vector<double>& box,
+    double myosin_anchor_axial, double crown_azimuth, double max_swing,
+    const vec& material_e1, const vec& material_e2);
+
+vec compute_actin_myosin_radial_repulsion(
+    const Filament& actin, const Myosin& myosin,
+    int actin_index, int myosin_index,
+    const std::vector<double>& box, double excluded_centerline_distance,
+    double stiffness);
+
+struct AMOffCenterTorqueResult {
+    vec lever_arm {0.0, 0.0, 0.0};
+    vec physical_torque {0.0, 0.0, 0.0};
+    // Tangent generalized force used by the unit-vector orientation dynamics.
+    vec orientation_drive {0.0, 0.0, 0.0};
+};
+
+// Convert a force applied at an off-center cross-bridge attachment into the
+// physical moment tau = (r_head-r_center) x F and the corresponding tangent
+// drive du/dt ~ tau x axis expected by the existing orientation integrator.
+AMOffCenterTorqueResult compute_am_offcenter_torque(
+    const vec& center,
+    const vec& axis,
+    const vec& attachment,
+    const vec& force,
+    const std::vector<double>& box,
+    const std::array<bool,3>& periodic);
+
+// Positive values rotate the moving nematic axis along the shortest tangent
+// direction toward the target axis; negative values increase misalignment.
+double project_nematic_alignment_drive(
+    const vec& moving_axis, const vec& target_axis,
+    const vec& orientation_drive);
+
+// Weak aggregate angular compliance of an occupied AM pair. Explicit heads
+// still supply the active off-center torque; this flat-bottom potential only
+// represents passive resistance of the occupied ensemble to large axial
+// misalignment.
+struct AMNematicTetherResult {
+    vec drive_on_actin {0.0, 0.0, 0.0};
+    vec drive_on_myosin {0.0, 0.0, 0.0};
+    double angle = 0.0;
+    double energy = 0.0;
+    bool active = false;
+};
+
+AMNematicTetherResult compute_am_nematic_flat_bottom_tether(
+    const vec& actin_axis, const vec& myosin_axis,
+    double stiffness, double slack_angle);
+
 // Result container for pairwise repulsion calculations.
 struct RepulsionResult {
     bool applied = false;
     vec force_on_first {0.0, 0.0, 0.0};
     vec force_on_second {0.0, 0.0, 0.0};
+    // Tangent director drives generated by applying the forces at the closest
+    // points on the two finite rods.  The orientation integrator consumes
+    // tau x axis rather than the bare physical moment tau.
+    vec torque_on_first {0.0, 0.0, 0.0};
+    vec torque_on_second {0.0, 0.0, 0.0};
     double segment_distance = std::numeric_limits<double>::infinity();
+    // Populated by the polarity-aware pointed-end contact.  The signed axial
+    // gap is positive while the two pointed-end caps remain separated and
+    // negative after a finite-step attempted crossing.  Penetration is the
+    // unilateral-contact violation after accounting for transverse offset.
+    double axial_gap = std::numeric_limits<double>::infinity();
+    double transverse_distance = std::numeric_limits<double>::infinity();
+    double contact_penetration = 0.0;
 };
+
+// Position-level hard-contact correction used after a Brownian/Langevin
+// update.  The soft steric potential remains responsible for resolved
+// forces and torques; this projection is the overdamped unilateral-contact
+// constraint that prevents a finite time step or a force cap from allowing
+// two thick-filament capsules to pass through one another.
+struct ContactProjectionResult {
+    bool applied = false;
+    double distance_before = std::numeric_limits<double>::infinity();
+    double correction = 0.0;
+};
+
+ContactProjectionResult project_myosin_hard_contact(
+    Myosin& myosin, int i, int j, const std::vector<double>& box,
+    int fix_myosin, double target_distance,
+    double translation_weight = 1.0, double rotation_weight = 0.0);
+
+RepulsionResult compute_actin_myosin_radial_repulsion_result(
+    const Filament& actin, const Myosin& myosin,
+    int actin_index, int myosin_index,
+    const std::vector<double>& box, double excluded_centerline_distance,
+    double stiffness);
 
 // Myosin–myosin segment repulsion helper.
 RepulsionResult compute_myosin_repulsion(const Filament& actin,
@@ -236,6 +446,21 @@ RepulsionResult compute_actin_repulsion(const Filament& actin,
                                         const std::vector<double>& box,
                                         double crosslinker_length,
                                         double stiffness);
+
+// Local, status-independent contact between the pointed ends of two
+// antiparallel thin filaments occupying the same lattice lane.  Unlike the
+// generic capsule repulsion, this retains the signed end-to-end ordering, so
+// a finite integration step cannot turn an end-on collision into an arbitrary
+// transverse force after the tips cross.  epsilon is the WCA energy scale
+// (pN um), contact_diameter is the decorated cap diameter (um), and force_cap
+// is an optional coarse-grained buckling/load-sharing ceiling (pN; <=0 means
+// uncapped).
+RepulsionResult compute_opposing_pointed_end_contact(
+    const Filament& actin, int i, int j,
+    const std::vector<double>& box,
+    double contact_diameter, double epsilon,
+    double force_cap = 0.0,
+    double antiparallel_dot_max = -0.8);
 
 // Actin–myosin axial end-stop repulsion helper.
 vec compute_actin_myosin_repulsion(const Filament& actin,
