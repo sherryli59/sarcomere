@@ -7,3 +7,10 @@
 /test.pdf
 /test_actin.jl
 cpp/build/
+# Build trees: binaries and CMake caches, regenerable
+cpp/build*/
+cpp/smoke_test_run/
+# Simulation output: lives on /scratch, far too large for git
+*.h5
+*.h5.lock
+*.mp4

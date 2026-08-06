@@ -1,0 +1,1162 @@
+#include "sarcomere.h"
+#include <algorithm>
+#include <cmath>
+#include <limits>
+
+// Constructor
+Sarcomere::Sarcomere() : max_myosin_bonds(2), max_strong_actin_bonds(1),
+    max_actin_force(std::numeric_limits<double>::infinity()),
+    max_myosin_force(std::numeric_limits<double>::infinity()),
+    max_actin_torque(std::numeric_limits<double>::infinity()),
+    max_myosin_torque(std::numeric_limits<double>::infinity()) {
+    am_cutoff = 0.0;
+    am_optimal = 0.0;
+    aa_cutoff = 0.0;
+    aa_optimal = 0.0;
+}
+
+// Parameterized Constructor
+Sarcomere::Sarcomere(int& n_actins, int& n_myosins, std::vector<double> box0, double& actin_length, double& myosin_length,
+              double& myosin_radius, double& myosin_radius_ratio, double& aa_cutoff, double& aa_optimal,
+              double& crosslinker_length, double& k_on,
+              double& base_lifetime, double& lifetime_coeff, double& diff_coeff_ratio, double& k_aa, double& kappa_aa, double& k_am, double& kappa_am, double& k_mm, double& v_am,
+              std::string& filename, gsl_rng* rng, int& seed, int& fix_myosin, double& dt, bool& directional, std::string& boundary_condition, int max_myosin_bonds, int max_strong_actin_bonds, double max_actin_force_param, double max_myosin_force_param, double max_actin_torque_param, double max_myosin_torque_param) :
+            pbc_mask(utils::parse_pbc_mask(boundary_condition)),
+            actin(n_actins, actin_length, box0, pbc_mask, rng),
+            myosin(n_myosins, myosin_length, myosin_radius, box0, pbc_mask, rng),
+            myosinIndicesPerActin(n_actins),
+            actinIndicesPerMyosin(n_myosins),
+            neighbor_list(0.0, box0, 0.0),
+            actin_actin_bonds(n_actins, std::vector<int>(n_actins, 0)),
+            actin_actin_strength(n_actins, std::vector<double>(n_actins, 0.0)),
+            actin_actin_lifetime(n_actins, std::vector<int>(n_actins, 0)),
+            actin_actin_lifetime_prev(n_actins, std::vector<int>(n_actins, 0)),
+            am_bonds(n_actins, std::vector<int>(n_myosins, 0)),
+            actin_forces_temp(omp_get_max_threads(), std::vector<vec>(n_actins, {0, 0})),
+            myosin_forces_temp(omp_get_max_threads(), std::vector<vec>(n_myosins, {0, 0})),
+            myosin_velocities_temp(omp_get_max_threads(), std::vector<vec>(n_myosins, {0, 0})),
+            actin_angular_forces_temp(omp_get_max_threads(), std::vector<double>(n_actins, 0)),
+            myosin_angular_forces_temp(omp_get_max_threads(), std::vector<double>(n_myosins, 0)),
+            actin_cb_strengths_temp(omp_get_max_threads(), std::vector<double>(n_actins, 0)),
+            myosin_f_load_temp(omp_get_max_threads(), std::vector<std::array<double, 2>>(n_myosins, {0.0, 0.0})),
+            myosin_f_load(n_myosins, {0.0, 0.0}),
+            actinIndicesPerMyosin_temp(omp_get_max_threads(), utils::MoleculeConnection(n_myosins)),
+            rng_engines(omp_get_max_threads(), nullptr),
+            max_actin_force(max_actin_force_param),
+            max_myosin_force(max_myosin_force_param),
+            max_actin_torque(max_actin_torque_param),
+            max_myosin_torque(max_myosin_torque_param)
+
+            {
+            box.resize(2);
+            box[0] = box0[0];
+            box[1] = box0[1];
+            if (!(max_actin_force > 0.0)) {
+                max_actin_force = std::numeric_limits<double>::infinity();
+            }
+            if (!(max_myosin_force > 0.0)) {
+                max_myosin_force = std::numeric_limits<double>::infinity();
+            }
+            if (!(max_actin_torque > 0.0)) {
+                max_actin_torque = std::numeric_limits<double>::infinity();
+            }
+            if (!(max_myosin_torque > 0.0)) {
+                max_myosin_torque = std::numeric_limits<double>::infinity();
+            }
+            this->k_aa = k_aa;
+            this->kappa_aa = kappa_aa;
+            this->k_on = k_on;
+            this->k_am = k_am;
+            this->kappa_am = kappa_am;
+            this->k_mm = k_mm;
+            this->v_am = v_am;
+            this->crosslinker_length = crosslinker_length;
+            this->aa_cutoff = aa_cutoff;
+            this->aa_optimal = aa_optimal;
+            myomesin_optimal = 2.0 * this->am_optimal;
+            myomesin_cutoff = (k_mm > 0.0) ? myomesin_optimal * 1.1 : 0.0;
+            this->skin_distance = skin_distance;
+            this->filename = filename;
+            this->rng = rng;
+            this->fix_myosin = fix_myosin;
+            this->dt = dt;
+            this->myosin_radius_ratio = myosin_radius_ratio;
+            this->base_lifetime = base_lifetime;
+            this->lifetime_coeff = lifetime_coeff;
+            this->diff_coeff_ratio = diff_coeff_ratio;
+            this->directional = directional;
+            this->max_myosin_bonds = max_myosin_bonds;
+            this->max_strong_actin_bonds = max_strong_actin_bonds;
+            cb_mult_factor = 1000;
+            double neighbor_cutoff = std::max(std::max(2 * myosin_radius, crosslinker_length), aa_cutoff);
+            if (k_mm > 0.0) {
+                neighbor_cutoff = std::max(neighbor_cutoff, myomesin_cutoff);
+            }
+            cutoff_radius = std::max(actin_length, myosin_length) + neighbor_cutoff;
+            double skin_distance = 0.15 * cutoff_radius;
+            neighbor_list = NeighborList(cutoff_radius + skin_distance, box, skin_distance / 2);
+            neighbor_list.initialize(actin.center_x, actin.center_y, actin.center_z,
+                                    myosin.center_x, myosin.center_y, myosin.center_z);
+            actin_actin_bonds_prev = actin_actin_bonds;
+            actin_actin_lifetime_prev = actin_actin_lifetime;
+            am_bonds_prev = am_bonds;
+            actin_basic_tension.resize(n_actins);
+            actin_crosslink_ratio.resize(n_actins);
+            actin_n_bonds.resize(n_actins);
+            actin_strong_cb_count.resize(n_actins);
+            n_myosins_per_actin.resize(n_actins);
+            am_interaction.resize(n_actins);
+            for (int i = 0; i < n_actins; i++) {
+                am_interaction[i].resize(n_myosins);
+            }
+            actin.register_feature("f_load_cb");
+            actin_f_load_cb = &actin["f_load_cb"];
+            actin.register_feature("myosin_binding_ratio");
+            actin.register_feature("crosslink_ratio");
+            actin.register_feature("partial_binding_ratio");
+            if (actin_f_load_cb) {
+                actin_f_load_cb->assign(n_actins, 0.0);
+            }
+            // Initialize thread-local RNGs
+            for (int t = 0; t < omp_get_max_threads(); ++t) {
+                rng_engines[t] = gsl_rng_alloc(gsl_rng_mt19937); 
+                gsl_rng_set(rng_engines[t], seed + t);           
+            }
+        }
+
+// Destructor
+Sarcomere::~Sarcomere() {}
+
+
+// Myosin Lattice Setup
+void Sarcomere::myosin_on_a_lattice() {
+    std::vector<std::vector<double>> myosin_positions = {{-4,-3},{4,-3},{-4,0},{4,0}, {-4,3},{4,3}};
+    for (size_t i = 0; i < myosin_positions.size(); i++) {
+        myosin.center[i].x = myosin_positions[i][0];
+        myosin.center[i].y = myosin_positions[i][1];
+        myosin.theta[i] = 0;
+    }
+    myosin.update_endpoints();
+    update_system();
+}
+
+void Sarcomere::partial_fix(int& n_fixed){
+    std::vector<std::vector<double>> myosin_positions;
+    myosin_positions = {{-1.38,-0.96},{-1.38,0.96}, {1.38,-0.96},{1.38,0.96},
+                        {-1.38, 0}, {1.38,0},
+                        {-1.38,-0.32},{-1.38,0.32}, {1.38,-0.32},{1.38,0.32},
+                        {-1.38,-0.64},{-1.38,0.64}, {1.38,-0.64},{1.38,0.64},
+                        {-1.38,-1.28},{-1.38,1.28}, {1.38,-1.28},{1.38,1.28}};
+    for (int i = 0; i < n_fixed; i++){
+        myosin.center[i].x = myosin_positions[i][0];
+        myosin.center[i].y = myosin_positions[i][1];
+        myosin.theta[i] = 0;
+    }
+    // for (int i = 0; i <myosin.n; i++){
+    //     myosin.theta[i] = 0;
+    // }
+    myosin.update_endpoints();
+    update_system();
+}
+
+// void Sarcomere::cb(){
+//     std::vector<std::vector<double>> actin_positions = {{0.5,-0.015},{-0.5,0.015}};
+//     for (int i = 0; i < actin_positions.size(); i++){
+//         actin.center[i].x = actin_positions[i][0];
+//         actin.center[i].y = actin_positions[i][1];
+//     }
+//     actin.theta[0] = 0;
+//     actin.theta[1] = M_PI;
+//     std::vector<std::vector<double>> myosin_positions = {{-1.33,0},{1.33,0}};
+//     for (int i = 0; i < myosin_positions.size(); i++){
+//         myosin.center[i].x = myosin_positions[i][0];
+//         myosin.center[i].y = myosin_positions[i][1];
+//         myosin.theta[i] = 0;
+//     }
+// }
+
+// void Sarcomere::cb(){
+//     std::vector<std::vector<double>> actin_positions = {{0.5,-0.015},{-0.5,0.015}};
+//     for (int i = 0; i < actin_positions.size(); i++){
+//         actin.center[i].x = actin_positions[i][0];
+//         actin.center[i].y = actin_positions[i][1];
+//     }
+//     actin.theta[0] = 0;
+//     actin.theta[1] = M_PI;
+//     std::vector<std::vector<double>> myosin_positions = {{-1.33,0},{1.33,0}};
+//     for (int i = 0; i < myosin_positions.size(); i++){
+//         myosin.center[i].x = myosin_positions[i][0];
+//         myosin.center[i].y = myosin_positions[i][1];
+//         myosin.theta[i] = 0;
+//     }
+// }
+
+void Sarcomere::cb() {
+    std::vector<std::vector<double>> actin_positions = {{-4.5, -0.015}, {4.5, 0.015}};
+    for (int i = 0; i < actin_positions.size(); i++) {
+        actin.center[i].x = actin_positions[i][0];
+        actin.center[i].y = actin_positions[i][1];
+    }
+    actin.theta[0] = 0;
+    actin.theta[1] = M_PI;
+
+    std::vector<std::vector<double>> myosin_positions = {{3.67, 0}, {-3.67, 0}};
+
+    // Apply shift to myosin and actin x coordinates
+    for (int i = 0; i < myosin_positions.size(); i++) {
+        myosin.center[i].x = myosin_positions[i][0];
+        myosin.center[i].y = myosin_positions[i][1];
+        myosin.theta[i] = 0;
+    }
+
+}
+
+
+void Sarcomere::single_am(){
+    std::vector<std::vector<double>> actin_positions = {{0.5,-0.015}};
+    for (int i = 0; i < actin_positions.size(); i++){
+        actin.center[i].x = actin_positions[i][0];
+        actin.center[i].y = actin_positions[i][1];
+    }
+    actin.theta[0] = 0;
+    std::vector<std::vector<double>> myosin_positions = {{1.33,0}};
+    for (int i = 0; i < myosin_positions.size(); i++){
+        myosin.center[i].x = myosin_positions[i][0];
+        myosin.center[i].y = myosin_positions[i][1];
+        myosin.theta[i] = 0;
+    }
+}
+
+void Sarcomere::bad_cb(){
+    std::vector<std::vector<double>> actin_positions = {{0.2,-0.015},{-0.2,0.015},{1.9,-0.015},{2.7,0.015}};
+    for (int i = 0; i < actin_positions.size(); i++){
+        actin.center[i].x = actin_positions[i][0];
+        actin.center[i].y = actin_positions[i][1];
+    }
+    actin.theta[0] = 0;
+    actin.theta[1] = M_PI;
+    actin.theta[2] = M_PI;
+    actin.theta[3] = 0;
+    std::vector<std::vector<double>> myosin_positions = {{-1.,0},{1.,0},{3.6,0}};
+    for (int i = 0; i < myosin_positions.size(); i++){
+        myosin.center[i].x = myosin_positions[i][0];
+        myosin.center[i].y = myosin_positions[i][1];
+        myosin.theta[i] = 0;
+    }
+}
+
+void Sarcomere::sarcomeric_structure(){
+    box[0] = 5.32;
+    box[1] = 5.32;
+    std::vector<std::vector<double>> myosin_positions = {
+        {-1.33, -0.32}, {1.33, -0.32},  // Bottom row now at y = -0.32
+        {-1.33, 0.0},   {1.33, 0.0},     // Middle row remains at y = 0.0
+        {-1.33, 0.32},  {1.33, 0.32}     // Top row now at y = 0.32
+    };
+        for (int i = 0; i < myosin_positions.size(); i++){
+        myosin.center[i].x = myosin_positions[i][0];
+        myosin.center[i].y = myosin_positions[i][1];
+        myosin.theta[i] = 0;
+    }
+    //myosin.n = myosin_positions.size();
+    myosin.update_endpoints();
+    //alpha_actinin.n = alpha_actinin_positions.size();
+    std::vector<std::vector<double>> actin_positions = {
+        {0.5, -0.47}, {0.5, -0.32}, {0.5, -0.17}, {0.5, -0.15}, {0.5, 0.0}, {0.5, 0.15}, {0.5, 0.17}, {0.5, 0.32}, {0.5, 0.47},
+        {-2.16, -0.47}, {-2.16, -0.32}, {-2.16, -0.17}, {-2.16, -0.15}, {-2.16, 0.0}, {-2.16, 0.15}, {-2.16, 0.17}, {-2.16, 0.32}, {-2.16, 0.47}
+      };
+
+    for (int i = 0; i < actin_positions.size(); i++){
+        actin.center[i].x = actin_positions[i][0];
+        actin.center[i].y = actin_positions[i][1];
+        actin.theta[i] = 0;
+    }
+    int n = actin_positions.size();
+    actin_positions = {
+        {-0.5, -0.47}, {-0.5, -0.32}, {-0.5, -0.17}, {-0.5, -0.15}, {-0.5, 0.0}, {-0.5, 0.15}, {-0.5, 0.17}, {-0.5, 0.32}, {-0.5, 0.47},
+        {2.16, -0.47}, {2.16, -0.32}, {2.16, -0.17}, {2.16, -0.15}, {2.16, 0.0}, {2.16, 0.15}, {2.16, 0.17}, {2.16, 0.32}, {2.16, 0.47}
+    };
+    for (int i = 0; i < actin_positions.size(); i++){
+        actin.center[i+n].x = actin_positions[i][0];
+        actin.center[i+n].y = actin_positions[i][1];
+        actin.theta[i+n] = M_PI;
+    }
+    actin.update_endpoints();
+    update_system();
+}
+
+// void Sarcomere::sarcomeric_structure(){
+//     std::vector<std::vector<double>> myosin_positions;
+//     box[0] = 5.32;
+//     box[1] = 5.32;
+//     myosin_positions = {{-1.33, -1.0}, {1.33, -1.0}, {-1.33, 0.0}, {1.33, 0.0}, {-1.33, 1.0}, {1.33, 1.0}};
+//     for (int i = 0; i < myosin_positions.size(); i++){
+//         myosin.center[i].x = myosin_positions[i][0];
+//         myosin.center[i].y = myosin_positions[i][1];
+//         myosin.theta[i] = 0;
+//     }
+//     //myosin.n = myosin_positions.size();
+//     myosin.update_endpoints();
+//     //alpha_actinin.n = alpha_actinin_positions.size();
+//     std::vector<std::vector<double>> actin_positions;
+//     actin_positions = {{0.5, -1.15}, {0.5, -1.0}, {0.5, -0.85}, {0.5, -0.15}, {0.5, 0.0}, {0.5, 0.15}, 
+//                 {0.5, 0.85}, {0.5, 1.0}, {0.5, 1.15}, {-2.16, -1.15}, {-2.16, -1.0}, {-2.16, -0.85}, 
+//                 {-2.16, -0.15}, {-2.16, 0.0}, {-2.16, 0.15}, {-2.16, 0.85}, {-2.16, 1.0}, {-2.16, 1.15}};
+//     for (int i = 0; i < actin_positions.size(); i++){
+//         actin.center[i].x = actin_positions[i][0];
+//         actin.center[i].y = actin_positions[i][1];
+//         actin.theta[i] = 0;
+//     }
+//     int n = actin_positions.size();
+//     actin_positions = {{-0.5, -1.15}, {-0.5, -1.0}, {-0.5, -0.85}, {-0.5, -0.15}, {-0.5, 0.0}, {-0.5, 0.15}, 
+//                 {-0.5, 0.85}, {-0.5, 1.0}, {-0.5, 1.15},{2.16, -1.15}, {2.16, -1.0}, {2.16, -0.85}, 
+//                 {2.16, -0.15}, {2.16, 0.0}, {2.16, 0.15}, {2.16, 0.85}, {2.16, 1.0}, {2.16, 1.15}};
+//     for (int i = 0; i < actin_positions.size(); i++){
+//         actin.center[i+n].x = actin_positions[i][0];
+//         actin.center[i+n].y = actin_positions[i][1];
+//         actin.theta[i+n] = M_PI;
+//     }
+//     //actin.n = actin_positions.size()*2;
+//     actin.update_endpoints();
+//     update_system();
+//     //save_state();
+// }
+
+void Sarcomere::update_system() {
+    std::vector<std::array<double, 2>> myosin_max_load(myosin.n, {0.0, 0.0});
+    _update_neighbors();
+    #pragma omp parallel
+    {   
+        _set_to_zero();  
+        #pragma omp barrier  
+        // Step 2: Compute actin-myosin binding
+        #pragma omp for schedule(runtime)
+        for (int i = 0; i < actin.n; i++) {
+            _process_actin_myosin_binding(i);
+        }
+
+        #pragma omp barrier  
+
+        // Step 3: Compute catch bonds
+        #pragma omp for schedule(runtime)
+        for (int i = 0; i < actin.n; i++) {
+            _process_catch_bonds(i);
+        }
+
+        #pragma omp barrier  
+
+        // Step 4: Reduce actin catch-bond strengths
+        utils::reduce_array(actin_cb_strengths_temp, actin.cb_strength);
+        #pragma omp barrier
+        #pragma omp single
+        { _enforce_actin_cb_limit(); _enforce_myosin_bond_limit(); }
+        #pragma omp barrier
+
+        // Step 5: Concatenate actinIndicesPerMyosin connections
+        #pragma omp for
+        for (int i = 0; i < myosin.n; ++i) {
+            for (int t = 0; t < omp_get_num_threads(); ++t) {
+                auto indices = actinIndicesPerMyosin_temp[t].getConnections(i);
+                for (int j = 0; j < indices.size(); j++) {
+                    actinIndicesPerMyosin.addConnection(i, indices[j]);
+                }
+            }
+        }
+
+        #pragma omp barrier  
+
+        // Step 6: Compute actin-myosin forces
+        #pragma omp for schedule(runtime)
+        for (int i = 0; i < actin.n; i++) {
+            _calc_am_force_velocity(i);
+        }
+
+        _volume_exclusion();
+        double k_theta = 0.1;
+        _apply_cb_alignment_bias(k_theta);
+
+        #pragma omp barrier  
+
+        // Step 7: Reduce actin forces and angular forces
+        utils::reduce_array(actin_forces_temp, actin.force);
+        utils::reduce_array(actin_angular_forces_temp, actin.angular_force);
+
+        // Step 8: Reduce myosin forces, velocities, and angular forces
+        utils::reduce_array(myosin_forces_temp, myosin.force);
+        utils::reduce_array(myosin_velocities_temp, myosin.velocity);
+        utils::reduce_array(myosin_angular_forces_temp, myosin.angular_force);
+        #pragma omp barrier
+        #pragma omp for
+        for (int i = 0; i < actin.n; ++i) {
+            double cap = max_actin_torque;
+            if (std::isfinite(cap) && cap > 0.0) {
+                double mag = std::abs(actin.angular_force[i]);
+                if (mag > cap && mag > 0.0) {
+                    actin.angular_force[i] = (actin.angular_force[i] > 0 ? cap : -cap);
+                }
+            }
+        }
+
+        #pragma omp for
+        for (int i = 0; i < myosin.n; ++i) {
+            double cap = max_myosin_torque;
+            if (std::isfinite(cap) && cap > 0.0) {
+                double mag = std::abs(myosin.angular_force[i]);
+                if (mag > cap && mag > 0.0) {
+                    myosin.angular_force[i] = (myosin.angular_force[i] > 0 ? cap : -cap);
+                }
+            }
+        }
+        //set max velocity for myosin
+
+        // Parallelize over myosins
+        #pragma omp for
+        for (int myosin_idx = 0; myosin_idx < myosin.n; ++myosin_idx) {
+            std::array<double, 2> max_load = myosin_f_load_temp[0][myosin_idx];
+            // Find max across threads
+            for (int thread_idx = 1; thread_idx < omp_get_max_threads(); ++thread_idx) {
+                const auto& thread_load = myosin_f_load_temp[thread_idx][myosin_idx];
+                max_load[0] = std::max(max_load[0], thread_load[0]);
+                max_load[1] = std::max(max_load[1], thread_load[1]);
+            }
+            myosin_max_load[myosin_idx] = max_load;
+        }
+
+        #pragma omp for
+        for (int i = 0; i < myosin.n; i++){
+            double dot = myosin.velocity[i].dot(myosin.direction[i]);
+            size_t dir_idx;
+            if (std::abs(dot) < EPS) {
+                dir_idx = (myosin_max_load[i][0] >= myosin_max_load[i][1]) ? 0 : 1;
+            } else {
+                dir_idx = (dot >= 0.0) ? 0 : 1;
+            }
+            double load = myosin_max_load[i][dir_idx];
+            double v_max = v_am/ (diff_coeff_ratio + 1) * (1 - load);
+            double v = myosin.velocity[i].norm();
+            if (v>v_max && v > EPS){
+                myosin.velocity[i] = myosin.velocity[i]/v*v_max;
+            }
+        }
+    }
+}
+
+
+void Sarcomere::update_system_sterics_only() {
+    _update_neighbors();
+    #pragma omp parallel
+    {   
+        _set_to_zero();  
+        #pragma omp barrier  
+        _myosin_exclusion();
+        #pragma omp barrier  
+        // Step 7: Reduce actin forces and angular forces
+        utils::reduce_array(actin_forces_temp, actin.force);
+        utils::reduce_array(actin_angular_forces_temp, actin.angular_force);
+        // Step 8: Reduce myosin forces, velocities, and angular forces
+        utils::reduce_array(myosin_forces_temp, myosin.force);
+        utils::reduce_array(myosin_angular_forces_temp, myosin.angular_force);
+        #pragma omp barrier
+        #pragma omp for
+        for (int i = 0; i < actin.n; ++i) {
+            double cap = max_actin_torque;
+            if (std::isfinite(cap) && cap > 0.0) {
+                double mag = std::abs(actin.angular_force[i]);
+                if (mag > cap && mag > 0.0) {
+                    actin.angular_force[i] = (actin.angular_force[i] > 0 ? cap : -cap);
+                }
+            }
+        }
+        #pragma omp for
+        for (int i = 0; i < myosin.n; ++i) {
+            double cap = max_myosin_torque;
+            if (std::isfinite(cap) && cap > 0.0) {
+                double mag = std::abs(myosin.angular_force[i]);
+                if (mag > cap && mag > 0.0) {
+                    myosin.angular_force[i] = (myosin.angular_force[i] > 0 ? cap : -cap);
+                }
+            }
+        }
+    }
+}
+
+
+void Sarcomere::_update_neighbors() {
+    neighbor_list.set_species_positions(actin.center_x, actin.center_y, actin.center_z,
+                                       myosin.center_x, myosin.center_y, myosin.center_z);
+    // Clear previous neighbors data and prepare to store new neighbors
+    actin_neighbors_by_species.clear();
+    actin_neighbors_by_species.resize(actin.center.size());
+    if (neighbor_list.needs_rebuild()) {
+        printf("Rebuilding neighbor list\n");
+        neighbor_list.rebuild_neighbor_list();
+    }
+}
+
+
+void Sarcomere::_set_to_zero() {
+    // Reset all temporary forces
+    #pragma omp for
+    for (int t = 0; t < omp_get_max_threads(); ++t) {
+        for (int i = 0; i < actin.n; ++i) {
+            actin_forces_temp[t][i] = {0, 0};
+            actin_angular_forces_temp[t][i] = 0;
+            actin_cb_strengths_temp[t][i] = 0;
+        }
+    }
+
+    #pragma omp for
+    for (int t = 0; t < omp_get_max_threads(); ++t) {
+        for (int i = 0; i < myosin.n; ++i) {
+            myosin_forces_temp[t][i] = {0, 0};
+            myosin_velocities_temp[t][i] = {0, 0};
+            myosin_angular_forces_temp[t][i] = 0;
+            myosin_f_load_temp[t][i] = {0.0, 0.0};
+            actinIndicesPerMyosin_temp[t].deleteAllConnections(i);
+        }
+    }
+
+    #pragma omp for
+    for (int i = 0; i < actin.n; i++) {
+        actin.update_endpoints(i);
+        actin.force[i] = {0, 0};
+        actin.angular_force[i] = 0;
+        actin.velocity[i] = {0, 0};
+        actin.f_load[i] = 0;
+        if (actin_f_load_cb) {
+            (*actin_f_load_cb)[i] = 0;
+        }
+        actin.cb_strength[i] = 0;
+        actin_basic_tension[i] = 0;
+        actin_n_bonds[i] = 0;
+        actin_strong_cb_count[i] = 0;
+        n_myosins_per_actin[i] = 0;
+        actin_crosslink_ratio[i] = 1;
+        actin["myosin_binding_ratio"][i] = 0;
+        actin["crosslink_ratio"][i] = 1;
+        actin["partial_binding_ratio"][i] = 0;
+        myosinIndicesPerActin.deleteAllConnections(i);
+        for (int j = 0; j < actin.n; j++){
+            actin_actin_bonds_prev[i][j] = actin_actin_bonds[i][j];
+            actin_actin_bonds[i][j] = 0;
+            actin_actin_lifetime_prev[i][j] = actin_actin_lifetime[i][j];
+            actin_actin_lifetime[i][j] = 0;
+            actin_actin_strength[i][j] = 0;
+        }
+        for (int j = 0; j < myosin.n; j++){
+            am_bonds_prev[i][j] = am_bonds[i][j];
+            am_bonds[i][j] = 0;
+        }
+    }
+
+    #pragma omp for
+    for (int i = 0; i < myosin.n; i++) {
+        myosin.update_endpoints(i);
+        myosin.force[i] = {0, 0};
+        myosin.angular_force[i] = 0;
+        myosin.velocity[i] = {0, 0};
+        actinIndicesPerMyosin.deleteAllConnections(i);
+        myosin_f_load[i] = {0.0, 0.0};
+    }
+    #pragma omp for
+    for (size_t i = 0; i < actin.center.size(); i++) {
+        // Get actin and myosin neighbors for actin particle `i`
+        actin_neighbors_by_species[i] = neighbor_list.get_neighbors_by_type(i);
+    }
+}
+
+void Sarcomere::_process_actin_myosin_binding(int& i) {
+    int thread_id = omp_get_thread_num();
+    auto& local_actinIndicesPerMyosin = actinIndicesPerMyosin_temp[thread_id];
+    auto myosin_neighbors = actin_neighbors_by_species[i].second;
+    for (int index = 0; index < myosin_neighbors.size(); index++) {
+        int j = myosin_neighbors[index];
+        am_interaction[i][j] = geometry::analyze_am(
+            actin.left_end[i], actin.right_end[i], myosin.left_end[j], myosin.right_end[j],
+            myosin.radius, box, pbc_mask);
+        if (am_interaction[i][j].myosin_binding_ratio > 0) {
+            if (!directional || am_interaction[i][j].partial_binding_ratio > EPS) {
+                // Record every geometric attachment between actin and myosin
+                local_actinIndicesPerMyosin.addConnection(j, i);
+                myosinIndicesPerActin.addConnection(i, j);
+                if (actin_crosslink_ratio[i] > am_interaction[i][j].crosslinkable_ratio) {
+                    actin_crosslink_ratio[i] = am_interaction[i][j].crosslinkable_ratio;
+                }
+                n_myosins_per_actin[i]++;
+                double a_m_angle = actin.theta[i] - myosin.theta[j];
+                double abs_cos = std::abs(std::cos(a_m_angle));
+                if (abs_cos > actin_basic_tension[i]) {
+                    actin_basic_tension[i] = abs_cos;
+                }
+                if (actin["partial_binding_ratio"][i] < am_interaction[i][j].partial_binding_ratio) {
+                    actin["partial_binding_ratio"][i] = am_interaction[i][j].partial_binding_ratio;
+                }
+                if (actin["myosin_binding_ratio"][i] < am_interaction[i][j].myosin_binding_ratio) {
+                    actin["myosin_binding_ratio"][i] = am_interaction[i][j].myosin_binding_ratio;
+                }
+
+                // Immediately register a bond when geometrically allowed
+                am_bonds[i][j] = 1;
+            }
+        }
+    }
+    actin["crosslink_ratio"][i] = actin_crosslink_ratio[i];
+}
+
+void Sarcomere::_process_catch_bonds(int& i) {
+    int thread_id = omp_get_thread_num();
+    std::vector <int> actin_neighbors = actin_neighbors_by_species[i].first;
+    std::vector<double> cb_strengths;
+    std::vector<int> cb_indices;
+    for (int index = 0; index < actin_neighbors.size(); index++){
+            int j = actin_neighbors[index];
+            if (i>j){
+                double cos_angle = std::cos(actin.theta[i] - actin.theta[j]);
+                double strength = _get_cb_strength(i,j);
+                if (strength>EPS){
+                    cb_indices.push_back(j);
+                    cb_strengths.push_back(strength);
+                }
+            }
+    }
+    _set_cb(i, cb_indices,cb_strengths);
+}
+
+void Sarcomere::_enforce_actin_cb_limit() {
+    double threshold = 1.0 / cb_mult_factor;
+    for (int i = 0; i < actin.n; ++i) {
+        if (actin_strong_cb_count[i] <= max_strong_actin_bonds) {
+            continue;
+        }
+        std::vector<int> partners;
+        std::vector<double> strengths;
+        for (int j = 0; j < actin.n; ++j) {
+            if (actin_actin_bonds[i][j] == 1 && actin_actin_strength[i][j] > threshold) {
+                partners.push_back(j);
+                strengths.push_back(actin_actin_strength[i][j]);
+            }
+        }
+        auto order = utils::sort_indices(strengths);
+        for (size_t k = max_strong_actin_bonds; k < order.size(); ++k) {
+            int j = partners[order[k]];
+            double strength = actin_actin_strength[i][j];
+            actin_actin_bonds[i][j] = 0;
+            actin_actin_bonds[j][i] = 0;
+            actin_actin_strength[i][j] = 0;
+            actin_actin_strength[j][i] = 0;
+            actin_actin_lifetime[i][j] = 0;
+            actin_actin_lifetime[j][i] = 0;
+            actin.cb_strength[i] -= strength;
+            actin.cb_strength[j] -= strength;
+            actin_n_bonds[i] -= 1;
+            actin_n_bonds[j] -= 1;
+            actin_strong_cb_count[i] -= 1;
+            actin_strong_cb_count[j] -= 1;
+            // Log the enforced removal with timestamp and current bond counts
+            printf("Limit removal of actins %d-%d at step %zu (bonds: %d %d)\n",
+                   i, j, current_step, actin_n_bonds[i], actin_n_bonds[j]);
+            cb_limit_events.insert(cb_limit_events.end(),
+                                   {static_cast<double>(i), static_cast<double>(j),
+                                    static_cast<double>(current_step),
+                                    static_cast<double>(actin_n_bonds[i]),
+                                    static_cast<double>(actin_n_bonds[j])});
+        }
+    }
+}
+
+void Sarcomere::_enforce_myosin_bond_limit() {
+    for (int j = 0; j < myosin.n; ++j) {
+        std::vector<int> bound_actins;
+        for (int i = 0; i < actin.n; ++i) {
+            if (am_bonds[i][j] == 1) {
+                bound_actins.push_back(i);
+            }
+        }
+
+        if (static_cast<int>(bound_actins.size()) <= max_myosin_bonds) {
+            continue;
+        }
+
+        std::vector<int> priority(bound_actins.size(), 0);
+        for (size_t idx = 0; idx < bound_actins.size(); ++idx) {
+            int i = bound_actins[idx];
+            bool cb = actin.cb_strength[i] > 0;
+            bool prev = am_bonds_prev[i][j] == 1;
+            if (cb && prev) priority[idx] = 3;
+            else if (cb) priority[idx] = 2;
+            else if (prev) priority[idx] = 1;
+        }
+
+        auto order = utils::sort_indices(priority);
+        for (size_t k = max_myosin_bonds; k < order.size(); ++k) {
+            int actin_idx = bound_actins[order[k]];
+            am_bonds[actin_idx][j] = 0;
+            myosinIndicesPerActin.deleteConnection(actin_idx, j);
+            for (auto& temp_conn : actinIndicesPerMyosin_temp) {
+                temp_conn.deleteConnection(j, actin_idx);
+            }
+        }
+    }
+}
+
+void Sarcomere::_calc_am_force_velocity(int& i) {
+    int thread_id = omp_get_thread_num();
+    // Thread-local temporary lists for forces and velocities
+    auto& local_actin_forces = actin_forces_temp[thread_id];
+    auto& local_actin_angular_forces = actin_angular_forces_temp[thread_id];
+    auto& local_myosin_forces = myosin_forces_temp[thread_id];
+    auto& local_myosin_velocities = myosin_velocities_temp[thread_id];
+    auto& local_myosin_f_load = myosin_f_load_temp[thread_id];
+    auto& local_myosin_angular_forces = myosin_angular_forces_temp[thread_id];
+    std::vector<int> myosin_indices = myosinIndicesPerActin.getConnections(i);
+    vec velocity = {v_am*cos(actin.theta[i]),v_am*sin(actin.theta[i])};
+    for (int index = 0; index < myosin_indices.size(); index++) {
+        int j = myosin_indices[index];
+        if (am_bonds[i][j] != 1) {
+            continue;
+        }
+        double partial_binding_ratio = am_interaction[i][j].partial_binding_ratio;
+        double k_am_adjusted = k_am;
+        double kappa_am_adjusted = kappa_am*std::min(partial_binding_ratio*3,1.);
+        std::vector<double> force_vec = compute_am_force_and_energy(
+            actin, myosin, i, j, box, pbc_mask, k_am_adjusted, kappa_am_adjusted, myosin.radius);
+        //check if the force is too large
+        if (force_vec[0]>3 || force_vec[1]>3){
+            printf("am force too large: %f %f\n", force_vec[0], force_vec[1]);
+        }
+        local_actin_forces[i].x += force_vec[0];
+        local_actin_forces[i].y += force_vec[1];
+        local_myosin_forces[j].x -= force_vec[0];
+        local_myosin_forces[j].y -= force_vec[1];
+        local_actin_angular_forces[i] += force_vec[2];
+        local_myosin_angular_forces[j] += force_vec[3];
+        double f_load = actin.f_load[i]*(actin.cb_strength[i]>1/cb_mult_factor)*(partial_binding_ratio>EPS);
+        velocity = velocity * (1-f_load);
+        vec delta_direction = -velocity;
+        double dot = delta_direction.dot(myosin.direction[j]);
+        size_t dir_idx;
+        if (std::abs(dot) < EPS) {
+            dir_idx = 0;
+        } else {
+            dir_idx = (dot >= 0.0) ? 0 : 1;
+        }
+        if (f_load > local_myosin_f_load[j][dir_idx]){
+            local_myosin_f_load[j][dir_idx] = f_load;
+        }
+        if (actin.cb_strength[i]>1/cb_mult_factor){
+            actin.velocity[i] = velocity*diff_coeff_ratio/(diff_coeff_ratio+1);
+            vec delta_velocity = delta_direction/(diff_coeff_ratio+1);
+            local_myosin_velocities[j] += delta_velocity;
+        }
+        else{
+            actin.velocity[i] = velocity;
+        }
+
+    }
+}
+
+void Sarcomere::_volume_exclusion(){
+    #pragma omp for schedule(runtime)
+    for (int i = 0; i<myosin.n; i++){
+        auto result = neighbor_list.get_neighbors_by_type(i+actin.n);
+        std::vector <int> myosin_indices = result.second;
+        for (int index = 0; index < myosin_indices.size(); index++){
+            int j = myosin_indices[index];
+            if (i<j){
+            _myosin_repulsion(i,myosin_indices[index]);}
+        }
+    }
+
+    #pragma omp for schedule(runtime)
+    for (int i = 0; i < actin.n; i++){
+        auto result = neighbor_list.get_neighbors_by_type(i);
+        std::vector <int> actin_indices = result.first;
+        for (int index = 0; index < actin_indices.size(); index++){
+            int j = actin_indices[index];
+            if (i<j){
+            _actin_repulsion(i,actin_indices[index]);}
+        }
+    }
+}
+
+void Sarcomere::_myosin_exclusion(){
+    #pragma omp for schedule(runtime)
+    for (int i = 0; i<myosin.n; i++){
+        auto result = neighbor_list.get_neighbors_by_type(i+actin.n);
+        std::vector <int> myosin_indices = result.second;
+        for (int index = 0; index < myosin_indices.size(); index++){
+            int j = myosin_indices[index];
+            if (i<j){
+            _myosin_repulsion(i,myosin_indices[index]);}
+        }
+    }
+}
+
+void Sarcomere::_myosin_repulsion(int& i, int& j){
+    int thread_id = omp_get_thread_num();
+    vec center_displacement = myosin.center[i] - myosin.center[j];
+    center_displacement.pbc_wrap(box);
+    double center_distance = center_displacement.norm();
+    double cutoff = 2*myosin.radius*myosin_radius_ratio;
+    if (center_distance<=cutoff+myosin.length){
+        auto& local_myosin_forces = myosin_forces_temp[thread_id]; 
+        auto result = geometry::segment_segment_distance_w_normal(myosin.left_end[i], 
+            myosin.right_end[i], myosin.left_end[j], myosin.right_end[j], box, pbc_mask);
+        double distance = result.first;
+        if (distance<cutoff){
+            vec normal_vector = result.second["vector"];
+            double norm = normal_vector.norm();
+            double factor = std::min((10*(cutoff - distance)/cutoff),5.);
+            if (norm==0){
+                normal_vector.x = center_displacement.x;
+                normal_vector.y = center_displacement.y;
+                normal_vector = normal_vector/center_distance;
+            }
+            else {
+                normal_vector = normal_vector/norm;
+            }
+            // vec normal_vector = center_displacement/center_distance;
+            if (i<fix_myosin){
+                local_myosin_forces[j]-=2*factor*normal_vector;
+                return;
+            }
+            else if (j<fix_myosin){
+                local_myosin_forces[i]+=2*factor*normal_vector;
+                return;
+            }
+            //check if any of the myosin is bound to cb-forming actin
+            auto actin_indices_i = actinIndicesPerMyosin.getConnections(i);
+            double cb_strength_i = 0;
+            for (int index = 0; index < actin_indices_i.size(); index++){
+                int k = actin_indices_i[index];
+                cb_strength_i += actin.cb_strength[k];
+            }
+            auto actin_indices_j = actinIndicesPerMyosin.getConnections(j);
+            double cb_strength_j = 0;
+            for (int index = 0; index < actin_indices_j.size(); index++){
+                int k = actin_indices_j[index];
+                cb_strength_j += actin.cb_strength[k];
+            }
+            if (cb_strength_i>0.3 && cb_strength_j<0.3){
+                //move myosin j only
+                local_myosin_forces[j]= local_myosin_forces[j]- 2*factor*normal_vector;
+            }
+            else if (cb_strength_i<0.3 && cb_strength_j>0.3){
+                //move myosin i only
+                local_myosin_forces[i]+=2*factor*normal_vector;
+            }
+            else{
+                local_myosin_forces[i]+=factor*normal_vector;
+                local_myosin_forces[j]-=factor*normal_vector;
+            }
+        }
+
+    }
+}
+
+void Sarcomere::_actin_repulsion(int& i, int& j){
+    int thread_id = omp_get_thread_num();
+    vec center_displacement = actin.center[i] - actin.center[j];
+    center_displacement.pbc_wrap(box);
+    double center_distance = center_displacement.norm();
+    if (center_distance<=crosslinker_length+actin.length){
+        double angle_diff = fabs(actin.theta[i] - actin.theta[j]);
+        if (angle_diff > M_PI) {
+            angle_diff = 2* M_PI - angle_diff;
+        }
+        // Only apply repulsion if the angle difference is less than 10 degrees
+        if (angle_diff < M_PI/18) {
+            auto& local_actin_forces = actin_forces_temp[thread_id];
+            auto result = geometry::segment_segment_distance_w_normal(actin.left_end[i], 
+                actin.right_end[i], actin.left_end[j], actin.right_end[j], box, pbc_mask);
+            double distance = result.first;
+            double min_dist = 0.01;
+            if (distance < min_dist){
+                vec normal_vector = result.second["vector"];
+                double norm = normal_vector.norm();
+                double factor =(min_dist - distance)/min_dist;
+                if (norm==0){
+                    normal_vector.x = center_displacement.x;
+                    normal_vector.y = center_displacement.y;
+                    normal_vector = normal_vector/center_distance;
+                }
+                else {
+                    normal_vector = normal_vector/norm;
+                }
+                if (actin.cb_strength[i]>0.3 && actin.cb_strength[j]<0.3){
+                    //move actin j only
+                    local_actin_forces[j] = local_actin_forces[j]-2*factor*normal_vector;
+                }
+                else if (actin.cb_strength[i]<0.3 && actin.cb_strength[j]>0.3){
+                    //move actin i only
+                    local_actin_forces[i] = local_actin_forces[i]+2*factor*normal_vector;
+                }
+                else{
+                    local_actin_forces[i] = local_actin_forces[i]+factor*normal_vector;
+                    local_actin_forces[j] = local_actin_forces[j]-factor*normal_vector;
+                }
+            }
+        }
+    }
+}
+
+double Sarcomere::_get_cb_strength(int& i, int& j){
+    double angle = actin.theta[i] - actin.theta[j];
+    double cos_angle = std::cos(angle);
+    bool crosslink = false;
+    double partial_i = actin["partial_binding_ratio"][i];
+    double partial_j = actin["partial_binding_ratio"][j];
+    if ((partial_i < 1.0 - EPS && partial_j < 1.0 - EPS) || !directional) {
+        double distance = geometry::segment_segment_distance(
+            actin.left_end[i], actin.right_end[i],
+            actin.left_end[j], actin.right_end[j], box, pbc_mask);
+        if (distance < crosslinker_length) {
+            crosslink = true;
+        }
+    }
+    if (crosslink){ 
+        double strength = 0;
+        double abs_cos_angle = std::abs(cos_angle);
+        bool catch_bond =(actin_basic_tension[i]>EPS && actin_basic_tension[j]>EPS);
+        if (directional){
+            catch_bond = (catch_bond && cos_angle<0);
+        }
+        if (catch_bond){
+            auto& myosin_indices_i = myosinIndicesPerActin.getConnections(i);
+            auto& myosin_indices_j = myosinIndicesPerActin.getConnections(j);
+            if (!utils::compare_indices(myosin_indices_i,myosin_indices_j)){
+                strength = abs_cos_angle;
+                _get_f_load(i);
+                _get_f_load(j);
+            }
+        }
+        else{
+            strength = 1/cb_mult_factor*abs_cos_angle;
+        }
+        return strength;
+    }
+    return 0.0;
+}
+
+void Sarcomere::_get_f_load(int& i){
+    // i is the actin index
+    double load_velocity = 0.0;
+    double load_cb = 0.0;
+    std::vector<int> myosin_indices = myosinIndicesPerActin.getConnections(i);
+    for (int index = 0; index < myosin_indices.size(); index++){
+        int j = myosin_indices[index];
+        double binding_ratio_adjusted;
+        if (directional){
+            binding_ratio_adjusted = std::min(am_interaction[i][j].partial_binding_ratio*3,1.0);
+        }
+        else{
+            binding_ratio_adjusted = std::min(am_interaction[i][j].myosin_binding_ratio*3,1.0);
+        }
+        binding_ratio_adjusted = 1-std::exp(-4*binding_ratio_adjusted);
+        double abs_cos_angle = std::abs(std::cos(actin.theta[i] - myosin.theta[j]));
+        load_velocity += binding_ratio_adjusted;
+        load_cb += binding_ratio_adjusted * abs_cos_angle;
+        if (load_velocity > 1.) {
+            load_velocity = 1.;
+        }
+        if (load_cb > 1.) {
+            load_cb = 1.;
+        }
+    }
+    actin.f_load[i] = std::min(load_velocity, 1.0);
+    if (actin_f_load_cb) {
+        (*actin_f_load_cb)[i] = std::min(load_cb, 1.0);
+    }
+}
+
+void Sarcomere::_set_cb(int& i, int& j, double& normalized_strength, bool& add_connection){
+    int thread_id = omp_get_thread_num();
+    if (actin_actin_bonds[i][j] == 1) {
+        std::cout << "Skipping duplicate bond: " << i << ", " << j << "\n";
+    }
+    auto& local_actin_forces = actin_forces_temp[thread_id];
+    auto& local_actin_angular_forces = actin_angular_forces_temp[thread_id];
+    auto& local_actin_cb_strengths = actin_cb_strengths_temp[thread_id];
+    auto& local_myosin_forces = myosin_forces_temp[thread_id];
+    auto& local_myosin_angular_forces = myosin_angular_forces_temp[thread_id];
+    //if (normalized_strength<=1/cb_mult_factor && (actin_n_bonds[i]>=2 || actin_n_bonds[j]>=2)){
+    if (normalized_strength<=1/cb_mult_factor){
+        return;
+    }
+    // if (normalized_strength<EPS){
+    //     return;
+    // }
+    std::vector<double> force_vec;
+    force_vec.resize(4);
+    double rand = gsl_rng_uniform(rng_engines[thread_id]);
+    double abs_cos_angle = std::abs(std::cos(actin.theta[i] - actin.theta[j]));
+    double f_load_i = actin_f_load_cb ? (*actin_f_load_cb)[i] : actin.f_load[i];
+    double f_load_j = actin_f_load_cb ? (*actin_f_load_cb)[j] : actin.f_load[j];
+    double f_load = std::min(f_load_i, f_load_j);
+    if (actin_actin_bonds_prev[i][j] == 1) {
+        double k_off_adjusted = dt * abs_cos_angle/(base_lifetime+lifetime_coeff*f_load);
+        if (rand < k_off_adjusted){ //k_off is actually k_off * dt
+            //printf("breaking bond between %d and %d\n",i,j);
+            return;
+        }
+    }
+    else{
+        if (rand >= k_on*dt){ 
+            //printf("not forming bond between %d and %d\n",i,j);
+            return;
+        }
+    }
+    force_vec = compute_aa_force_and_energy(actin, i, j, box, pbc_mask, k_aa, kappa_aa, aa_cutoff, aa_optimal); 
+    //check if the force is too large
+    if (force_vec[0]>3 || force_vec[1]>3){
+        printf("aa force too large: %f %f\n", force_vec[0], force_vec[1]);
+    }
+    local_actin_forces[i].x += force_vec[0];
+    local_actin_forces[i].y += force_vec[1];
+    local_actin_forces[j].x -= force_vec[0];
+    local_actin_forces[j].y -= force_vec[1];
+    local_actin_angular_forces[i] += force_vec[2];
+    local_actin_angular_forces[j] += force_vec[3]; 
+    local_actin_cb_strengths[i] += normalized_strength;
+    local_actin_cb_strengths[j] += normalized_strength;
+    actin_n_bonds[i] += 1;
+    actin_n_bonds[j] += 1;
+    actin_strong_cb_count[i] += 1;
+    actin_strong_cb_count[j] += 1;
+    actin_actin_bonds[i][j] = 1;
+    actin_actin_bonds[j][i] = 1;
+    actin_actin_strength[i][j] = normalized_strength;
+    actin_actin_strength[j][i] = normalized_strength;
+    actin_actin_lifetime[i][j] = actin_actin_lifetime_prev[i][j] + 1;
+    actin_actin_lifetime[j][i] = actin_actin_lifetime[i][j];
+}
+
+void Sarcomere::_set_cb(int& i, std::vector<int> indices, std::vector<double> cb_strength){
+    int thread_id = omp_get_thread_num();
+    std::vector<size_t> sorted_indices = utils::sort_indices(cb_strength);
+    //print all the sorted indices
+    bool add_connection;
+    for (int index = 0; index < sorted_indices.size(); index++){
+        int j = indices[sorted_indices[index]];
+        add_connection = true;
+        _set_cb(i,j,cb_strength[sorted_indices[index]],add_connection);
+    }
+}
+
+std::tuple<std::vector<double>, std::vector<double>, std::vector<double>>
+    Sarcomere::_extract_bonded_pairs(
+    const std::vector<std::vector<int>>& actin_actin_bonds,
+    const std::vector<std::vector<int>>& actin_actin_status,
+    const utils::MoleculeConnection& myosinIndicesPerActin)
+{
+    // First, flatten the actin-actin bonds matrix (upper-triangle only)
+    // into a vector of doubled indices.
+    std::vector<double> flatActinBonds;
+    for (int i = 0; i < actin.n; ++i) {
+        for (int j = i + 1; j < actin.n; ++j) {
+            if (actin_actin_bonds[i][j] == 1 && actin_actin_status[i][j] == 2) {
+                flatActinBonds.push_back(static_cast<double>(i));
+                flatActinBonds.push_back(static_cast<double>(j));
+            }
+        }
+    }
+
+    // Next, process the flattened actin bonds to extract unique myosin–myosin pairs.
+    // For each actin–actin bond (i, j), retrieve the first myosin connected to actin i and j.
+    std::set<std::pair<int,int>> uniqueMyosinBonds;
+    for (size_t k = 0; k < flatActinBonds.size(); k += 2) {
+        int i = static_cast<int>(flatActinBonds[k]);
+        int j = static_cast<int>(flatActinBonds[k+1]);
+
+        auto connections_i = myosinIndicesPerActin.getConnections(i);
+        auto connections_j = myosinIndicesPerActin.getConnections(j);
+
+        // Skip if either actin has no attached myosin.
+        if (connections_i.empty() || connections_j.empty())
+            continue;
+
+        for (int myosin_i_raw : connections_i) {
+            for (int myosin_j_raw : connections_j) {
+                if (myosin_i_raw == myosin_j_raw)
+                    continue;
+                int myosin_a = myosin_i_raw;
+                int myosin_b = myosin_j_raw;
+                if (myosin_a > myosin_b)
+                    std::swap(myosin_a, myosin_b);
+                uniqueMyosinBonds.insert(std::make_pair(myosin_a, myosin_b));
+            }
+        }
+    }
+
+    // Flatten the set of unique myosin bonds into a vector<double>.
+    std::vector<double> flattenedMyosinBonds;
+    for (const auto& bond : uniqueMyosinBonds) {
+        flattenedMyosinBonds.push_back(static_cast<double>(bond.first));
+        flattenedMyosinBonds.push_back(static_cast<double>(bond.second));
+    }
+
+    // Extract actin–myosin bonds from actinIndicesPerMyosin.
+    std::vector<double> flatActinMyosinBonds;
+    for (int m = 0; m < myosin.n; ++m) {
+        auto actins = actinIndicesPerMyosin.getConnections(m);
+        for (int a : actins) {
+            flatActinMyosinBonds.push_back(static_cast<double>(a));
+            flatActinMyosinBonds.push_back(static_cast<double>(m));
+        }
+    }
+
+    // Return the triplet: actin bonds, myosin bonds, and actin–myosin bonds.
+    return { flatActinBonds, flattenedMyosinBonds, flatActinMyosinBonds };
+}
+
+void Sarcomere::_apply_cb_alignment_bias(double& k_theta_bias) {
+    #pragma omp for
+    for (int i = 0; i < myosin.n; ++i) {
+        double theta = myosin.theta[i];
+        auto actin_indices = actinIndicesPerMyosin.getConnections(i);
+        double acc_cb_strength = 0;
+        for (int a = 0; a < actin_indices.size(); ++a) {
+            int actin_idx = actin_indices[a];
+            if (actin.cb_strength[actin_idx] > 0.1) {
+                acc_cb_strength += actin.cb_strength[actin_idx];
+                if (acc_cb_strength > 1) {
+                    acc_cb_strength = 1;
+                    break;
+                }
+            }
+        }
+        myosin_angular_forces_temp[omp_get_thread_num()][i] -= 
+            acc_cb_strength * k_theta_bias * std::sin(theta) * std::cos(theta);
+    }
+
+    #pragma omp for
+    for (int i = 0; i < actin.n; ++i) {
+        double cb = actin.cb_strength[i];
+        if (cb > 0.1) {
+            double theta = actin.theta[i];
+            actin_angular_forces_temp[omp_get_thread_num()][i] -= 
+                cb * k_theta_bias * std::sin(theta) * std::cos(theta);
+        }
+    }
+}
+
+
+void Sarcomere::new_file(){
+    create_file(filename, actin, myosin, max_myosin_bonds);
+}
+
+void Sarcomere::save_state(){
+    auto bondData =
+    _extract_bonded_pairs(actin_actin_bonds, actin_actin_status, myosinIndicesPerActin);
+    std::vector<double> flatActinBonds = std::get<0>(bondData);
+    std::vector<double> flatMyosinBonds = std::get<1>(bondData);
+    std::vector<double> flatActinMyosinBonds = std::get<2>(bondData);
+    append_to_file(filename, actin, myosin, flatActinBonds,
+                   flatMyosinBonds, flatActinMyosinBonds, max_myosin_bonds);
+}
+
+int Sarcomere::load_state(int& n_frames, int frame_index){
+    int target_frame = load_from_file(filename, actin, myosin, actin_actin_bonds, n_frames, frame_index);
+    update_system();
+    return target_frame;
+}

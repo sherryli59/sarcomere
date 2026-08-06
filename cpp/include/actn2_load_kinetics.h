@@ -1,0 +1,290 @@
+#ifndef ACTN2_LOAD_KINETICS_H
+#define ACTN2_LOAD_KINETICS_H
+
+#include <algorithm>
+#include <array>
+#include <cmath>
+#include <stdexcept>
+#include <string>
+
+namespace actn2_load_kinetics {
+
+// Legacy reproduces the original strong, distinct-myosin proxy. ForceProjection
+// classifies an existing ACTN2 crosslink from the signed force that the
+// crosslink transmits to both actins.
+enum class StatusMode {
+    legacy_motor_identity = 0,
+    force_projection = 1,
+    motor_only = 2,
+    transmitted_only = 3,
+    opposed_and_transmitted = 4,
+    productive_opposed = 5,
+    arm_load_productive = 6,
+    productive_register = 7,
+};
+
+inline StatusMode parse_status_mode(const std::string& value) {
+    if (value == "legacy_motor_identity" || value == "legacy") {
+        return StatusMode::legacy_motor_identity;
+    }
+    if (value == "aa_force_projection" || value == "force_projection") {
+        return StatusMode::force_projection;
+    }
+    if (value == "motor_only") return StatusMode::motor_only;
+    if (value == "transmitted_only") return StatusMode::transmitted_only;
+    if (value == "opposed_and_transmitted" || value == "explicit_crossbridge") {
+        return StatusMode::opposed_and_transmitted;
+    }
+    if (value == "productive_opposed" || value == "productive_motor_pair") {
+        return StatusMode::productive_opposed;
+    }
+    if (value == "arm_load_productive" ||
+        value == "bilateral_arm_load_productive") {
+        return StatusMode::arm_load_productive;
+    }
+    if (value == "productive_register" ||
+        value == "minimal_productive_register") {
+        return StatusMode::productive_register;
+    }
+    throw std::invalid_argument(
+        "aa_status_mode must be legacy_motor_identity, aa_force_projection, "
+        "motor_only, transmitted_only, opposed_and_transmitted, or "
+        "productive_opposed, arm_load_productive, or productive_register");
+}
+
+inline const char* status_mode_name(StatusMode mode) {
+    switch (mode) {
+        case StatusMode::legacy_motor_identity:
+            return "legacy_motor_identity";
+        case StatusMode::force_projection:
+            return "aa_force_projection";
+        case StatusMode::motor_only:
+            return "motor_only";
+        case StatusMode::transmitted_only:
+            return "transmitted_only";
+        case StatusMode::opposed_and_transmitted:
+            return "opposed_and_transmitted";
+        case StatusMode::productive_opposed:
+            return "productive_opposed";
+        case StatusMode::arm_load_productive:
+            return "arm_load_productive";
+        case StatusMode::productive_register:
+            return "productive_register";
+    }
+    return "unknown";
+}
+
+struct ArmLoads {
+    // Signed force exerted by actin on its ACTN2 arm, projected from the
+    // barbed (+) end toward the pointed (-) end. Positive is the experimentally
+    // favorable direction. The force routine supplies force_on_first_actin;
+    // force on the second actin is its negative by translational invariance.
+    double first = 0.0;
+    double second = 0.0;
+
+    double bilateral() const {
+        return std::min(first, second);
+    }
+
+    double favorable_bilateral() const {
+        return std::max(0.0, bilateral());
+    }
+};
+
+inline double dot(const std::array<double, 3>& a,
+                  const std::array<double, 3>& b) {
+    return a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
+}
+
+inline double norm(const std::array<double, 3>& value) {
+    return std::sqrt(dot(value, value));
+}
+
+inline double opposed_motor_drive(const std::array<double, 3>& first,
+                                  const std::array<double, 3>& second) {
+    return 0.5 * norm({first[0] - second[0],
+                       first[1] - second[1],
+                       first[2] - second[2]});
+}
+
+// Motor-only cannot reject co-translation; transmitted-only can be contaminated
+// by passive prestress. The combined rule requires both opposed active drive
+// and force actually carried by the connector.
+inline double catch_load(StatusMode mode,
+                         const std::array<double, 3>& first_motor_force,
+                         const std::array<double, 3>& second_motor_force,
+                         double transmitted_force) {
+    transmitted_force = std::max(0.0, transmitted_force);
+    const double motor_only_load =
+        std::min(norm(first_motor_force), norm(second_motor_force));
+    if (mode == StatusMode::motor_only) return motor_only_load;
+    if (mode == StatusMode::transmitted_only) return transmitted_force;
+    if (mode == StatusMode::opposed_and_transmitted) {
+        return std::min(opposed_motor_drive(first_motor_force, second_motor_force),
+                        transmitted_force);
+    }
+    return 0.0;
+}
+
+inline int classify_existing_bond_scalar(int previous_status,
+                                         double load,
+                                         double force_on,
+                                         double force_off) {
+    force_on = std::max(0.0, force_on);
+    force_off = std::clamp(force_off, 0.0, force_on);
+    const double threshold = previous_status == 2 ? force_off : force_on;
+    return load > threshold ? 2 : 1;
+}
+
+inline ArmLoads signed_arm_loads(
+    const std::array<double, 3>& force_on_first_actin,
+    const std::array<double, 3>& first_barbed_to_pointed,
+    const std::array<double, 3>& second_barbed_to_pointed) {
+    // ACTN2 experiences the reaction to the force it applies to each actin.
+    // F_on_second_actin = -F_on_first_actin.
+    return {
+        -dot(force_on_first_actin, first_barbed_to_pointed),
+         dot(force_on_first_actin, second_barbed_to_pointed),
+    };
+}
+
+inline ArmLoads limit_by_available_load(const ArmLoads& raw,
+                                        double first_available,
+                                        double second_available) {
+    return {
+        std::min(std::max(0.0, raw.first), std::max(0.0, first_available)),
+        std::min(std::max(0.0, raw.second), std::max(0.0, second_available)),
+    };
+}
+
+// Allocate the productive myosin load on one actin among all ACTN2 arms that
+// are currently capable of transmitting favorable load.  Raw spring force is
+// used only as a load-sharing weight and a transmission ceiling; it is not an
+// independent source of catch stabilization.
+inline double allocated_motor_load(double raw_favorable_arm_load,
+                                   double total_raw_favorable_arm_load,
+                                   double available_productive_motor_load) {
+    const double raw = std::max(0.0, raw_favorable_arm_load);
+    const double total = std::max(0.0, total_raw_favorable_arm_load);
+    const double available = std::max(0.0, available_productive_motor_load);
+    if (!(raw > 0.0) || !(total > 0.0) || !(available > 0.0)) return 0.0;
+    return available * raw / total;
+}
+
+inline double motor_supported_arm_load(double raw_favorable_arm_load,
+                                       double total_raw_favorable_arm_load,
+                                       double available_productive_motor_load) {
+    const double raw = std::max(0.0, raw_favorable_arm_load);
+    return std::min(
+        raw,
+        allocated_motor_load(raw, total_raw_favorable_arm_load,
+                             available_productive_motor_load));
+}
+
+// Convert a legacy pair-level stiffness into a fixed stiffness for each
+// explicit ACTN2 molecule. The divisor is a reference coarse-graining choice,
+// not the instantaneous occupancy: surviving links must not change stiffness
+// when a neighbor binds or detaches.
+inline double fixed_single_link_stiffness(double legacy_pair_stiffness,
+                                          int reference_links) {
+    return std::max(0.0, legacy_pair_stiffness) /
+           static_cast<double>(std::max(1, reference_links));
+}
+
+inline int classify_existing_bond(int previous_status,
+                                  const ArmLoads& loads,
+                                  double force_on,
+                                  double force_off) {
+    force_on = std::max(0.0, force_on);
+    force_off = std::clamp(force_off, 0.0, force_on);
+    const double threshold = previous_status == 2 ? force_off : force_on;
+    return (loads.first > threshold && loads.second > threshold) ? 2 : 1;
+}
+
+// A molecular ACTN2 catch state requires load at both directional
+// ACTN2--actin interfaces. Callers first allocate the productive motor budget
+// among transmitting arms and bound it by each arm's raw mechanical capacity;
+// productive_opposed_support remains the pair-level direction/source gate.
+inline int classify_arm_loaded_productive(
+    int previous_status, const ArmLoads& loads,
+    double productive_opposed_support, double force_on, double force_off,
+    double support_threshold = 0.0) {
+    if (!(productive_opposed_support > std::max(0.0, support_threshold))) {
+        return 1;
+    }
+    return classify_existing_bond(
+        previous_status, loads, force_on, force_off);
+}
+
+inline bool registry_gate(int previous_status, double direction_dot,
+                          double registry_error, double delta_on,
+                          double delta_off) {
+    if (!(direction_dot < 0.0) || !std::isfinite(registry_error)) return false;
+    delta_on = std::max(0.0, delta_on);
+    delta_off = std::max(delta_on, delta_off);
+    const double threshold = previous_status == 2 ? delta_off : delta_on;
+    return registry_error <= threshold;
+}
+
+// Productive opposed motor load is required only to create status 2. Once
+// created, the state persists until stochastic detachment or loss of the
+// wider geometric retention gate.
+inline int classify_productive_register(
+    int previous_status, double productive_opposed_support, double force_on,
+    double direction_dot, double registry_error, double delta_on,
+    double delta_off) {
+    if (previous_status == 2) {
+        return registry_gate(
+            2, direction_dot, registry_error, delta_on, delta_off) ? 2 : 1;
+    }
+    const bool registered = registry_gate(
+        1, direction_dot, registry_error, delta_on, delta_off);
+    return registered &&
+           productive_opposed_support > std::max(0.0, force_on) ? 2 : 1;
+}
+
+// Diagnostics for overlap-based motor capacity. The overlap calculation itself
+// remains in geometry::analyze_am; these helpers keep orientation semantics
+// independent and unit-testable.
+inline double nematic_axis_alignment(double actin_dot_myosin) {
+    return std::clamp(std::abs(actin_dot_myosin), 0.0, 1.0);
+}
+
+inline int myosin_half(double contact_axial_coordinate) {
+    return contact_axial_coordinate >= 0.0 ? 1 : -1;
+}
+
+inline double productive_polarity_score(double actin_dot_myosin,
+                                        int half_sign) {
+    const int half = half_sign >= 0 ? 1 : -1;
+    return std::clamp(-static_cast<double>(half) * actin_dot_myosin, -1.0, 1.0);
+}
+
+inline int productive_myosin_half(double actin_dot_myosin) {
+    return actin_dot_myosin > 0.0 ? -1 : 1;
+}
+
+// Status 2 represents an existing AA link whose two antiparallel actins are
+// being pulled in opposition by productive strong heads.  The productive
+// force vectors have already been filtered by myosin-half polarity.  Requiring
+// force on both arms rejects single-sided occupancy and co-translation.
+inline double productive_opposed_load(
+    const std::array<double, 3>& first_direction,
+    const std::array<double, 3>& second_direction,
+    const std::array<double, 3>& first_productive_force,
+    const std::array<double, 3>& second_productive_force) {
+    const double polarity = dot(first_direction, second_direction);
+    if (!(polarity < 0.0)) return 0.0;
+    const double first_norm = norm(first_productive_force);
+    const double second_norm = norm(second_productive_force);
+    if (!(first_norm > 0.0) || !(second_norm > 0.0)) return 0.0;
+    const double force_opposition = std::clamp(
+        -dot(first_productive_force, second_productive_force) /
+            (first_norm * second_norm),
+        0.0, 1.0);
+    return force_opposition * std::min(first_norm, second_norm);
+}
+
+}  // namespace actn2_load_kinetics
+
+#endif
