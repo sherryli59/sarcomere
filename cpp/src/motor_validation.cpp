@@ -459,6 +459,42 @@ int main(int argc, char** argv) {
         double_overlap_contact, contact_diameter,
         contact_epsilon, contact_force_cap);
     m.aa_status1_site_diffusion = weak_site_D;
+
+    // Environment overrides for the ACTN2 parameters this rig otherwise
+    // hardcodes. The gate can then sweep them without disturbing the
+    // positional argument list every archived script depends on, and an unset
+    // variable leaves the mode's own choice exactly as it was. Applied after
+    // build() so they win over both set_local_aa_model() calls.
+    {
+        auto env_int = [](const char* name, int& target) {
+            if (const char* v = std::getenv(name)) target = std::atoi(v);
+        };
+        auto env_double = [](const char* name, double& target) {
+            if (const char* v = std::getenv(name)) target = std::atof(v);
+        };
+        auto env_bool = [](const char* name, bool& target) {
+            if (const char* v = std::getenv(name)) target = (std::atoi(v) != 0);
+        };
+        env_int("MV_AA_LINKS", m.aa_prebundle_links_per_pair);
+        env_int("MV_AA_REF_LINKS", m.aa_stiffness_reference_links);
+        env_int("MV_AA_MAX_BONDS", m.max_aa_bonds_per_actin);
+        env_double("MV_AA_PERP_K", m.aa_perpendicular_k);
+        env_bool("MV_AA_PERP_ALL", m.aa_perpendicular_all_statuses);
+        env_bool("MV_AA_REGISTER_ALL", m.aa_register_all_statuses);
+        env_double("MV_AA_RUPTURE", m.aa_link_rupture_length);
+        env_double("MV_AA_REGISTRY_ON", m.aa_status2_registry_on);
+        env_double("MV_AA_REGISTRY_OFF", m.aa_status2_registry_off);
+        std::printf(
+            "aa_config links=%d ref_links=%d max_bonds=%d perp_k=%g "
+            "perp_all=%d register_all=%d rupture=%g registry_on=%g "
+            "registry_off=%g\n",
+            m.aa_prebundle_links_per_pair, m.aa_stiffness_reference_links,
+            m.max_aa_bonds_per_actin, m.aa_perpendicular_k,
+            static_cast<int>(m.aa_perpendicular_all_statuses),
+            static_cast<int>(m.aa_register_all_statuses),
+            m.aa_link_rupture_length, m.aa_status2_registry_on,
+            m.aa_status2_registry_off);
+    }
     if (initialize_q_calcium_equilibrium) {
         m.initialize_am_thin_activation_calcium_equilibrium();
     }
