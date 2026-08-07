@@ -192,6 +192,16 @@ public:
     // When enabled, every attached local ACTN2 molecule carries axial
     // register mechanics. Status 1/2 still controls molecular lifetime.
     bool aa_register_all_statuses = false;
+    // Status 1 is a *sliding* bond: radial + alignment only, so a
+    // crosslinked pair can still slide axially to search for register.
+    // The perpendicular term penalises the connector's component along
+    // each filament axis, i.e. it resists exactly that sliding, so it
+    // belongs to status 2 together with the axial register term.
+    // Default true preserves historical behaviour. Set false to make
+    // status 1 a sliding bond. Incompatible with
+    // aa_status_mode=arm_load_productive, which gates status-2
+    // promotion on exactly this load.
+    bool aa_perpendicular_all_statuses = true;
     // >0 uses the saturating barbed-end register force with this ceiling
     // (pN) instead of the Gaussian form that decays to zero far from the
     // target.  Small-error stiffness is unchanged either way.
@@ -213,7 +223,7 @@ public:
     // Sparse, spatially resolved ACTN2 links are the production model. The
     // old one-edge-per-pair model remains available through the CLI control.
     bool aa_local_multilink = true;
-    int aa_prebundle_links_per_pair = 2;
+    int aa_prebundle_links_per_pair = 1;
     double aa_site_exclusion = 0.0192;
     double aa_overlap_capture = 0.1;
     double aa_perpendicular_k = 50.0;
@@ -776,6 +786,10 @@ public:
     double aa_link_register_ratio(BondFlag status) const {
         return (aa_register_all_statuses || status == 2)
             ? aa_axial_register_ratio : 0.0;
+    }
+    double aa_link_perpendicular_stiffness(BondFlag status) const {
+        return (aa_perpendicular_all_statuses || status == 2)
+            ? aa_perpendicular_k : 0.0;
     }
     double aa_link_radial_stiffness(BondFlag status) const {
         if (status == 1 && aa_status1_radial_k > 0.0) {

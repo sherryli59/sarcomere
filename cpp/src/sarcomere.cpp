@@ -3446,7 +3446,7 @@ void Sarcomere::_update_local_aa_links() {
             const auto weak_mechanics = compute_local_aa_link(
                 actin, link.actin_i, link.actin_j, link.s_i, link.s_j, box,
                 ramp * aa_link_radial_stiffness(link.status),
-                ramp * aa_perpendicular_k, single_link_alignment_k,
+                ramp * aa_link_perpendicular_stiffness(link.status), single_link_alignment_k,
                 aa_optimal, aa_antiparallel_overlap,
                 aa_link_register_ratio(link.status),
                 aa_register_saturation_error, aa_axial_register_force_max);
@@ -3496,7 +3496,7 @@ void Sarcomere::_update_local_aa_links() {
             ramp * aa_link_radial_stiffness(link.status);
         mechanics[slot] = compute_local_aa_link(
             actin, link.actin_i, link.actin_j, link.s_i, link.s_j, box,
-            link_radial_k, ramp * aa_perpendicular_k,
+            link_radial_k, ramp * aa_link_perpendicular_stiffness(link.status),
             single_link_alignment_k, aa_optimal, aa_antiparallel_overlap,
             aa_link_register_ratio(link.status),
             aa_register_saturation_error, aa_axial_register_force_max);
@@ -3700,7 +3700,7 @@ void Sarcomere::_update_local_aa_links() {
         mechanics[slot] = compute_local_aa_link(
             actin, link.actin_i, link.actin_j, link.s_i, link.s_j, box,
             ramp * aa_link_radial_stiffness(link.status),
-            ramp * aa_perpendicular_k,
+            ramp * aa_link_perpendicular_stiffness(link.status),
             single_link_alignment_k, aa_optimal, aa_antiparallel_overlap,
             aa_link_register_ratio(link.status),
             aa_register_saturation_error, aa_axial_register_force_max);
@@ -3941,7 +3941,7 @@ void Sarcomere::_update_local_aa_links() {
         mechanics[slot] = compute_local_aa_link(
             actin, i, j, s_i, s_j, box,
             ramp * aa_link_radial_stiffness(link.status),
-            ramp * aa_perpendicular_k,
+            ramp * aa_link_perpendicular_stiffness(link.status),
             single_link_alignment_k, aa_optimal, aa_antiparallel_overlap,
             aa_link_register_ratio(link.status),
             aa_register_saturation_error, aa_axial_register_force_max);
@@ -7019,7 +7019,7 @@ void Sarcomere::save_state(){
                 ramp * aa_link_radial_stiffness(link.status);
             saved_mechanics[slot] = compute_local_aa_link(
                 actin, link.actin_i, link.actin_j, link.s_i, link.s_j, box,
-                link_radial_k, ramp * aa_perpendicular_k,
+                link_radial_k, ramp * aa_link_perpendicular_stiffness(link.status),
                 single_link_alignment_k, aa_optimal, aa_antiparallel_overlap,
                 aa_link_register_ratio(link.status),
                 aa_register_saturation_error, aa_axial_register_force_max);

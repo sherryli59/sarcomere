@@ -94,6 +94,7 @@ int main(int argc, char* argv[]){
     double aa_axial_register_force_max;
     double aa_axial_register_ratio;
     bool aa_register_all_statuses;
+    bool aa_perpendicular_all_statuses;
     double aa_status2_support_window;
     double aa_status2_registry_on;
     double aa_status2_registry_off;
@@ -372,6 +373,7 @@ int main(int argc, char* argv[]){
             ("aa_axial_register_force_max", "Ceiling (pN) for a saturating status-2 axial register force that does not decay far from the target; <=0 keeps the Gaussian-attenuated form", cxxopts::value<double>(aa_axial_register_force_max)->default_value("0"))
             ("aa_axial_register_ratio", "Status-2 axial register stiffness as a fraction of radial AA stiffness", cxxopts::value<double>(aa_axial_register_ratio)->default_value("1.0"))
             ("aa_register_all_statuses", "Let every attached local ACTN2 link carry axial register mechanics while status 1/2 still controls turnover lifetime", cxxopts::value<bool>(aa_register_all_statuses)->default_value("false")->implicit_value("true"))
+            ("aa_perpendicular_all_statuses", "Whether status-1 ACTN2 links also carry the perpendicular (axial-sliding) constraint. Default true preserves historical behaviour; set false to make status 1 a sliding bond of radial + alignment only, so crosslinked filaments can still slide to search for register. NOTE: aa_status_mode=arm_load_productive gates status-2 promotion on exactly this load, so false makes promotion impossible in that mode", cxxopts::value<bool>(aa_perpendicular_all_statuses)->default_value("true")->implicit_value("true"))
             ("aa_status2_registry_on", "Maximum barbed-end register error for status 1 to status 2 capture", cxxopts::value<double>(aa_status2_registry_on)->default_value("0.1"))
             ("aa_status2_support_window", "Motor-timescale window (s) over which productive opposed load is averaged for status-2 FORMATION only; <=0 requires instantaneous bilateral loading", cxxopts::value<double>(aa_status2_support_window)->default_value("0"))
             ("aa_status2_registry_off", "Maximum barbed-end register error for status-2 retention", cxxopts::value<double>(aa_status2_registry_off)->default_value("0.15"))
@@ -380,7 +382,7 @@ int main(int argc, char* argv[]){
             ("am_crossover_pull_through", "Once an actin slides past the bare zone into the opposite head-bearing half, let that half power stroke too; direction follows actin polarity so it keeps pulling the same way until the actin exits", cxxopts::value<bool>(am_crossover_pull_through)->default_value("false")->implicit_value("true"))
             ("am_overlap_target_ratio", "Legacy sliding throttle: engaged-overlap fraction at which motor sliding stalls (<=0 disables)", cxxopts::value<double>(am_overlap_target_ratio)->default_value("0"))
             ("aa_local_multilink", "Use sparse local multi-link ACTN2 mechanics (production default; pass false for the legacy pair edge)", cxxopts::value<bool>(aa_local_multilink)->default_value("true")->implicit_value("true"))
-            ("aa_prebundle_links_per_pair", "Maximum transient local ACTN2 links per actin pair", cxxopts::value<int>(aa_prebundle_links_per_pair)->default_value("2"))
+            ("aa_prebundle_links_per_pair", "Maximum transient local ACTN2 links per actin pair", cxxopts::value<int>(aa_prebundle_links_per_pair)->default_value("1"))
             ("aa_site_exclusion", "Minimum contour-coordinate separation between local ACTN2 attachments", cxxopts::value<double>(aa_site_exclusion)->default_value("0.0192"))
             ("aa_overlap_capture", "Reference overlap used to calibrate overlap-extensive local ACTN2 association", cxxopts::value<double>(aa_overlap_capture)->default_value("0.1"))
             ("aa_perpendicular_k", "Local ACTN2 perpendicularity stiffness", cxxopts::value<double>(aa_perpendicular_k)->default_value("50"))
@@ -836,6 +838,7 @@ int main(int argc, char* argv[]){
     model.am_overlap_target_ratio = am_overlap_target_ratio;
     model.aa_axial_register_force_max = aa_axial_register_force_max;
     model.aa_register_all_statuses = aa_register_all_statuses;
+    model.aa_perpendicular_all_statuses = aa_perpendicular_all_statuses;
     model.aa_barbed_zone = aa_barbed_zone;
     model.aa_status1_radial_k = aa_status1_radial_k;
     model.aa_status1_site_diffusion = aa_status1_site_diffusion;
