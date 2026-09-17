@@ -330,6 +330,12 @@ Sarcomere::Sarcomere(int& n_actins, int& n_myosins, vector box0, double& actin_l
             actin.register_feature("am_active_force_y");
             actin.register_feature("am_active_force_z");
             actin.register_feature("am_tether_force");
+            // Separate from am_tether_force: until 2026-09-17 BOTH the per-head
+            // transverse spring (am_head_transverse_k) and the aggregate pair
+            // tether (am_tether_k) summed into am_tether_force, so the recorded
+            // value could not be attributed to either and the two radial
+            // channels could not be told apart from a run.
+            actin.register_feature("am_head_transverse_force");
             actin.register_feature("am_activation");
             actin.register_feature("am_calcium");
             actin.register_feature("am_q");
@@ -1628,6 +1634,7 @@ void Sarcomere::_set_to_zero() {
     auto& am_active_force_y_feature = actin["am_active_force_y"];
     auto& am_active_force_z_feature = actin["am_active_force_z"];
     auto& am_tether_force_feature = actin["am_tether_force"];
+    auto& am_head_transverse_force_feature = actin["am_head_transverse_force"];
     auto& am_activation_feature = actin["am_activation"];
     auto& am_calcium_feature = actin["am_calcium"];
     auto& am_q_feature = actin["am_q"];
@@ -1676,6 +1683,7 @@ void Sarcomere::_set_to_zero() {
         am_active_force_y_feature[i] = 0;
         am_active_force_z_feature[i] = 0;
         am_tether_force_feature[i] = 0;
+        am_head_transverse_force_feature[i] = 0;
         am_activation_feature[i] = am_activation;
         am_calcium_feature[i] = am_activation;
         am_q_feature[i] = am_thin_activation[static_cast<size_t>(i)];
@@ -6553,11 +6561,13 @@ void Sarcomere::_calc_am_force_velocity(int& i) {
     static const std::string key_active_force_y{"am_active_force_y"};
     static const std::string key_active_force_z{"am_active_force_z"};
     static const std::string key_tether_force{"am_tether_force"};
+    static const std::string key_head_transverse_force{"am_head_transverse_force"};
     auto& am_motor_force_feature = actin[key_motor_force];
     auto& am_active_force_x_feature = actin[key_active_force_x];
     auto& am_active_force_y_feature = actin[key_active_force_y];
     auto& am_active_force_z_feature = actin[key_active_force_z];
     auto& am_tether_force_feature = actin[key_tether_force];
+    auto& am_head_transverse_force_feature = actin[key_head_transverse_force];
     // The half-suffixed myosin alignment diagnostics were looked up once per
     // bound head, each time building a fresh std::string.  Resolve both halves
     // once per actin instead.
@@ -6747,7 +6757,7 @@ void Sarcomere::_calc_am_force_velocity(int& i) {
                     am_active_force_x_feature[i] += active_force.x;
                     am_active_force_y_feature[i] += active_force.y;
                     am_active_force_z_feature[i] += active_force.z;
-                    am_tether_force_feature[i] +=
+                    am_head_transverse_force_feature[i] +=
                         head_mechanics.radial_force_on_actin.norm();
                 }
             }

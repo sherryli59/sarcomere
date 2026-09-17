@@ -1272,6 +1272,56 @@ int main(int argc, char* argv[]){
         model.myosin.update_endpoints();
     }
 
+    // Configuration audit.  Each of these was a silent trap found on
+    // 2026-09-17; they are reported here so a run cannot quietly inherit one.
+    if (titin_mode == Sarcomere::TitinMode::explicit_dynamic &&
+        titin_require_live_actn2 && !(titin_k_off_unsupported > 0.0)) {
+        std::cerr << "WARNING: --titin_require_live_actn2 is set but "
+                     "--titin_k_off_unsupported <= 0, which per its own help "
+                     "text keeps the single global --titin_k_off="
+                  << titin_k_off << "/s.  An unsupported titin therefore has a "
+                     "mean lifetime of "
+                  << (titin_k_off > 0.0 ? 1.0 / titin_k_off : 0.0)
+                  << " s and effectively never releases, so it will pin the "
+                     "thin filament after the Z-disc dies." << std::endl;
+    }
+    if (am_tether_k > 0.0 && !(am_tether_force_max > 0.0)) {
+        std::cerr << "WARNING: --am_tether_force_max <= 0 selects the unbounded "
+                     "linear branch of the AM tether; its force grows without "
+                     "limit and is bounded only by the integrator displacement "
+                     "clamp." << std::endl;
+    }
+    if (am_head_transverse_k > 0.0 &&
+        !(am_transverse_strain_detachment_theta > 0.0)) {
+        std::cerr << "WARNING: --am_transverse_strain_detachment_theta = 0, so "
+                     "transverse over-stretch of a bound head does not "
+                     "accelerate its detachment.  A radially stretched head "
+                     "pulls indefinitely instead of letting go." << std::endl;
+    }
+    if (!am_spatial_heads) {
+        std::cerr << "ERROR: --am_spatial_heads=false is rejected.  That path "
+                     "places the head anchor on the myosin AXIS (radial offset "
+                     "0) while still passing a rest length of actin_radius + "
+                     "am_surface_gap = 30 nm, so every bound head starts "
+                     "stretched by about 50 nm and pulls inward at roughly 5 "
+                     "pN.  Supply the matching rest length before enabling it."
+                  << std::endl;
+        gsl_rng_free(rng);
+        return 1;
+    }
+    if (am_tether_occupancy_floor > 0.0) {
+        std::cerr << "ERROR: --am_tether_occupancy_floor has no effect and is "
+                     "rejected.  The block applying it (sarcomere.cpp ~6775) "
+                     "sits inside a loop that skips any pair with "
+                     "am_bonds[i][j] != 1, i.e. any pair with no bound head, so "
+                     "the floor can only raise occupancy for pairs that already "
+                     "have one.  Its stated purpose -- tethering a pair that has "
+                     "lost its heads -- is unreachable.  Wire it before "
+                     "sweeping it." << std::endl;
+        gsl_rng_free(rng);
+        return 1;
+    }
+
     // Captured above, while the cxxopts Options object was still in scope.
     model.cli_invocation = cli_invocation_capture;
     model.cli_defaults = cli_defaults_capture;
