@@ -38,6 +38,7 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 # Source files
 set(SOURCES
     ${SRC_DIR}/sarcomere.cpp
+    ${SRC_DIR}/sarcomere_io.cpp
     ${SRC_DIR}/geometry.cpp
     ${SRC_DIR}/interaction.cpp
     ${SRC_DIR}/utils.cpp
