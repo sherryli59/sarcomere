@@ -97,6 +97,16 @@ namespace geometry {
     std::tuple<double, vec, vec> subsegment_within_distance(vec A, vec B, vec C, vec D, double d, const std::vector<double>& box, const std::array<bool,3>& periodic);
 
     // Analyze actin–myosin interaction geometry and return an interaction struct.
+    // Conservative, exact rejection test for a pair of rods: returns false
+    // only when their segment-segment distance is guaranteed to exceed
+    // `capture`.  Cheap enough to run on every neighbour-list entry, of which
+    // only ~1% interact at production density.  `second_*` supplies the axis,
+    // so pass the longer rod there when the two differ.
+    bool segments_may_interact(const vec& first_left, const vec& first_right,
+                               const vec& second_left, const vec& second_right,
+                               double capture, const std::vector<double>& box,
+                               const std::array<bool, 3>& periodic);
+
     am_interaction analyze_am(vec actin_left, vec actin_right,
                               vec myosin_left, vec myosin_right, double d,
                               const std::vector<double>& box, bool directional = true);

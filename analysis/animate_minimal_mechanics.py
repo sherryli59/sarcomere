@@ -25,6 +25,7 @@ STATUS2_COLOR = "#18a558"
 WEAK_COLOR = "#8e6bbf"
 STRONG_COLOR = "#5e3c99"
 TITIN_COLOR = "#00a6b2"
+MYOMESIN_COLOR = "#d81b60"
 
 
 def endpoints(center: np.ndarray, direction: np.ndarray, length: float):
@@ -127,6 +128,11 @@ def load(path: Path, save_every: int):
             data["titin_links_per_half"] = int(
                 h["meta"].attrs.get("titin_links_per_half", 1)
             )
+        if "myomesin/frame_offsets" in h:
+            data["myomesin_offsets"] = h["myomesin/frame_offsets"][:]
+            data["myomesin_state"] = h["myomesin/bridge_state"][:]
+            if "myomesin/events" in h:
+                data["myomesin_events"] = h["myomesin/events"][:]
     if "link_offsets" in data:
         data["time_ms"] = data["link_offsets"][:, 0] * data["dt"] * 1e3
     else:
@@ -150,6 +156,37 @@ def load(path: Path, save_every: int):
             data["titin_bound_actin"] >= 0, axis=1
         )
         data["titin_total_force"] = np.sum(data["titin_force"], axis=1)
+    if "myomesin_offsets" in data:
+        data["myomesin_count"] = data["myomesin_offsets"][:, 2].astype(int)
+        data["myomesin_max_force"] = np.zeros(len(data["ac"]), dtype=float)
+        data["myomesin_max_axial_nm"] = np.zeros(len(data["ac"]), dtype=float)
+        pairs = sorted({
+            tuple(sorted((int(row[2]), int(row[3]))))
+            for row in data["myomesin_state"]
+        })
+        data["myomesin_pair_axial_nm"] = {
+            pair: np.full(len(data["ac"]), np.nan) for pair in pairs
+        }
+        for frame, (_, start, count) in enumerate(data["myomesin_offsets"]):
+            rows = data["myomesin_state"][int(start):int(start + count)]
+            if len(rows):
+                data["myomesin_max_force"][frame] = np.max(rows[:, 7])
+                data["myomesin_max_axial_nm"][frame] = 1e3 * np.max(
+                    np.abs(rows[:, 5])
+                )
+                for row in rows:
+                    pair = tuple(sorted((int(row[2]), int(row[3]))))
+                    data["myomesin_pair_axial_nm"][pair][frame] = (
+                        1e3 * abs(float(row[5]))
+                    )
+        data["myomesin_formation_axial_nm"] = {}
+        for row in data.get("myomesin_events", []):
+            if int(row[1]) != 1:
+                continue
+            pair = tuple(sorted((int(row[3]), int(row[4]))))
+            data["myomesin_formation_axial_nm"].setdefault(
+                pair, 1e3 * abs(float(row[5]))
+            )
     if data["ac"].shape[1] == 4 and data["mc"].shape[1] == 2:
         owners = np.array((0, 1, 0, 1), dtype=int)
         am_dot = np.stack(
@@ -319,6 +356,22 @@ def explicit_titins(data, frame):
             np.asarray(visible_forces))
 
 
+def active_myomesin_bridges(data, frame):
+    if "myomesin_offsets" not in data:
+        return []
+    _, start, count = data["myomesin_offsets"][frame]
+    result = []
+    for row in data["myomesin_state"][int(start):int(start + count)]:
+        result.append({
+            "i": int(row[2]),
+            "j": int(row[3]),
+            "axial_nm": 1e3 * abs(float(row[5])),
+            "radial_nm": 1e3 * float(row[6]),
+            "force": float(row[7]),
+        })
+    return result
+
+
 def configure_geometry(ax, data, mode):
     ax.set_proj_type("ortho")
     if mode == "catch":
@@ -394,6 +447,38 @@ def render_frame(fig, data, frame, mode, actin_length, myosin_length):
         ax.quiver(*(c - 0.10 * d), *(0.20 * d), color=color,
                   arrow_length_ratio=0.35,
                   linewidth=1 if dense_lattice else 2)
+
+    # Exact occupied M-band graph.  Each magenta connector joins the two
+    # thick-filament bare-zone centers that consume a finite myomesin site.
+    # Minimum-image placement keeps a periodic bridge local on screen.
+    myomesin_bridges = active_myomesin_bridges(data, frame)
+    bridge_labels = []
+    for bridge in myomesin_bridges:
+        first = data["mc"][frame, bridge["i"]]
+        second = first + minimum_image(
+            data["mc"][frame, bridge["j"]] - first,
+            data["box"], data["periodic"],
+        )
+        midpoint = 0.5 * (first + second)
+        ax.plot(*np.vstack((first, second)).T, color=MYOMESIN_COLOR,
+                lw=6.0, alpha=0.95, solid_capstyle="round", zorder=20)
+        ax.scatter(*first, facecolor="white", edgecolor=MYOMESIN_COLOR,
+                   linewidth=2.0, s=58, depthshade=False, zorder=21)
+        ax.scatter(*second, facecolor="white", edgecolor=MYOMESIN_COLOR,
+                   linewidth=2.0, s=58, depthshade=False, zorder=21)
+        ax.scatter(*midpoint, marker="D", color=MYOMESIN_COLOR,
+                   s=46, depthshade=False, zorder=22)
+        bridge_labels.append(
+            f"M{bridge['i']}–M{bridge['j']}: Δx {bridge['axial_nm']:.0f} nm, "
+            f"r⊥ {bridge['radial_nm']:.0f} nm, F {bridge['force']:.1f} pN"
+        )
+    if bridge_labels:
+        ax.text2D(
+            0.01, 0.885,
+            "coarse myomesin M–M module: magenta; diamonds = module midpoints\n"
+            + "\n".join(bridge_labels),
+            transform=ax.transAxes, fontsize=8, color=MYOMESIN_COLOR,
+        )
 
     # Explicit titin molecules connect a material domain at each thick-filament
     # tip to one individual actin barbed endpoint. Dashed links are bound but
@@ -508,6 +593,13 @@ def render_frame(fig, data, frame, mode, actin_length, myosin_length):
                 time_ms[:frame + 1], data["titin_total_force"][:frame + 1],
                 color=TITIN_COLOR, lw=2.0, label="total titin tension",
             )
+        if "myomesin_max_force" in data:
+            metrics.plot(
+                time_ms[:frame + 1],
+                data["myomesin_max_force"][:frame + 1],
+                color=MYOMESIN_COLOR, lw=2.0,
+                label="max myomesin module force",
+            )
         # In the balanced periodic cell, actins 0/1 are the central link under
         # test and 2/3 supply the physical counterload at the image Z-disc.
         central_count = min(2, data["status"].shape[1])
@@ -531,6 +623,8 @@ def render_frame(fig, data, frame, mode, actin_length, myosin_length):
             max(5, np.max((data["bilateral_load"],
                            data["productive_support"],
                            data.get("titin_total_force",
+                                    np.zeros_like(data["bilateral_load"])),
+                           data.get("myomesin_max_force",
                                     np.zeros_like(data["bilateral_load"])))) * 1.12),
         )
     else:
@@ -586,7 +680,30 @@ def render_frame(fig, data, frame, mode, actin_length, myosin_length):
     metrics.grid(alpha=0.22)
     if mode == "catch":
         metrics.legend(loc="upper left")
-    if mode == "catch" and "max_am_angle" in data:
+    if mode == "catch" and "myomesin_pair_axial_nm" in data:
+        pair_colors = (MYOMESIN_COLOR, "#7b1fa2", "#ef6c00", "#00838f")
+        upper = 0.0
+        for index, (pair, values) in enumerate(
+                data["myomesin_pair_axial_nm"].items()):
+            color = pair_colors[index % len(pair_colors)]
+            activation.plot(
+                time_ms[:frame + 1], values[:frame + 1],
+                color=color, lw=2.4,
+                label=f"M{pair[0]}–M{pair[1]} mismatch",
+            )
+            finite = values[np.isfinite(values)]
+            if len(finite):
+                upper = max(upper, float(np.max(finite)))
+            formation = data["myomesin_formation_axial_nm"].get(pair)
+            if formation is not None:
+                activation.axhline(
+                    formation, color=color, ls=":", lw=1.2, alpha=0.75,
+                    label=f"M{pair[0]}–M{pair[1]} at association",
+                )
+                upper = max(upper, formation)
+        activation.set_ylim(0.0, max(10.0, 1.10 * upper))
+        activation.set_ylabel("M–M axial mismatch (nm)")
+    elif mode == "catch" and "max_am_angle" in data:
         activation.plot(
             time_ms[:frame + 1], data["max_am_angle"][:frame + 1],
             color=STRONG_COLOR, lw=2.2, label="max A–M angle",
@@ -635,6 +752,10 @@ def render_frame(fig, data, frame, mode, actin_length, myosin_length):
     if "titin_bound_count" in data:
         counts.plot(time_ms[:frame + 1], data["titin_bound_count"][:frame + 1],
                     color=TITIN_COLOR, lw=2.2, label="bound titin")
+    if "myomesin_count" in data:
+        counts.plot(time_ms[:frame + 1], data["myomesin_count"][:frame + 1],
+                    color=MYOMESIN_COLOR, lw=2.2,
+                    label="bound M–M modules")
     counts.set_xlim(time_ms[0], time_ms[-1])
     counts.set_ylim(bottom=-0.1)
     counts.set_xlabel("time (ms)")

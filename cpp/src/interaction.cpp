@@ -173,6 +173,32 @@ std::vector<double> compute_aa_force_and_energy(Filament& actin,
 
 }
 
+
+namespace {
+// log(cosh(x)) without overflow: |x| + log1p(exp(-2|x|)) - log 2.
+inline double stable_log_cosh(double x) {
+    const double a = std::abs(x);
+    return a + std::log1p(std::exp(-2.0 * a)) - 0.6931471805599453;
+}
+// Saturating radial law shared by the AA link and the AM tether. Linear with
+// slope `k` for small extension, force bounded by `f_max`. Setting the
+// saturation scale to f_max/k keeps the small-displacement stiffness exactly
+// `k`, so a bond still holds as tightly as before and only its behaviour under
+// a large pull changes. This is a genuine potential, unlike a displacement
+// clamp, so detailed balance and the equilibrium distribution are preserved.
+inline void saturating_radial(double k, double f_max, double extension,
+                              double& force, double& energy) {
+    if (!(f_max > 0.0) || !(k > 0.0)) {
+        force = k * extension;
+        energy = 0.5 * k * extension * extension;
+        return;
+    }
+    const double scale = f_max / k;
+    force = f_max * std::tanh(extension / scale);
+    energy = f_max * scale * stable_log_cosh(extension / scale);
+}
+}  // namespace
+
 LocalAALinkResult compute_local_aa_link(
     const Filament& actin, int first, int second,
     double s_first, double s_second,
@@ -183,7 +209,8 @@ LocalAALinkResult compute_local_aa_link(
     double antiparallel_overlap,
     double axial_stiffness_ratio,
     double axial_saturation_error,
-    double axial_force_max) {
+    double axial_force_max,
+    double radial_force_max) {
     LocalAALinkResult result;
     const vec& direction_first = actin.direction[first];
     const vec& direction_second = actin.direction[second];
@@ -205,7 +232,11 @@ LocalAALinkResult compute_local_aa_link(
     result.direction_dot = direction_dot;
     const double extension = result.length - rest_length;
 
-    result.energy = 0.5 * radial_k * extension * extension +
+    double radial_force_unused = 0.0;
+    double radial_energy_term = 0.0;
+    saturating_radial(radial_k, radial_force_max, extension,
+                      radial_force_unused, radial_energy_term);
+    result.energy = radial_energy_term +
                     0.5 * perpendicular_k *
                         (projection_first * projection_first +
                          projection_second * projection_second) +
@@ -217,8 +248,11 @@ LocalAALinkResult compute_local_aa_link(
     // boundary, just as smooth_round was in the autodiff implementation.
     vec connector_gradient {0.0, 0.0, 0.0};
     if (radial_k > 0.0 && result.length > 1e-14) {
-        connector_gradient +=
-            (radial_k * extension / result.length) * result.connector;
+        double radial_force = 0.0;
+        double radial_energy = 0.0;
+        saturating_radial(radial_k, radial_force_max, extension,
+                          radial_force, radial_energy);
+        connector_gradient += (radial_force / result.length) * result.connector;
     }
     connector_gradient += perpendicular_k *
         (projection_first * direction_first +
@@ -430,7 +464,8 @@ AMTetherResult compute_am_head_tether(const Filament& actin,
                                       const vec* material_e1,
                                       const vec* material_e2,
                                       double actin_radius,
-                                      double radial_slack) {
+                                      double radial_slack,
+    double tether_force_max) {
     AMTetherResult result;
     vec axis_a = actin.direction[actin_index];
     vec axis_m = myosin.direction[myosin_index];
@@ -507,7 +542,11 @@ AMTetherResult compute_am_head_tether(const Filament& actin,
     double loaded_extension = 0.0;
     if (extension > slack) loaded_extension = extension - slack;
     if (extension < -slack) loaded_extension = extension + slack;
-    const double magnitude = -stiffness * loaded_extension;
+    double tether_force = 0.0;
+    double tether_energy = 0.0;
+    saturating_radial(stiffness, tether_force_max, loaded_extension,
+                      tether_force, tether_energy);
+    const double magnitude = -tether_force;
     result.force_on_actin = magnitude * unit_normal;
     result.force_on_myosin = -result.force_on_actin;
     return result;
@@ -819,6 +858,305 @@ RepulsionResult compute_actin_myosin_radial_repulsion_result(
     return result;
 }
 
+ACTN2PatchGeometry compute_actn2_patch_geometry(
+    const Filament& actin, int actin_i, int actin_j, double s_i, double s_j,
+    const std::vector<double>& box) {
+    ACTN2PatchGeometry patch{};
+    if (actin_i < 0 || actin_j < 0 || actin_i >= actin.n ||
+        actin_j >= actin.n) {
+        return patch;
+    }
+    const vec center_i = actin.center[actin_i];
+    const vec center_j = actin.center[actin_j];
+    patch.first = center_i + s_i * actin.direction[actin_i];
+    vec second_raw = center_j + s_j * actin.direction[actin_j];
+    vec connector = second_raw - patch.first;
+    connector.pbc_wrap(box, actin.periodic_axes);
+    patch.second = patch.first + connector;
+    patch.midpoint = patch.first + 0.5 * connector;
+    patch.half_length = 0.5 * connector.norm();
+    return patch;
+}
+
+namespace {
+
+double periodic_center_distance_squared(
+    const vec& first, const vec& second, const std::vector<double>& box,
+    const std::array<bool, 3>& periodic_axes) {
+    vec displacement = first - second;
+    displacement.pbc_wrap(box, periodic_axes);
+    return displacement.norm_squared();
+}
+
+}  // namespace
+
+bool actn2_patch_may_contact_myosin_tip(
+    const ACTN2PatchGeometry& patch, const Myosin& myosin, int myosin_index,
+    const std::vector<double>& box, double axial_margin,
+    double transverse_cutoff) {
+    if (myosin_index < 0 || myosin_index >= myosin.n || axial_margin < 0.0 ||
+        transverse_cutoff < 0.0) {
+        return false;
+    }
+    const double axial_reach = 0.5 * myosin.length + axial_margin;
+    const double reach_squared = axial_reach * axial_reach +
+        transverse_cutoff * transverse_cutoff;
+    return periodic_center_distance_squared(
+        patch.midpoint, myosin.center[myosin_index], box,
+        myosin.periodic_axes) <= reach_squared;
+}
+
+bool actn2_patch_may_contact_myosin_body(
+    const ACTN2PatchGeometry& patch, const Myosin& myosin, int myosin_index,
+    const std::vector<double>& box, double outer_contact_distance) {
+    if (myosin_index < 0 || myosin_index >= myosin.n ||
+        outer_contact_distance < 0.0) {
+        return false;
+    }
+    const double reach = patch.half_length + 0.5 * myosin.length +
+        outer_contact_distance;
+    return periodic_center_distance_squared(
+        patch.midpoint, myosin.center[myosin_index], box,
+        myosin.periodic_axes) <= reach * reach;
+}
+
+ACTN2MyosinContactResult compute_actn2_myosin_contact(
+    const Filament& actin, const Myosin& myosin,
+    int actin_i, int actin_j, double s_i, double s_j, int myosin_index,
+    const std::vector<double>& box, double hard_core_distance,
+    double epsilon, double force_cap, double shell_width,
+    double shell_energy) {
+    ACTN2MyosinContactResult result{};
+    if (actin_i < 0 || actin_j < 0 || actin_i >= actin.n ||
+        actin_j >= actin.n || myosin_index < 0 ||
+        myosin_index >= myosin.n || !(hard_core_distance > 0.0) ||
+        !std::isfinite(hard_core_distance) || epsilon < 0.0 ||
+        !std::isfinite(epsilon) || shell_width < 0.0 ||
+        !std::isfinite(shell_width) || shell_energy < 0.0 ||
+        !std::isfinite(shell_energy) ||
+        (!(epsilon > 0.0) && !(shell_width > 0.0 && shell_energy > 0.0))) {
+        return result;
+    }
+
+    const vec center_i = actin.center[actin_i];
+    const vec center_j = actin.center[actin_j];
+    vec first = center_i + s_i * actin.direction[actin_i];
+    vec second_raw = center_j + s_j * actin.direction[actin_j];
+    vec connector = second_raw - first;
+    connector.pbc_wrap(box, actin.periodic_axes);
+    vec second = first + connector;
+    const auto geometry_result = geometry::segment_segment_distance_w_normal(
+        first, second, myosin.left_end[myosin_index],
+        myosin.right_end[myosin_index], box, actin.periodic_axes);
+    result.distance = geometry_result.first;
+    result.penetration = std::max(0.0, hard_core_distance - result.distance);
+    const bool shell_enabled = shell_width > 0.0 && shell_energy > 0.0;
+    const double shell_outer_distance = hard_core_distance +
+        (shell_enabled ? shell_width : 0.0);
+    result.shell_penetration = shell_enabled
+        ? std::max(0.0, shell_outer_distance - result.distance)
+        : 0.0;
+    if (!(result.distance < shell_outer_distance)) return result;
+
+    vec normal = geometry_result.second.normal;
+    if (normal.norm() <= 1e-12) {
+        vec midpoint = 0.5 * (first + second);
+        vec displacement = midpoint - myosin.center[myosin_index];
+        displacement.pbc_wrap(box, actin.periodic_axes);
+        normal = regularized_steric_normal(
+            connector, myosin.direction[myosin_index], displacement,
+            actin_i, actin.n + myosin_index);
+    }
+    normal.normalize();
+
+    // The soft corona is a conservative harmonic shoulder whose energy at
+    // the hard-core surface is shell_energy.  Continuing the shoulder inside
+    // the core keeps both energy and force continuous.  It represents the
+    // crowded myosin-head layer, not a larger geometric rupture radius.
+    double magnitude = 0.0;
+    if (shell_enabled) {
+        const double shell_k = 2.0 * shell_energy /
+            (shell_width * shell_width);
+        magnitude += shell_k * result.shell_penetration;
+        result.energy += 0.5 * shell_k * result.shell_penetration *
+            result.shell_penetration;
+    }
+
+    // The original WCA hard core is unchanged. Choose sigma so its cutoff is
+    // exactly hard_core_distance, regularize deep overlap, and add its shifted
+    // potential and force only inside that surface.
+    if (epsilon > 0.0 && result.distance < hard_core_distance) {
+        const double sigma = hard_core_distance /
+            std::pow(2.0, 1.0 / 6.0);
+        const double r = std::max(0.05 * sigma, result.distance);
+        const double sr = sigma / r;
+        const double sr2 = sr * sr;
+        const double sr6 = sr2 * sr2 * sr2;
+        const double sr12 = sr6 * sr6;
+        magnitude += std::max(
+            0.0, 24.0 * epsilon / r * (2.0 * sr12 - sr6));
+        result.energy += std::max(
+            0.0, 4.0 * epsilon * (sr12 - sr6) + epsilon);
+    }
+    if (force_cap > 0.0 && std::isfinite(force_cap)) {
+        magnitude = std::min(magnitude, force_cap);
+    }
+    if (!(magnitude > 0.0) || !std::isfinite(magnitude)) return result;
+
+    double fraction_j = 0.5;
+    const double connector_length_sq = connector.norm_squared();
+    if (connector_length_sq > 1e-16) {
+        vec from_first = geometry_result.second.start - first;
+        from_first.pbc_wrap(box, actin.periodic_axes);
+        fraction_j = std::clamp(
+            from_first.dot(connector) / connector_length_sq, 0.0, 1.0);
+    }
+    result.arm_weight_j = fraction_j;
+    result.arm_weight_i = 1.0 - fraction_j;
+    const vec connector_force = magnitude * normal;
+    result.force_on_actin_i = result.arm_weight_i * connector_force;
+    result.force_on_actin_j = result.arm_weight_j * connector_force;
+    result.force_on_myosin = -connector_force;
+    result.torque_on_actin_i = steric_contact_orientation_drive(
+        actin.center[actin_i], actin.direction[actin_i], first,
+        result.force_on_actin_i, box, actin.periodic_axes,
+        actin.direction[actin_j]);
+    result.torque_on_actin_j = steric_contact_orientation_drive(
+        actin.center[actin_j], actin.direction[actin_j], second,
+        result.force_on_actin_j, box, actin.periodic_axes,
+        actin.direction[actin_i]);
+    result.torque_on_myosin = steric_contact_orientation_drive(
+        myosin.center[myosin_index], myosin.direction[myosin_index],
+        geometry_result.second.end, result.force_on_myosin, box,
+        myosin.periodic_axes, connector);
+    result.force = magnitude;
+    result.applied = true;
+    return result;
+}
+
+ZDiscMyosinTipGap zdisc_myosin_tip_gap(
+    const Filament& actin, const Myosin& myosin,
+    int actin_i, int actin_j, double s_i, double s_j, int myosin_index,
+    int end_sign, const std::vector<double>& box, double onset,
+    double transverse_cutoff) {
+    // Every expression here is copied verbatim from the head of
+    // compute_zdisc_myosin_tip_contact so the two agree bit for bit;
+    // zdisc_tip_gap_test.cpp pins that.
+    ZDiscMyosinTipGap result{};
+    if (actin_i < 0 || actin_j < 0 || actin_i >= actin.n ||
+        actin_j >= actin.n || myosin_index < 0 || myosin_index >= myosin.n ||
+        (end_sign != -1 && end_sign != 1) || !(onset > 0.0) ||
+        !(transverse_cutoff > 0.0)) {
+        return result;
+    }
+    const vec center_i = actin.center[actin_i];
+    const vec center_j = actin.center[actin_j];
+    const vec first = center_i + s_i * actin.direction[actin_i];
+    const vec second_raw = center_j + s_j * actin.direction[actin_j];
+    vec connector = second_raw - first;
+    connector.pbc_wrap(box, actin.periodic_axes);
+    const vec patch = first + 0.5 * connector;
+
+    vec axis = myosin.direction[myosin_index];
+    if (axis.norm() <= 1e-12) return result;
+    axis.normalize();
+    const vec outward = static_cast<double>(end_sign) * axis;
+    const vec tip = end_sign < 0 ? myosin.left_end[myosin_index]
+                                 : myosin.right_end[myosin_index];
+    vec center_to_patch = patch - myosin.center[myosin_index];
+    center_to_patch.pbc_wrap(box, myosin.periodic_axes);
+    if (end_sign * center_to_patch.dot(axis) < 0.0) return result;
+
+    vec tip_to_patch = patch - tip;
+    tip_to_patch.pbc_wrap(box, myosin.periodic_axes);
+    result.axial_gap = tip_to_patch.dot(outward);
+    const vec transverse = tip_to_patch - result.axial_gap * outward;
+    result.transverse_distance = transverse.norm();
+    result.eligible = result.transverse_distance < transverse_cutoff &&
+                      result.axial_gap < onset;
+    return result;
+}
+
+ZDiscMyosinTipContactResult compute_zdisc_myosin_tip_contact(
+    const Filament& actin, const Myosin& myosin,
+    int actin_i, int actin_j, double s_i, double s_j, int myosin_index,
+    int end_sign, const std::vector<double>& box, double onset,
+    double stiffness, double force_max, double transverse_flat,
+    double transverse_cutoff) {
+    ZDiscMyosinTipContactResult result{};
+    if (actin_i < 0 || actin_j < 0 || actin_i >= actin.n ||
+        actin_j >= actin.n || myosin_index < 0 || myosin_index >= myosin.n ||
+        (end_sign != -1 && end_sign != 1) || !(onset > 0.0) ||
+        !(stiffness > 0.0) || !(force_max > 0.0) ||
+        transverse_flat < 0.0 || !(transverse_cutoff > transverse_flat)) {
+        return result;
+    }
+
+    const vec center_i = actin.center[actin_i];
+    const vec center_j = actin.center[actin_j];
+    const vec first = center_i + s_i * actin.direction[actin_i];
+    const vec second_raw = center_j + s_j * actin.direction[actin_j];
+    vec connector = second_raw - first;
+    connector.pbc_wrap(box, actin.periodic_axes);
+    const vec second = first + connector;
+    const vec patch = first + 0.5 * connector;
+
+    vec axis = myosin.direction[myosin_index];
+    if (axis.norm() <= 1e-12) return result;
+    axis.normalize();
+    const vec outward = static_cast<double>(end_sign) * axis;
+    const vec tip = end_sign < 0 ? myosin.left_end[myosin_index]
+                                 : myosin.right_end[myosin_index];
+    vec center_to_patch = patch - myosin.center[myosin_index];
+    center_to_patch.pbc_wrap(box, myosin.periodic_axes);
+    // A tip may only interact with a patch on its own half of the filament.
+    if (end_sign * center_to_patch.dot(axis) < 0.0) return result;
+    result.eligible_half = true;
+
+    vec tip_to_patch = patch - tip;
+    tip_to_patch.pbc_wrap(box, myosin.periodic_axes);
+    result.axial_gap = tip_to_patch.dot(outward);
+    const vec transverse = tip_to_patch - result.axial_gap * outward;
+    result.transverse_distance = transverse.norm();
+    if (result.transverse_distance >= transverse_cutoff ||
+        result.axial_gap >= onset) return result;
+
+    if (result.transverse_distance <= transverse_flat) {
+        result.radial_gate = 1.0;
+    } else {
+        const double q = (result.transverse_distance - transverse_flat) /
+            (transverse_cutoff - transverse_flat);
+        result.radial_gate = 1.0 - 3.0 * q * q + 2.0 * q * q * q;
+    }
+    result.compression = onset - result.axial_gap;
+    const double x = stiffness * result.compression / force_max;
+    result.force = result.radial_gate * force_max * std::tanh(x);
+    const double ax = std::abs(x);
+    const double log_cosh = ax + std::log1p(std::exp(-2.0 * ax)) -
+        std::log(2.0);
+    result.energy = result.radial_gate * force_max * force_max / stiffness *
+        log_cosh;
+    if (!(result.force > 0.0) || !std::isfinite(result.force)) return result;
+
+    const vec patch_force = result.force * outward;
+    result.force_on_actin_i = 0.5 * patch_force;
+    result.force_on_actin_j = 0.5 * patch_force;
+    result.force_on_myosin = -patch_force;
+    result.torque_on_actin_i = steric_contact_orientation_drive(
+        actin.center[actin_i], actin.direction[actin_i], first,
+        result.force_on_actin_i, box, actin.periodic_axes,
+        actin.direction[actin_j]);
+    result.torque_on_actin_j = steric_contact_orientation_drive(
+        actin.center[actin_j], actin.direction[actin_j], second,
+        result.force_on_actin_j, box, actin.periodic_axes,
+        actin.direction[actin_i]);
+    result.torque_on_myosin = steric_contact_orientation_drive(
+        myosin.center[myosin_index], myosin.direction[myosin_index], tip,
+        result.force_on_myosin, box, myosin.periodic_axes, connector);
+    result.applied = true;
+    return result;
+}
+
 AMOffCenterTorqueResult compute_am_offcenter_torque(
     const vec& center,
     const vec& axis,
@@ -892,10 +1230,14 @@ RepulsionResult compute_myosin_repulsion(const Filament& actin,
                                          const std::vector<double>& box,
                                          int fix_myosin,
                                          const utils::MoleculeConnection& actinIndicesPerMyosin,
-                                         double stiffness)
+                                         double stiffness,
+                                         double exclusion_distance)
 {
     RepulsionResult result{};
-    const double cutoff = 2.0 * myosin.radius;
+    // exclusion_distance <= 0 preserves the historical hard-core-only range.
+    const double cutoff = (exclusion_distance > 0.0)
+                              ? exclusion_distance
+                              : 2.0 * myosin.radius;
     const double EPS = 1e-9;
 
     vec center_displacement = myosin.center[i] - myosin.center[j];
@@ -1132,6 +1474,87 @@ RepulsionResult compute_actin_repulsion(const Filament& actin,
     return result;
 }
 
+RepulsionResult compute_barbed_end_lateral_repulsion(
+    const Filament& actin,
+    int i,
+    int j,
+    const std::vector<double>& box,
+    double range,
+    double stiffness,
+    double force_cap,
+    double axial_window)
+{
+    RepulsionResult result{};
+    if (i == j || i < 0 || j < 0 || i >= actin.n || j >= actin.n) return result;
+    if (!(range > 0.0) || !(stiffness > 0.0) ||
+        !std::isfinite(range) || !std::isfinite(stiffness) ||
+        !(axial_window > 0.0) || !std::isfinite(axial_window)) {
+        return result;
+    }
+
+    vec ui = actin.direction[i];
+    vec uj = actin.direction[j];
+    if (!(ui.norm() > 0.0) || !(uj.norm() > 0.0)) return result;
+    ui.normalize();
+    uj.normalize();
+
+    // Filament::direction points from the barbed end to the pointed end, so
+    // the material barbed-end cap is center - L/2 * direction.
+    const vec barbed_i = static_cast<vec>(actin.center[i]) -
+                         0.5 * actin.length * ui;
+    const vec barbed_j = static_cast<vec>(actin.center[j]) -
+                         0.5 * actin.length * uj;
+    vec separation = barbed_j - barbed_i;
+    separation.pbc_wrap(box, actin.periodic_axes);
+
+    // Common axis of the pair, independent of relative polarity.  Antiparallel
+    // partners are the physically interesting case for ACTN2, and negating uj
+    // when the pair opposes keeps the axis well defined for both.
+    vec axis = ui + (ui.dot(uj) >= 0.0 ? uj : -1.0 * uj);
+    if (!(axis.norm() > 1e-12)) return result;
+    axis.normalize();
+
+    const double axial_offset = separation.dot(axis);
+    result.axial_gap = axial_offset;
+    if (std::abs(axial_offset) > axial_window) return result;
+
+    const vec transverse = separation - axial_offset * axis;
+    const double distance = transverse.norm();
+    result.transverse_distance = distance;
+    result.segment_distance = distance;
+    if (!(distance < range)) return result;
+    // Two barbed ends sharing a lattice site have no defined push direction.
+    // Leave those to the isotropic capsule sterics rather than inventing one.
+    const double minimum_distance = 1e-4 * range;
+    if (!(distance > minimum_distance)) return result;
+
+    const double overlap = range - distance;
+    result.contact_penetration = overlap;
+    double force_magnitude = stiffness * overlap;
+    if (force_cap > 0.0 && std::isfinite(force_cap)) {
+        force_magnitude = std::min(force_magnitude, force_cap);
+    }
+    if (!(force_magnitude > 0.0) || !std::isfinite(force_magnitude)) {
+        return result;
+    }
+
+    // transverse points from i toward j, so pushing apart drives i backwards
+    // along it.  The pair is reciprocal and injects no net momentum.
+    const vec direction = (1.0 / distance) * transverse;
+    const vec force_on_i = -force_magnitude * direction;
+    const vec force_on_j = -1.0 * force_on_i;
+    result.force_on_first = force_on_i;
+    result.force_on_second = force_on_j;
+    result.torque_on_first = steric_contact_orientation_drive(
+        actin.center[i], ui, barbed_i, force_on_i,
+        box, actin.periodic_axes, uj);
+    result.torque_on_second = steric_contact_orientation_drive(
+        actin.center[j], uj, barbed_j, force_on_j,
+        box, actin.periodic_axes, ui);
+    result.applied = true;
+    return result;
+}
+
 RepulsionResult compute_opposing_pointed_end_contact(
     const Filament& actin,
     int i,
@@ -1303,7 +1726,8 @@ bool apply_myosin_repulsion(const Filament& actin,
                             double stiffness,
                             vec& force_on_first,
                             vec& force_on_second,
-                            double& segment_distance)
+                            double& segment_distance,
+                            double exclusion_distance)
 {
     auto result = compute_myosin_repulsion(
         actin,
@@ -1313,7 +1737,8 @@ bool apply_myosin_repulsion(const Filament& actin,
         box,
         fix_myosin,
         actinIndicesPerMyosin,
-        stiffness);
+        stiffness,
+        exclusion_distance);
     segment_distance = result.segment_distance;
     if (!result.applied) {
         return false;

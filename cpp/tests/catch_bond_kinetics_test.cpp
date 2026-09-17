@@ -13,6 +13,7 @@ bool near(double lhs, double rhs, double tolerance = 1e-12) {
 
 int main() {
     using catch_bond_kinetics::break_probability;
+    using catch_bond_kinetics::decide_am_overlap_occlusion;
     using catch_bond_kinetics::decide_detachment;
     using catch_bond_kinetics::DetachmentReason;
     using catch_bond_kinetics::lifetime_for_status;
@@ -70,5 +71,22 @@ int main() {
     assert(!survives.detaches());
     assert(survives.reason() == DetachmentReason::none);
     assert(draws == 2);
+
+    // A zero crosslinkable fraction on either actin is an immediate geometric
+    // rupture, independent of catch-bond lifetime and without an RNG draw.
+    const auto overlap_occluded = decide_am_overlap_occlusion(0.0, 0.4);
+    assert(overlap_occluded.detaches());
+    assert(overlap_occluded.am_overlap_occluded);
+    assert(!overlap_occluded.geometric);
+    assert(!overlap_occluded.stochastic);
+    assert(overlap_occluded.reason() ==
+           DetachmentReason::am_overlap_occlusion);
+    assert(near(overlap_occluded.probability, 1.0));
+    assert(std::isnan(overlap_occluded.draw));
+
+    const auto overlap_available = decide_am_overlap_occlusion(0.1, 0.4);
+    assert(!overlap_available.detaches());
+    assert(overlap_available.reason() == DetachmentReason::none);
+
     return 0;
 }

@@ -23,6 +23,7 @@
 #include "neighborlist.h"
 #include "am_motor_kinetics.h"
 #include "actn2_load_kinetics.h"
+#include "actn2_arm_kinetics.h"
 #include "aa_neighbor_identity.h"
 #include "rod_mobility.h"
 #include "titin_kinetics.h"
@@ -67,6 +68,19 @@ public:
         double attachment_force = 0.0;
         bool bound = false;
     };
+    // One coarse-grained myomesin/M-band module between two thick-filament
+    // bare zones.  A module may represent several parallel molecules, but it
+    // remains one local graph edge and consumes one finite-valency site on
+    // each myosin.  At most one module is allowed for a given myosin pair.
+    struct MyomesinBridge {
+        std::uint64_t id = 0;
+        int myosin_i = -1;
+        int myosin_j = -1;
+        RecoveryStep attach_step = 0;
+        double axial_offset = 0.0;
+        double radial_distance = 0.0;
+        double force = 0.0;
+    };
     struct AMInteractionState {
         double myosin_binding_ratio = 0.0;
         double partial_binding_ratio = 0.0;
@@ -90,10 +104,47 @@ public:
         double s_i = 0.0;
         double s_j = 0.0;
         BondFlag status = 1;
+        // Opt-in explicit two-arm kinetics.  Legacy trajectories omit this
+        // field and map status 1/2 to weak/mature bridges on resume.
+        actn2_arm_kinetics::State arm_state =
+            actn2_arm_kinetics::State::weak_bridge;
+        RecoveryStep arm_state_since = 0;
+        int last_partner = -1;
+        double arm_force_i = 0.0;
+        double arm_force_j = 0.0;
+        double contact_force = 0.0;
+        double contact_penetration = 0.0;
         RecoveryStep attach_step = 0;
         RecoveryStep status2_memory_until = 0;
         double support_ema = 0.0;   // motor-timescale average of productive opposed load
+        // Candidate motor identities are exchangeable only in status 1. Once
+        // status 2 forms they are frozen while the mature conformation lasts;
+        // optional mature-to-weak relaxation releases them for annealing.
+        int candidate_myosin_i = -1;
+        int candidate_myosin_j = -1;
+        int8_t candidate_half_i = 0;
+        int8_t candidate_half_j = 0;
+        RecoveryStep candidate_since = 0;
+        RecoveryStep candidate_last_seen = 0;
+        double candidate_support_ema = 0.0;
+        double candidate_support_instantaneous = 0.0;
+        double candidate_raw_support_i = 0.0;
+        double candidate_raw_support_j = 0.0;
+        double candidate_allocated_support_i = 0.0;
+        double candidate_allocated_support_j = 0.0;
+        int challenger_myosin_i = -1;
+        int challenger_myosin_j = -1;
+        int8_t challenger_half_i = 0;
+        int8_t challenger_half_j = 0;
+        RecoveryStep challenger_since = 0;
+        double challenger_support_ema = 0.0;
+        bool candidate_locked = false;
         bool active = true;
+    };
+    struct ProductiveMotorContribution {
+        int myosin = -1;
+        int8_t half = 0;
+        std::array<double, 3> force{0.0, 0.0, 0.0};
     };
     enum class AMTransitionReason : int {
         attachment = 0,
@@ -104,6 +155,7 @@ public:
         neighbor_loss = 5,
         capacity_limit = 6,
         site_occupied = 7,
+        actin_turnover = 8,
     };
     enum AMRetentionFailure : int {
         am_retention_ok = 0,
@@ -166,6 +218,10 @@ public:
     double am_steric_k = 1000.0;
     double actin_steric_k = 10000.0;
     double myosin_steric_k = 1000.0;
+    // Range of the myosin-myosin repulsion.  0 => 2*myosin.radius (hard core
+    // only).  ~0.0953 holds the thick-filament lattice at the spacing that
+    // seats an actin in the trigonal interstice.
+    double myosin_exclusion_distance = 0.0;
     // Optional scaffold-free short-sarcomere contact.  It acts on actual
     // antiparallel pointed-end cap geometry, independent of ACTN2/AM status.
     // It is default-off until the compressed-cell validation is complete.
@@ -206,7 +262,28 @@ public:
     // (pN) instead of the Gaussian form that decays to zero far from the
     // target.  Small-error stiffness is unchanged either way.
     double aa_axial_register_force_max = 0.0;
+    // Saturating radial laws. <=0 keeps the historical unbounded
+    // quadratic. When positive, force is f_max*tanh(ext*k/f_max): the
+    // small-displacement stiffness is unchanged, but the force (and so
+    // the displacement per step) is bounded, which is what lets dt rise
+    // without resorting to a displacement clamp. A clamp breaks detailed
+    // balance; this is a real potential and does not.
+    double aa_radial_force_max = 0.0;
+    double am_tether_force_max = 0.0;
+    // Floor on the radial pair tether's bound-head occupancy multiplier.
+    // 0 reproduces the occupancy-gated behaviour exactly.
+    double am_tether_occupancy_floor = 0.0;
+    // Reach window past am_preferred_centerline within which the floor
+    // applies.  Mandatory: the tether is uncapped by default.
+    double am_tether_occupancy_floor_reach = 0.04;
     double aa_status2_support_window = 0.0;  // s; <=0 keeps the instantaneous rule
+    // Identity-resolved weak-state annealing. A candidate pair may exchange
+    // while status 1, must persist for commit_time, then is frozen in status 2.
+    double aa_motor_pair_support_window = 0.010;
+    double aa_motor_pair_commit_time = 0.010;
+    double aa_motor_pair_switch_ratio = 1.5;
+    double aa_motor_pair_exchange_time = 0.001;
+    double aa_motor_pair_dropout_time = 0.010;
     double aa_status2_registry_on = 0.1;
     double aa_status2_registry_off = 0.15;
     double aa_register_saturation_error = 0.05;
@@ -235,6 +312,42 @@ public:
     // connector force supplies the Einstein drift. Status-2 sites remain
     // fixed material coordinates until molecular detachment.
     double aa_status1_site_diffusion = 0.0;
+    // Physical two-arm ACTN2 turnover.  When enabled, material coordinates do
+    // not continuously diffuse: annealing occurs when one arm opens while the
+    // other remains tethered and the free arm rebinds locally.
+    bool aa_arm_state_model = false;
+    double aa_arm_open_rate_weak = 20.0;
+    double aa_arm_open_rate_mature = 1.0;
+    double aa_arm_bell_distance = 0.001;
+    double aa_tether_off_rate = 5.0;
+    double aa_tether_rebind_rate = 100.0;
+    double aa_tether_capture_distance = 0.10;
+    double aa_arm_rebind_theta = 0.5;
+    // Finite ACTN2-connector/thick-filament contact.  The excluded distance is
+    // myosin.radius + aa_actn2_contact_radius. epsilon is in pN um.
+    double aa_actn2_contact_radius = 0.005;
+    double aa_myosin_contact_epsilon = 0.00428;
+    double aa_myosin_contact_force_cap = 40.0;
+    // Optional conservative shoulder outside the physical hard core.  It
+    // coarse-grains the crowded myosin-head corona.  Width=0 preserves the
+    // original short-range WCA contact and disables association gating.
+    double aa_myosin_contact_shell_width = 0.0;
+    double aa_myosin_contact_shell_energy = 0.0;
+    // Optional axial end-stop between a myosin tip and the local bilateral
+    // ACTN2 patch. At most one patch is selected per myosin tip per step.
+    bool aa_zdisc_tip_contact = false;
+    double aa_zdisc_tip_onset = 0.050;
+    double aa_zdisc_tip_stiffness = 1000.0;
+    double aa_zdisc_tip_force_max = 20.0;
+    // Lateral pressure holding ALL barbed-end pairs near a target spacing.
+    // Zero range keeps the term inert so existing runs are unchanged.
+    double aa_barbed_lateral_range = 0.0;
+    double aa_barbed_lateral_k = 0.0;
+    double aa_barbed_lateral_force_max = 0.0;
+    double aa_barbed_lateral_axial_window = 0.25;
+    double aa_zdisc_tip_transverse_flat = 0.100;
+    double aa_zdisc_tip_transverse_cutoff = 0.130;
+    double aa_occlusion_rupture_penetration = 0.010;
     // Optional molecular polarity gate for new local ACTN2 associations.
     // Values >= 1 disable it; lower values require u_i dot u_j below the
     // threshold without prescribing a neighbor graph.
@@ -256,6 +369,11 @@ public:
     // object and are reused (capacity is retained) across steps.
     std::vector<LocalAALinkResult> aa_scratch_mechanics;
     std::vector<actn2_load_kinetics::ArmLoads> aa_scratch_arm_loads;
+    std::vector<std::array<double, 2>> aa_scratch_contact_arm_loads;
+    std::vector<double> aa_scratch_contact_penetration;
+    std::vector<std::vector<std::pair<int, ACTN2MyosinContactResult>>>
+        aa_scratch_contact_results;
+    std::vector<std::uint8_t> aa_scratch_contact_evaluated;
     std::unordered_map<std::uint64_t, double> aa_scratch_pair_tension;
     std::vector<double> aa_scratch_total_arm_load;
     std::vector<double> aa_scratch_productive_load;
@@ -264,11 +382,67 @@ public:
     // instead of twice per incident link.
     std::vector<std::array<double, 3>> aa_scratch_motor_force;
     std::vector<std::array<double, 3>> aa_scratch_productive_force;
+    std::vector<std::vector<ProductiveMotorContribution>>
+        aa_scratch_productive_by_myosin;
+    std::vector<std::vector<double>> aa_scratch_productive_source_demand;
+    // Cumulative opt-in profiling. Pair-evaluation time is summed over
+    // worker threads; local-update time is wall clock.
+    double aa_motor_support_build_seconds = 0.0;
+    double aa_motor_candidate_seconds = 0.0;
+    double aa_motor_local_update_seconds = 0.0;
+    std::uint64_t aa_motor_candidate_pairs_evaluated = 0;
+    std::uint64_t aa_motor_profile_steps = 0;
+    double aa_motor_update_started = 0.0;
+    // Wall-clock attribution for the three top-level update_system phases.
+    std::uint64_t system_profile_steps = 0;
+    double system_neighbor_seconds = 0.0;
+    double system_parallel_seconds = 0.0;
+    // Per-section timing inside the omp parallel region of update_system().
+    // Accumulated PER THREAD with no added barriers: inserting barriers to
+    // get a clean team-wide split would change the execution graph, which
+    // this code deliberately preserves for reproducibility.  Each thread's
+    // entry therefore includes its own work plus any wait at the implicit
+    // barrier that ends the section, so the team mean is the honest
+    // attribution and the max approximates the critical path.
+    enum AaPhase {
+    kAaRebuildIndices,   // rebuild_indices (single)
+    kAaArmKinetics,   // arm_kinetics (for)
+    kAaSiteDiffusion,   // site_diffusion (for)
+    kAaMotorForces,   // motor_forces (for)
+    kAaArmLoads,   // arm_loads (single)
+    kAaLinkLoop,   // link_loop_ordered (for ordered)
+    kAaReindex,   // reindex_expire (single)
+    kAaSortNeighbors,   // sort_neighbors (for)
+    kAaPrefixSum,   // pair_prefix_sum (single)
+    kAaScatterPairs,   // scatter_pairs (for)
+    kAaEvalProposals,   // evaluate_proposals (for)
+    kAaCommitLinks,   // commit_links (single)
+    kAaTipContact,      // tip_contact only (single)
+    kAaTipAndScatter,   // mechanics scatter (single)
+    kAaPhaseCount
+};
+
+enum ProfileSection {
+        kSecSetToZero = 0, kSecAmBinding, kSecThinActivation, kSecBondLimit,
+        kSecConcatConnections, kSecAaChemistry, kSecChemReduce,
+        kSecBondMatrix, kSecAmForce, kSecAaStateTitin, kSecVolumeExclusion,
+        kSecReduce, kSecTail, kProfileSectionCount
+    };
+    std::vector<std::array<double, kProfileSectionCount>>
+        parallel_section_seconds;
+    static const char* profile_section_name(int section);
+    double system_finalize_seconds = 0.0;
+    double system_total_seconds = 0.0;
     // Association candidates, evaluated in parallel against the pre-commit
     // state and then committed serially in canonical order.
     struct AAAssociationProposal {
         double s_i = 0.0;
         double s_j = 0.0;
+        int nearest_tip_myosin = -1;
+        int nearest_tip_sign = 0;
+        double nearest_tip_gap = std::numeric_limits<double>::infinity();
+        double nearest_tip_rho = std::numeric_limits<double>::infinity();
+        bool nearest_tip_motor_engaged = false;
         bool fire = false;
     };
     std::vector<std::pair<int, int>> aa_scratch_pairs;
@@ -288,8 +462,21 @@ public:
     double am_preferred_centerline = 0.0;
     double aa_capture_margin = 0.02;
     double k_mm = 0.0;
-    double myomesin_optimal = 0.0;
-    double myomesin_cutoff = 0.0;
+    // Sparse, local, finite-valency M-band bridge model. k_mm is the axial
+    // stiffness of one occupied bridge, rather than an always-on pair field.
+    int myomesin_sites_per_filament = 2;
+    double myomesin_k_on = 5000.0;
+    double myomesin_k_off = 1.0;
+    double myomesin_axial_capture = 0.25;
+    double myomesin_radial_rest = 0.11;
+    double myomesin_radial_capture = 0.04;
+    double myomesin_radial_k = 0.0;
+    double myomesin_alignment_cos = 0.94;
+    double myomesin_bell_distance = 0.0005;
+    double myomesin_force_max = 10.0;
+    std::uint64_t myomesin_next_id = 1;
+    std::vector<MyomesinBridge> myomesin_bridges;
+    std::vector<double> myomesin_events;
     double titin_k, titin_rest_length;
     TitinMode titin_mode = TitinMode::legacy_crosslinked;
     int explicit_titin_per_half = 3;
@@ -391,10 +578,17 @@ public:
     bool stabilize_status1 = false;
     actn2_load_kinetics::StatusMode aa_status_mode =
         actn2_load_kinetics::StatusMode::legacy_motor_identity;
-    // A stereospecific status-2 ACTN2 complex retains its locked material
-    // attachment coordinates until molecular detachment or contour rupture.
-    // False preserves the historical frame-by-frame load classifier.
+    // A stereospecific status-2 ACTN2 complex retains its material attachment
+    // coordinates until detachment, contour rupture, or an enabled reversible
+    // mature-to-weak transition. False preserves the historical frame-by-frame
+    // classifier when the unlock rate is also zero.
     bool aa_status2_locked_until_detach = false;
+    // Optional reversible mature-to-weak conformational transition.  A zero
+    // rate preserves historical behavior.  Positive support suppresses the
+    // unloaded rate; registry error outside the retention band accelerates it.
+    double aa_status2_unlock_rate = 0.0;
+    double aa_status2_unlock_force_scale = 0.1;
+    double aa_status2_unlock_registry_scale = 0.02;
     double aa_status2_force_on = 1.0;
     double aa_status2_force_off = 0.5;
     // Explicit cross-bridge chemomechanics. main.cpp enables this by default;
@@ -431,11 +625,25 @@ public:
     double am_power_stroke = 0.005;
     double am_unloaded_velocity = 5.0;
     double am_stall_force = 4.5;
+    // Working-stroke treatment.  false = the historical prescribed
+    // force-velocity ramp; true = discrete strain-dependent transition
+    // obeying detailed balance (force-velocity becomes emergent).
+    bool am_stroke_detailed_balance = false;
+    double am_stroke_base_rate = 1000.0;
+    double am_stroke_theta = 0.5;
+    double am_stroke_free_energy = -1.0;  // <0 => derive from am_stall_force
+
     double am_weak_stiffness_ratio = 0.1;
     // Pair-level flat-bottom containment: force-free near the preferred AM
     // spacing, stiff only outside the capture band so transverse drift cannot
     // masquerade as chemical or axial-overlap dissociation.
     double am_tether_k = 3000.0;
+    // Initial misalignment used by single_am_tilted (degrees).
+    double probe_tilt_deg = 20.0;
+    // Centre-trap stiffness (pN/um); 0 disables the trap entirely.
+    double probe_confine_k = 0.0;
+    // Anchors, captured lazily at the first force evaluation.
+    std::vector<vec> probe_confine_anchor;
     double am_tether_slack = 0.002;
     // Optional passive compliance of each explicit A-M head connector in the
     // plane transverse to the actin axis. Zero is the historical control.
@@ -482,6 +690,23 @@ public:
     bool am_q_initialized_at_calcium_equilibrium = false;
     double am_initial_q = 0.0;
     std::vector<double> am_thin_activation;
+    // Fixed-population whole-filament renewal.  This is an accelerated
+    // topology-remodeling surrogate: a selected actin is detached from every
+    // molecular partner and reinserted without changing N or filament length.
+    bool actin_turnover_enabled = false;
+    double actin_turnover_rate = 0.0;
+    double actin_turnover_start_time = 0.0;
+    int actin_turnover_max_placement_attempts = 1000;
+    // Fraction of the nominal hard-core contact distance a renewed actin
+    // must clear.  The steric potential is soft and force-capped, so the
+    // equilibrium population itself sits inside the nominal contact
+    // distance: at A800/M160 the median incumbent actin-actin separation is
+    // 0.89 of 2*r_actin and only ~9% of incumbents clear the full distance.
+    // Demanding ratio 1 therefore rejects essentially every proposal and
+    // silently disables turnover.  The default admits candidates that are no
+    // more overlapped than the incumbent 10th-25th percentile.
+    double actin_turnover_clearance_ratio = 0.8;
+    std::vector<RecoveryStep> actin_last_turnover_step;
     bool am_thick_feedback_enabled = false;
     double am_thick_recruit_rate = 2.0;
     double am_thick_fold_rate = 20.0;
@@ -521,6 +746,40 @@ public:
     std::vector<int> actin_strong_cb_count;
     std::vector<int> n_myosins_per_actin;
     std::vector<std::pair<std::vector<int>, std::vector<int>>> actin_neighbors_by_species;
+    // Short-range actin-actin candidates for _volume_exclusion.  The shared
+    // broadphase list is indexed on filament CENTRES, so its cutoff is set by
+    // filament length (1.6 um) rather than by any interaction range: each
+    // actin carries ~857 candidates of which ~4 are ever in range.  This is a
+    // segment-distance-filtered subset, rebuilt only when the cell list is,
+    // and used ONLY by the sterics loop whose interactions are all short
+    // range.  Every other consumer of actin_neighbors_by_species keeps the
+    // full list, because their ranges differ and a shared narrow list would
+    // silently drop pairs.
+    std::vector<std::vector<int>> actin_close_neighbors;
+    // actin.direction is not guaranteed unit length, and three steric kernels
+    // normalize it per pair.  Cache the normalized copy once per actin per step
+    // so the pair gates can reproduce the kernels' own barbed ends bit for bit
+    // without paying 2 normalizations on every one of the ~431k pairs.
+    std::vector<vec> actin_unit_direction;
+    // Visit stamps for the Z-disc tip-contact candidate scan.
+    std::vector<long long> aa_tip_candidate_stamp;
+    // Per-link survivors from the parallel tip-contact scan, plus one stamp
+    // array per thread so the per-link myosin dedup needs no synchronisation.
+    struct AaTipScanHit {
+        size_t slot;
+        int myosin_index;
+        int end_sign;
+        ZDiscMyosinTipContactResult contact;
+    };
+    std::vector<std::vector<AaTipScanHit>> aa_tip_scan_buckets;
+    std::vector<std::vector<long long>> aa_tip_stamp_pool;
+    // Per-thread phase timers for _update_local_aa_links.  Mean over
+    // threads charges each thread its share of the barrier it waits on,
+    // which is exactly what makes a serial region visible.
+    std::vector<std::array<double, kAaPhaseCount>> aa_phase_seconds;
+    static const char* aa_phase_name(int phase);
+    double actin_close_cutoff = 0.0;
+    bool actin_close_valid = false;
     vector actin_basic_tension;
     std::vector<bool> actin_f_load_computed;
     std::vector<double>* actin_f_load_cb;
@@ -529,6 +788,11 @@ public:
     gsl_rng* rng;
     std::string filename;
     int initial_seed = 0;
+    // Optional provenance for a geometry-only initialization. Molecular
+    // occupancies are deliberately not imported from the source trajectory.
+    std::string initial_geometry_source;
+    int initial_geometry_source_frame_requested = -1;
+    int initial_geometry_source_frame_loaded = -1;
 
     std::vector<std::vector<vec>> actin_forces_temp,
                                     myosin_forces_temp, myosin_velocities_temp, actin_torques_temp, myosin_torques_temp;
@@ -602,6 +866,10 @@ public:
     std::vector<double> am_forced_rupture_events_v2;
     // Rows: myosin, half_sign, head_id, step, old_state, new_state, tension.
     std::vector<double> am_thick_transition_events;
+    // Width 20: actin,step,age_steps,success,attempts,released_am,
+    // released_actn2,released_titin,old_center_xyz,new_center_xyz,
+    // old_direction_xyz,new_direction_xyz.
+    std::vector<double> actin_turnover_events;
     // Rows: actin_i, actin_j, step, old_bond, new_bond, old_status,
     // new_status, motor_force_i/j, strong_count_i/j, load_i/j.
     std::vector<double> aa_state_events;
@@ -621,6 +889,18 @@ public:
     // component gate decisions, and geometric-versus-stochastic detachment
     // provenance. The schema is recorded in /meta.
     std::vector<double> aa_local_link_events_v3;
+    // Exact accepted association/rebinding accessibility audit. Width 13:
+    // link_id,step,event_code,actin_i,actin_j,s_i,s_j,nearest_myosin,
+    // tip_sign,axial_gap,transverse_distance,tip_zone_occupied,
+    // motor_engaged. Event codes: 1 association, 2 tether rebinding.
+    std::vector<double> aa_tip_accessibility_events;
+    // Exact identity-state events for motor_transmitted_register. Width 20;
+    // schema is recorded in HDF5 metadata.
+    std::vector<double> aa_motor_pair_events;
+    // Rows: link_id,step,event_code,old_state,new_state,bound_actin,
+    // old_partner,new_partner,s_bound,s_free,arm_force,contact_force,
+    // contact_penetration,rate. Event codes are recorded in metadata.
+    std::vector<double> aa_arm_events;
     std::vector<int> previous_actin_cb_status;
     std::vector<int> aa_reserved_degree;
 
@@ -686,7 +966,8 @@ public:
     void set_bundling_parameters(double max_strength, int ramp_steps);
     void set_interaction_ramp(size_t start_step, size_t ramp_steps);
     void set_steric_stiffness(double actin_stiffness,
-                              double myosin_stiffness);
+                              double myosin_stiffness,
+                              double myosin_exclusion = 0.0);
     void configure_double_overlap_contact(bool enabled,
                                           double contact_diameter,
                                           double epsilon,
@@ -727,6 +1008,10 @@ public:
                                  double fold_rate, double tension_scale,
                                  double initial_on_fraction,
                                  double force_clamp);
+    void configure_actin_turnover(bool enabled, double rate,
+                                  double start_time,
+                                  int max_placement_attempts,
+                                  double clearance_ratio);
     void set_am_radial_geometry(double actin_radius_value,
                                 double preferred_surface_gap,
                                 double steric_stiffness);
@@ -756,6 +1041,11 @@ public:
                                          const vec& new_axis,
                                          double axial_rotation);
     void reset_myosin_material_frames();
+    // Import only filament centers and directions from an HDF5 trajectory.
+    // A negative frame selects the latest committed source frame. Returns the
+    // resolved zero-based source frame index.
+    int load_initial_geometry(const std::string& source_filename,
+                              int frame_index = -1);
     void reset_release_diagnostics();
     void configure_explicit_titin(int links_per_half,
                                   double capture_distance,
@@ -769,6 +1059,18 @@ public:
                                   double k_off_unsupported = 0.0,
                                   bool rebind_requires_actn2 = false);
     void initialize_explicit_titins();
+    void configure_myomesin_bridges(int sites_per_filament,
+                                    double association_rate,
+                                    double dissociation_rate,
+                                    double axial_capture,
+                                    double radial_rest,
+                                    double radial_capture,
+                                    double radial_stiffness,
+                                    double alignment_cos,
+                                    double bell_distance,
+                                    double force_max);
+    bool prebind_myomesin_bridge(int first, int second);
+    int myomesin_degree(int myosin_index) const;
     // True when actin_index carries at least one live ACTN2 A-A link of any
     // status. Public so that occupancy diagnostics and tests can score titin
     // support with exactly the predicate the capture gate uses.
@@ -798,6 +1100,41 @@ public:
         return actn2_load_kinetics::fixed_single_link_stiffness(
             k_aa, aa_stiffness_reference_links);
     }
+    struct AATipExclusionContact {
+        int myosin = -1;
+        int end_sign = 0;
+        double axial_gap = std::numeric_limits<double>::infinity();
+        double transverse_distance = std::numeric_limits<double>::infinity();
+        double penetration = 0.0;
+        bool motor_engaged = false;
+    };
+    struct AAMyosinExclusionEvaluation {
+        double energy = 0.0;
+        bool hard_core_overlap = false;
+        // The bilateral bridge midpoint lies inside the axial Z-patch corona
+        // of a nearby myosin tip, independently of motor-head occupancy.
+        bool axial_tip_contact = false;
+        // Maximum g0-g among eligible contacts. Diffusive weak sites already
+        // in the contact zone may move only toward smaller penetration.
+        double axial_tip_penetration = 0.0;
+        int nearest_tip_myosin = -1;
+        int nearest_tip_sign = 0;
+        double nearest_tip_gap = std::numeric_limits<double>::infinity();
+        double nearest_tip_rho = std::numeric_limits<double>::infinity();
+        bool nearest_tip_motor_engaged = false;
+        std::vector<AATipExclusionContact> axial_tip_contacts;
+    };
+    // Read-only diagnostic used by focused tests and trajectory probes. It
+    // applies exactly the same local exclusion logic as association and weak
+    // site diffusion without mutating molecular state.
+    AAMyosinExclusionEvaluation evaluate_local_aa_myosin_exclusion(
+        int actin_i, int actin_j, double s_i, double s_j) const;
+    // Pure no-flux rule used by status-1 contour diffusion. Contacts are
+    // identified by the physical (myosin, tip) pair, not just by depth.
+    static bool aa_tip_diffusion_move_allowed(
+        const AAMyosinExclusionEvaluation& old_evaluation,
+        const AAMyosinExclusionEvaluation& proposed_evaluation,
+        double tolerance = 1e-12);
     // Debug helper to compute catch-bond statistics for a single frame
     void debug_cb_stats();
 
@@ -805,6 +1142,15 @@ private:
     double _current_interaction_ramp() const;
     // Private helper methods
     void _update_neighbors();
+    void _refresh_actin_close_neighbors();
+    void _process_actin_turnover();
+    bool _renew_actin(int actin_index, int& placement_attempts,
+                      int& released_am, int& released_actn2,
+                      int& released_titin, vec& new_center,
+                      vec& new_direction);
+    bool _actin_renewal_position_is_clear(int actin_index,
+                                          const vec& center,
+                                          const vec& direction) const;
     void _set_to_zero();
     void _finalize_active_pair_lists();
     void _rebuild_active_pair_lists_from_dense();
@@ -864,6 +1210,8 @@ private:
     std::array<double, 3> _actin_motor_force_vector(int actin_index) const;
     std::array<double, 3> _actin_productive_motor_force_vector(
         int actin_index) const;
+    std::vector<ProductiveMotorContribution>
+    _actin_productive_motor_contributions(int actin_index) const;
     double _aa_productive_opposed_load(int i, int j) const;
     double _aa_transmitted_load(int i, int j);
     void _record_am_transition(int actin_index, int myosin_index, int head_index,
@@ -906,6 +1254,12 @@ private:
     int _local_aa_distinct_neighbors(int actin_index) const;
     bool _local_aa_site_available(int actin_index, int partner,
                                   double coordinate) const;
+    std::vector<std::pair<double, double>>
+    _local_aa_tether_capture_intervals(
+        int bound_actin, int candidate_actin, double bound_coordinate) const;
+    bool _local_aa_neighbor_pair_available(int first, int second) const;
+    AAMyosinExclusionEvaluation _local_aa_myosin_exclusion(
+        int actin_i, int actin_j, double s_i, double s_j) const;
     AAAssociationProposal _evaluate_aa_association(int i, int j) const;
     bool _local_aa_site_outside_am_overlap(int actin_index,
                                            double axial_coordinate) const;
@@ -916,7 +1270,14 @@ private:
     void _update_explicit_titin();
     int _best_explicit_titin_candidate(size_t titin_index,
                                        const vec& thick_anchor) const;
-    void _apply_myomesin_spring(int i, int j, std::vector<vec>& local_myosin_forces);
+    void _update_myomesin_bridges();
+    void _apply_myomesin_bridge(MyomesinBridge& bridge,
+                                std::vector<vec>& local_myosin_forces);
+    bool _myomesin_pair_geometry(int i, int j, vec& axis,
+                                 double& axial, vec& radial,
+                                 double& radial_distance) const;
+    bool _barbed_ends_within_reach(int i, int j) const;
+    bool _aa_pair_may_associate(int i, int j) const;
     void _volume_exclusion();
     void _myosin_exclusion();
     void _myosin_repulsion(int& i, int& j);
@@ -936,6 +1297,9 @@ private:
     bool _myosin_pair_bonded(int mi, int mj) const;
     double _current_bundle_strength() const;
     void _apply_transverse_bundling(double k_bundle);
+    // Harmonic trap on each actin's centre toward a fixed anchor.  Applied
+    // at the centre => zero torque, so orientation stays free.
+    void _apply_probe_confinement();
     std::tuple<std::vector<double>, std::vector<double>, std::vector<double>>
         _extract_bonded_pairs(
         const std::vector<std::vector<BondFlag>>& actin_actin_bonds,

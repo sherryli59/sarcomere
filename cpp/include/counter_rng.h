@@ -12,9 +12,16 @@ enum class Stream : std::uint64_t {
     aa_link_detachment = 0x13198a2e03707344ULL,
     aa_pair_association = 0xa4093822299f31d0ULL,
     aa_status1_site_diffusion = 0x299f31d0a4093822ULL,
+    aa_arm_opening = 0x9d39247e33776d41ULL,
+    aa_tether_detachment = 0x2af7398005aaa5c7ULL,
+    aa_arm_rebinding = 0x44db015024623547ULL,
     legacy_aa_pair = 0x082efa98ec4e6c89ULL,
     explicit_titin_binding = 0x452821e638d01377ULL,
     explicit_titin_release = 0xbe5466cf34e90c6cULL,
+    myomesin_binding = 0xc0ac29b7c97c50ddULL,
+    myomesin_release = 0x3f84d5b5b5470917ULL,
+    aa_status2_unlock = 0x9216d5d98979fb1bULL,
+    actin_turnover = 0xd1310ba698dfb5acULL,
 };
 
 inline std::uint64_t mix64(std::uint64_t value) {

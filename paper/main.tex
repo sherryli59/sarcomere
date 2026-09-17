@@ -1,0 +1,208 @@
+\documentclass[11pt]{article}
+
+\usepackage[a4paper,margin=1in]{geometry}
+\usepackage{amsmath,amssymb,bm}
+\usepackage{graphicx}
+\usepackage{booktabs}
+\usepackage{siunitx}
+\usepackage{subcaption}
+\usepackage{xcolor}
+\usepackage{hyperref}
+
+\newcommand{\todo}[1]{\textcolor{red!70!black}{[TODO: #1]}}
+
+\title{A molecularly resolved coarse-grained model of sarcomere assembly
+under pulsatile activation}
+\author{\todo{Author list}}
+\date{\today}
+
+\begin{document}
+
+\maketitle
+
+\begin{abstract}
+Sarcomere assembly requires actin and myosin filaments to acquire a common
+orientation and the axial registry that defines Z-discs and M-bands. This
+organization develops in an active environment and is continually challenged
+by contractile forces. The problem is especially relevant to hypertrophic
+cardiomyopathy (HCM), in which diverse sarcomeric perturbations frequently
+converge on excessive myosin-generated force, enhanced myofilament activation,
+or incomplete relaxation. We develop a molecularly resolved coarse-grained
+model that extends a finite-filament geometry with stochastic myosin
+crossbridge cycling, discrete ACTN2 crosslinking, titin-like connections, and
+local finite-valency myomesin coupling. Filament motion follows overdamped
+Langevin dynamics, while molecular association and state changes are treated
+kinetically. A pulsatile activation protocol permits direct comparison of
+normal relaxation with elevated residual activation during diastole. The model
+is designed to determine how the magnitude and timing of myosin activity alter
+the formation and maintenance of sarcomeric order.
+\end{abstract}
+
+
+\section{Introduction}
+
+Sarcomeres are built from interdigitating arrays of polar actin thin filaments
+and bipolar myosin thick filaments. Their function depends not only on
+filament alignment, but also on precise axial organization: actin barbed ends
+meet at Z-discs, whereas thick-filament bare zones register at M-bands.
+Although many of the molecular components are known, it remains unclear how
+their local interactions produce ordered sarcomeres from a reorganizing
+filament network.
+
+Contractility makes this an intrinsically nonequilibrium assembly problem.
+Myosin heads repeatedly attach to actin, generate force, and detach. These
+forces can move filaments toward productive arrangements, but they can also
+distort newly formed structures or trap incompatible contacts. Crosslinkers
+and elastic scaffold proteins must therefore organize filaments while the
+network remains mechanically active.
+
+This balance may be altered in hypertrophic cardiomyopathy. HCM arises from
+genetically and mechanistically diverse perturbations, but many disease-linked
+changes in sarcomeric proteins converge on increased myosin activity,
+heightened force production, or impaired relaxation. Incomplete relaxation is
+particularly important because it leaves a larger fraction of the contractile
+system active during diastole, when a normal sarcomere would experience a low
+activation interval. Persistent diastolic activity could influence not only
+instantaneous tension but also the longer-time assembly and remodeling of the
+contractile lattice. % TODO: add HCM and diastolic dysfunction citations.
+
+To examine this possibility, we build a molecular model on a coarse
+finite-filament geometry. Individual myosin heads undergo stochastic binding
+and working-stroke transitions, ACTN2 crosslinkers form discrete links between
+thin filaments, and titin- and myomesin-like elements couple the Z-disc and
+M-band regions. The model supports both tonic and heartbeat-like activation,
+including a controlled residual activation level during diastole. Our goal is
+to use this framework to ask how sustained myosin activity changes the
+kinetics and spatial organization of sarcomere assembly, without prescribing
+the final ordered structure.
+
+
+\section{Molecular sarcomere model}
+
+\subsection{Filament geometry and dynamics}
+
+Actin and myosin are represented as finite, polar filaments with excluded
+volume in a three-dimensional periodic domain. Each filament has a center
+$\bm r_i$, an orientation $\bm u_i$, a length, and a radius. Myosin filaments
+are bipolar, with two head-bearing halves separated by a central bare zone.
+
+Filament positions and orientations evolve by overdamped Langevin dynamics.
+In compact form,
+\begin{align}
+  d\bm r_i &= \bm M_i^{\mathrm t}\bm F_i\,dt
+  + \sqrt{2k_{\mathrm B}T\bm M_i^{\mathrm t}}\,d\bm W_i^{\mathrm t},\\
+  d\bm\theta_i &= \bm M_i^{\mathrm r}\bm\tau_i\,dt
+  + \sqrt{2k_{\mathrm B}T\bm M_i^{\mathrm r}}\,d\bm W_i^{\mathrm r},
+\end{align}
+where $\bm F_i$ and $\bm\tau_i$ are the total force and torque and the mobility
+tensors distinguish motion parallel and perpendicular to the filament axis.
+Steric, motor, crosslink, titin, and myomesin interactions all contribute to
+these mechanical updates.
+
+
+\subsection{Actomyosin crossbridge cycle}
+
+Myosin heads occupy fixed positions on the two halves of each thick filament.
+A head can attach only to a nearby actin site and only the polarity-compatible
+half of the bipolar filament generates a productive working stroke. Each head
+cycles among detached, weakly bound, and strongly bound states. State changes
+are sampled with kinetic Monte Carlo probabilities
+\begin{equation}
+  P(k,\Delta t)=1-\exp(-k\Delta t),
+\end{equation}
+where the relevant rate may depend on activation, elastic strain, and the
+head's current chemical state.
+
+A bound head behaves as an elastic connection between material sites on the
+two filaments. The working stroke changes its axial rest position and thereby
+generates force. The resulting forces act equally and oppositely on actin and
+myosin, and off-center attachments also generate torques. Thick-filament
+motion therefore emerges from the same crossbridge forces that move the thin
+filaments rather than from a prescribed sliding velocity.
+
+
+\subsection{Pulsatile activation and HCM-like perturbations}
+
+The motor cycle is regulated by a periodic activation waveform $C(t)$ with a
+high-activation interval and a low-activation diastolic interval. Local thin-
+filament availability follows this input and can be reinforced by strongly
+bound heads. Lower activation suppresses new head attachment, while heads
+that are already bound complete their ordinary state-dependent turnover.
+
+The reference protocol approaches a low activation floor during diastole. An
+HCM-like protocol raises this residual activation while preserving the cycle
+period and systolic waveform. This isolates the effect of incomplete
+relaxation on assembly. Other disease-associated changes can be represented
+separately by modifying head attachment, stroke, stiffness, or detachment
+kinetics; these perturbations are not combined unless explicitly stated.
+
+
+\subsection{ACTN2-mediated thin-filament crosslinking}
+
+ACTN2 is represented by discrete crosslinking modules that bind nearby,
+oppositely oriented actin filaments near their barbed-end regions. A newly
+formed bridge is weak and can mature when it is both geometrically registered
+and mechanically supported by productive actomyosin interactions. Weak and
+mature bridges have distinct kinetics and mechanical responses.
+
+Each module has two actin-binding arms. One arm may open while the other
+remains attached to its material actin site, creating a transient tether. The
+free arm can then bind a locally reachable site on the exposed portion of a
+nearby actin or detach completely. ACTN2 attachment sites do not slide
+continuously along actin. Finite contact between the ACTN2 connector and thick
+filaments prevents a crosslink from passing freely through the actomyosin
+overlap region.
+
+
+\subsection{Titin- and myomesin-like connections}
+
+Titin-like links connect a thick-filament half to a nearby actin filament that
+has local Z-disc support. These links are tension bearing and persist across
+the faster turnover of individual myosin heads. They provide longitudinal
+coupling between thin- and thick-filament organization without fixing either
+filament to an imposed spatial lattice.
+
+Myomesin is represented by reversible local bridges between thick-filament
+bare zones. Each bridge has an axial registry preference and a nonzero
+transverse rest spacing. A finite number of binding sites limits the number of
+simultaneous neighbors of each thick filament. Thus myomesin supplies local
+M-region mechanics without introducing attraction to a prescribed global
+M-band plane.
+
+
+\subsection{Simulation protocol and observables}
+
+Simulations begin from disordered actin positions and orientations, with
+thick filaments weakly biased toward the longitudinal axis. A short
+sterics-only equilibration removes severe overlaps before molecular
+interactions are introduced. Interaction strengths are then increased
+smoothly to avoid an impulsive mechanical start.
+
+Assembly is quantified separately at the thin- and thick-filament levels.
+Actin barbed-end density measures Z-disc organization, thick-filament bare-zone
+density measures M-band organization, and filament centers report A-band
+modulation. We additionally record filament orientation, crossbridge
+occupancy, molecular state populations, forces, and the connectivity of the
+ACTN2 and myomesin networks. Comparisons between normal and elevated
+diastolic activation use matched initial conditions and identical mechanical
+parameters.
+
+Detailed interaction potentials, kinetic rates, numerical regularization,
+checkpointing, and sensitivity analyses will be provided in the Supplementary
+Methods.
+
+
+% Results will be added after the molecular-model comparisons are complete.
+% \section{Results}
+
+\section*{Data and code availability}
+
+\todo{Add repository, archived executable hashes, trajectories, and analysis
+scripts used in the final study.}
+
+
+% Enable once citations and bibliography entries are present:
+% \bibliographystyle{unsrt}
+% \bibliography{refs}
+
+\end{document}

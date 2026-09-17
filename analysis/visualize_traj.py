@@ -117,7 +117,7 @@ def get_offsets_for_filament(coord, d, L):
     return offsets
 
 
-def plot_filaments_3d(plotter, center, direction, radius, l, Lx, Ly, Lz, color='k', color_spectrum=None, opacity=1.0):
+def plot_filaments_3d(plotter, center, direction, radius, l, Lx, Ly, Lz, color='k', color_spectrum=None, opacity=1.0, resolution=24):
     """
     Plot actin filaments in 3D as cylinders using PyVista.
     - center: (N,3) array of filament centers.
@@ -142,40 +142,38 @@ def plot_filaments_3d(plotter, center, direction, radius, l, Lx, Ly, Lz, color='
         color_values = np.sqrt(color_values)
         norm = plt.Normalize(0, 1)
 
+    # Accumulate merged geometry and add it as ONE actor. Adding a mesh per
+    # rod is what made ACTN2-enabled frames unrenderable.
+    pieces = []
+
+    def _emit(cyl_center, this_color):
+        cyl = pv.Cylinder(center=cyl_center, direction=direction[i],
+                          height=l[i], radius=radius[i], resolution=resolution)
+        rgb = np.array(mcolors.to_rgb(this_color)) * 255.0
+        cyl.point_data["RGB"] = np.tile(rgb, (cyl.n_points, 1)).astype(np.uint8)
+        pieces.append(cyl)
+
     for i in range(center.shape[0]):
         if l[i] < 0.01:
             continue
-
         this_color = color
         if color_values is not None:
             this_color = plt.cm.Blues(norm(color_values[i]))
+        _emit(center[i], this_color)
 
-        # PyVista expects cylinder defined by center, direction, height, and radius
-        cyl = pv.Cylinder(center=center[i],
-                          direction=direction[i],
-                          height=l[i],
-                          radius=radius[i],
-                          resolution=24)
-        
-        # Add main cylinder
-        plotter.add_mesh(cyl, color=this_color, opacity=opacity)
-
-        # Periodic boundary duplicates
         dx = 0.5 * l[i] * np.array(direction[i])
         ox_set = get_offsets_for_filament(center[i][0], abs(dx[0]), Lx)
         oy_set = get_offsets_for_filament(center[i][1], abs(dx[1]), Ly)
         oz_set = get_offsets_for_filament(center[i][2], abs(dx[2]), Lz)
-        
         for ox, oy, oz in product(ox_set, oy_set, oz_set):
             if ox == oy == oz == 0:
                 continue
-            duplicate_center = center[i] + np.array([ox, oy, oz])
-            dup_cyl = pv.Cylinder(center=duplicate_center,
-                                  direction=direction[i],
-                                  height=l[i],
-                                  radius=radius[i],
-                                  resolution=24)
-            plotter.add_mesh(dup_cyl, color=this_color,opacity=opacity)
+            _emit(center[i] + np.array([ox, oy, oz]), this_color)
+
+    if not pieces:
+        return
+    merged = pieces[0] if len(pieces) == 1 else pv.merge(pieces)
+    plotter.add_mesh(merged, scalars="RGB", rgb=True, opacity=opacity)
 
 
 def add_vector_arrows(plotter, centers, vectors, color, scale=1.0,
@@ -226,6 +224,8 @@ def add_vector_arrows(plotter, centers, vectors, color, scale=1.0,
 
 def plot_system(frame, data, myosin_length, actin_length, Lx, Ly, Lz,
                 myosin_radius, myosin_display="all", actin_display="cb",
+                actin_color="load", show_actn2=False,
+                actn2_radius=0.006, actn2_status="2",
                 show_actin_force=False, show_myosin_force=False,
                 show_actin_velocity=False, show_myosin_velocity=False,
                 actin_force_scale=1.0, myosin_force_scale=1.0,
@@ -248,7 +248,12 @@ def plot_system(frame, data, myosin_length, actin_length, Lx, Ly, Lz,
     actin_force = data["/actin/force"][frame] if actin_force_available else None
     actin_velocity = data["/actin/velocity"][frame] if actin_velocity_available else None
 
-    load_metric = np.maximum(f_load, 0) * (cb_status == 2)
+    if actin_color == "uniform":
+        # Flat metric -> every drawn filament lands at the top of the Blues
+        # ramp, so crosslinked-but-unloaded actin is visible instead of white.
+        load_metric = (cb_status == 2).astype(float)
+    else:
+        load_metric = np.maximum(f_load, 0) * (cb_status == 2)
     if actin_display == "cb":
         mask = cb_status == 2
         print(f"Frame {frame}: {np.sum(mask)} actin filaments in catch-bond state")
@@ -294,6 +299,47 @@ def plot_system(frame, data, myosin_length, actin_length, Lx, Ly, Lz,
             normalize=True,
             arrow_opacity=0.6,
         )
+
+    # ------------------------------------------------------------------
+    # ACTN2 crosslinks
+    # ------------------------------------------------------------------
+    if show_actn2:
+        off_key = "/catch_bond/local_link_frame_offsets"
+        id_key = "/catch_bond/local_link_identity"
+        co_key = "/catch_bond/local_link_coordinates"
+        if all(k in data for k in (off_key, id_key, co_key)):
+            _, offset, count = np.asarray(data[off_key][frame], dtype=int)
+            identity = np.asarray(data[id_key][offset:offset + count], dtype=int)
+            coords = np.asarray(data[co_key][offset:offset + count], dtype=float)
+            if actn2_status == "2":
+                sel = identity[:, 4] == 2
+                identity, coords = identity[sel], coords[sel]
+            if len(identity):
+                all_center = np.asarray(data["/actin/center"][frame], dtype=float)
+                all_dir = np.asarray(data["/actin/direction"][frame], dtype=float)
+                first, second = identity[:, 2], identity[:, 3]
+                starts = all_center[first] + coords[:, :1] * all_dir[first]
+                raw_ends = all_center[second] + coords[:, 1:] * all_dir[second]
+                box_vec = np.array([Lx, Ly, Lz], dtype=float)
+                # minimum image before measuring the rod, or a bridge across a
+                # periodic face becomes a span of the whole box
+                ends = starts + (raw_ends - starts
+                                 - box_vec * np.rint((raw_ends - starts) / box_vec))
+                spans = ends - starts
+                lengths = np.linalg.norm(spans, axis=1)
+                keep = lengths > 1e-6
+                if np.any(keep):
+                    print(f"Frame {frame}: {int(np.sum(keep))} ACTN2 bridges drawn")
+                    plot_filaments_3d(
+                        center=0.5 * (starts + ends)[keep],
+                        direction=spans[keep] / lengths[keep, None],
+                        radius=actn2_radius,
+                        l=lengths[keep],
+                        Lx=Lx, Ly=Ly, Lz=Lz,
+                        plotter=plotter,
+                        color="#e87ba4",
+                        resolution=8,
+                    )
 
     # ------------------------------------------------------------------
     # Myosin filaments
@@ -447,6 +493,8 @@ def plot_system(frame, data, myosin_length, actin_length, Lx, Ly, Lz,
 
 def plot_system_matplotlib(frame, data, myosin_length, actin_length, Lx, Ly, Lz,
                            myosin_radius, myosin_display="all", actin_display="cb",
+                           actin_color="load", show_actn2=False,
+                           actn2_radius=0.006, actn2_status="2",
                            myosin_opacity=1.0, **kwargs):
     """Fallback renderer using matplotlib only (headless-safe)."""
     fig = plt.figure(figsize=(10, 8))
@@ -640,6 +688,18 @@ def parse_args():
         default="all",
         help="Display all myosins, only myosin–myosin bonds, or those attached to catch-bonded actins.",
     )
+    parser.add_argument("--show_actn2", action="store_true",
+                        help="Draw live ACTN2 crosslinks as rods between attachment points.")
+    parser.add_argument("--actn2_radius", type=float, default=0.006,
+                        help="Cylinder radius for ACTN2 bridges.")
+    parser.add_argument("--actn2_status", choices=["2", "all"], default="2",
+                        help="Draw only mature (status-2) bridges, or every live one.")
+    parser.add_argument(
+        "--actin_color",
+        choices=["load", "uniform"],
+        default="load",
+        help="Shade crosslinked actin by load (default) or draw it all one dark blue.",
+    )
     parser.add_argument(
         "--actin_display",
         choices=["all", "cb"],
@@ -785,6 +845,10 @@ if __name__ == "__main__":
     myosin_length = args.myosin_length
     myosin_opacity = np.clip(args.myosin_opacity, 0.0, 1.0)
     myosin_display = args.myosin_display
+    actin_color = args.actin_color
+    show_actn2 = args.show_actn2
+    actn2_radius = args.actn2_radius
+    actn2_status = args.actn2_status
     actin_display = args.actin_display
     show_actin_force = args.show_actin_force
     show_myosin_force = args.show_myosin_force
@@ -865,6 +929,10 @@ if __name__ == "__main__":
                       myosin_length=myosin_length,
                       Lx=Lx, Ly=Ly, Lz=Lz,
                       myosin_display=myosin_display,
+                      actin_color=actin_color,
+                      show_actn2=show_actn2,
+                      actn2_radius=actn2_radius,
+                      actn2_status=actn2_status,
                       actin_display=actin_display,
                       show_actin_force=show_actin_force,
                       show_myosin_force=show_myosin_force,

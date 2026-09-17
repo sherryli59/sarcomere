@@ -1,0 +1,10 @@
+/scratch/users/xsli/sarcomere/data_wb4x4/A6000_M4000_lt1e-2_mmb6_r00_L12x4x4.h5
+/scratch/users/xsli/sarcomere/data_wb4x4/A6000_M4000_lt1e-2_mmb6_r01_L12x4x4.h5
+/scratch/users/xsli/sarcomere/data_wb4x4/A6000_M4000_lt1e-2_mmb6_r02_L12x4x4.h5
+/scratch/users/xsli/sarcomere/data_wb4x4/A6000_M4000_lt1e-2_mmb6_r03_L12x4x4.h5
+/scratch/users/xsli/sarcomere/data_wb4x4_lambda/A8000_M4000_lt1e-1_r00_L12x4x4.h5
+/scratch/users/xsli/sarcomere/data_wb4x4_lambda/A8000_M4000_lt1e-2.5_r00_L12x4x4.h5
+/scratch/users/xsli/sarcomere/data_wb4x4_lambda/A8000_M4000_lt1e-2_r00_L12x4x4.h5
+/scratch/users/xsli/sarcomere/data_wb4x4_lambda/A8000_M4000_lt1e-3.5_r00_L12x4x4.h5
+/scratch/users/xsli/sarcomere/data_wb4x4_lambda/A8000_M4000_lt1e-3_r00_L12x4x4.h5
+/scratch/users/xsli/sarcomere/data_wb4x4_lambda/A8000_M4000_lt1e-4_r00_L12x4x4.h5

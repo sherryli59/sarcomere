@@ -1,0 +1,77 @@
+{
+  "mechanisms": [
+    "baseline_turnover",
+    "permanent_actn2",
+    "johann_adhesion",
+    "johann_entropic",
+    "zdisc_register",
+    "titin",
+    "adhesion_plus_titin",
+    "entropic_plus_titin",
+    "register_plus_titin",
+    "fixed_mline_adhesion"
+  ],
+  "initial_conditions": {
+    "reference": [
+      0.1,
+      1.125
+    ],
+    "aa_low": [
+      0.04,
+      1.125
+    ],
+    "aa_high": [
+      0.16,
+      1.125
+    ],
+    "am_deep": [
+      0.1,
+      1.0
+    ],
+    "am_shallow": [
+      0.1,
+      1.25
+    ]
+  },
+  "seeds": [
+    0,
+    1,
+    2,
+    3,
+    4,
+    5
+  ],
+  "base_parameters": {
+    "dt": 0.0002,
+    "duration": 4.0,
+    "save_every": 10,
+    "kbt": 0.00428,
+    "zeta_actin": 20.0,
+    "zeta_myosin": 40.0,
+    "thermal_scale": 1.0,
+    "actin_length": 1.0,
+    "myosin_half_length": 0.75,
+    "bare_half_length": 0.085,
+    "motor_density": 8.0,
+    "motor_force_max": 6.0,
+    "aa_zone_width": 0.1,
+    "aa_target": 0.1,
+    "n_actn2_sites": 6,
+    "actn2_k": 120.0,
+    "actn2_kon": 12.0,
+    "actn2_koff": 8.0,
+    "actn2_catch_force": 2.0,
+    "actn2_min_off_fraction": 0.05,
+    "initial_bonds": 4,
+    "permanent_bonds": false,
+    "adhesion_gamma": 0.0,
+    "entropic_nkbt": 0.0,
+    "entropic_force_cap": 10.0,
+    "register_k": 0.0,
+    "titin_k": 0.0,
+    "titin_rest": 1.125,
+    "m_anchor_k": 0.0,
+    "m_left_anchor": -1.075,
+    "m_right_anchor": 1.075
+  }
+}

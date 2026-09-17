@@ -1,16 +1,4 @@
-// Myomesin M-band spring.
-//
-// This exists because the spring was previously computed and then discarded:
-// _apply_myomesin_spring filled local force vectors that were never written
-// back, so --k_mm silently did nothing and the M-band mechanism had never run
-// in any trajectory. Every assertion below is about the force actually
-// ARRIVING on the myosins, which is exactly what the old code failed to do and
-// what no existing test checked.
-//
-// Physically the spring draws the centres of two transversely adjacent thick
-// filaments into a common axial plane. That is an M-band; combined with ACTN2
-// at the barbed ends it supplies the second registration plane a sarcomere
-// needs.
+// Sparse, local, finite-valency myomesin/M-band bridge tests.
 
 #include "sarcomere.h"
 
@@ -23,9 +11,9 @@
 namespace {
 
 std::unique_ptr<Sarcomere> make_model(
-    const std::string& output, gsl_rng* rng, int& seed, double k_mm) {
+    const std::string& output, gsl_rng* rng, int& seed, double k_mm,
+    int n_myosins = 2) {
     int n_actins = 1;
-    int n_myosins = 2;
     std::vector<double> box{8.0, 8.0, 8.0};
     double actin_length = 1.0;
     double myosin_length = 1.5;
@@ -40,7 +28,7 @@ std::unique_ptr<Sarcomere> make_model(
     double dt = 1e-6;
     bool directional = true;
     int max_myosin_bonds = 6;
-    std::string filename = output;   // constructor takes a non-const reference
+    std::string filename = output;
     auto model = std::make_unique<Sarcomere>(
         n_actins, n_myosins, box, actin_length, myosin_length,
         myosin_radius, am_cutoff, am_optimal, aa_cutoff, aa_optimal,
@@ -52,21 +40,26 @@ std::unique_ptr<Sarcomere> make_model(
     model->dynamic_am = false;
     model->aa_local_multilink = false;
     model->sterics_enabled = true;
-    // Park the actin far away so only the myosin pair is under test.
     model->actin.center[0] = {0.0, 3.5, 3.5};
     model->actin.direction[0] = {1.0, 0.0, 0.0};
     model->actin.update_endpoints();
+    for (int i = 0; i < n_myosins; ++i) {
+        model->myosin.direction[i] = {1.0, 0.0, 0.0};
+    }
+    model->reset_myosin_material_frames();
     return model;
 }
 
-// Two parallel thick filaments, transversely adjacent, offset axially by
-// `axial`. The caller gates on segment distance <= 2*am_cutoff = 0.20 um.
-void place(Sarcomere& model, double axial, double transverse) {
-    model.myosin.direction[0] = {1.0, 0.0, 0.0};
-    model.myosin.direction[1] = {1.0, 0.0, 0.0};
+void configure(Sarcomere& model, int valency, double k_on, double k_off,
+               double radial_k = 100.0, double force_max = 100.0) {
+    model.configure_myomesin_bridges(
+        valency, k_on, k_off, 0.25, 0.11, 0.04, radial_k,
+        0.94, 0.0, force_max);
+}
+
+void place_pair(Sarcomere& model, double axial, double transverse) {
     model.myosin.center[0] = {0.0, 0.0, 0.0};
     model.myosin.center[1] = {axial, transverse, 0.0};
-    model.reset_myosin_material_frames();
     model.myosin.update_endpoints();
 }
 
@@ -76,86 +69,126 @@ int main() {
     const std::string output = "/tmp/myomesin_mband_test.h5";
     int seed = 5501;
     constexpr double K = 100.0;
-    constexpr double TRANSVERSE = 0.08;   // inside 2*am_cutoff
 
-    // 1. The force arrives, is attractive along the axis, and is reciprocal.
-    //    A regression on the discarded-force bug: with the old code every one
-    //    of these would read exactly zero.
+    // An occupied bridge restores axial register, has zero transverse force
+    // at its nonzero rest spacing, and is exactly reciprocal.
     {
-        std::remove(output.c_str());
         gsl_rng* rng = gsl_rng_alloc(gsl_rng_mt19937);
         gsl_rng_set(rng, seed);
         auto model = make_model(output, rng, seed, K);
-        place(*model, 0.40, TRANSVERSE);
+        configure(*model, 1, 0.0, 0.0);
+        place_pair(*model, 0.15, 0.11);
+        assert(model->prebind_myomesin_bridge(0, 1));
         model->update_system();
         const vec f0 = model->myosin.force[0];
         const vec f1 = model->myosin.force[1];
-        assert(f0.norm() > 1e-9);
-        assert(f1.norm() > 1e-9);
-        // myosin 1 sits at +x of myosin 0, so myosin 0 is pulled toward +x.
-        assert(f0.x > 0.0);
-        assert(f1.x < 0.0);
-        // Reciprocal: the pair exerts no net force on the system.
-        assert(std::abs(f0.x + f1.x) < 1e-9);
+        assert(f0.x > 0.0 && f1.x < 0.0);
+        assert(std::abs(f0.y) < 1e-9 && std::abs(f1.y) < 1e-9);
+        assert((f0 + f1).norm() < 1e-9);
+        assert(model->myomesin_bridges.size() == 1);
+        model->sterics_enabled = false;
+        model->update_system();
+        assert(model->myosin.force[0].x > 0.0);
+        assert(model->myosin.force[1].x < 0.0);
         gsl_rng_free(rng);
     }
 
-    // 2. k_mm = 0 leaves the myosins untouched, so the term is opt-in and the
-    //    previous behaviour is exactly recoverable.
+    // A coarse-grained module's force capacity scales independently from its
+    // axial stiffness.  Raising k_mm without raising the module cap must still
+    // clamp the resultant force; raising both permits a larger restoring load.
     {
-        std::remove(output.c_str());
         gsl_rng* rng = gsl_rng_alloc(gsl_rng_mt19937);
-        gsl_rng_set(rng, seed);
+        auto capped = make_model(output, rng, seed, 100.0);
+        configure(*capped, 1, 0.0, 0.0, 300.0, 10.0);
+        place_pair(*capped, 0.15, 0.11);
+        assert(capped->prebind_myomesin_bridge(0, 1));
+        capped->update_system();
+        assert(std::abs(capped->myomesin_bridges[0].force - 10.0) < 1e-9);
+
+        auto scaled = make_model(output, rng, seed, 200.0);
+        configure(*scaled, 1, 0.0, 0.0, 300.0, 20.0);
+        place_pair(*scaled, 0.15, 0.11);
+        assert(scaled->prebind_myomesin_bridge(0, 1));
+        scaled->update_system();
+        assert(std::abs(scaled->myomesin_bridges[0].force - 20.0) < 1e-9);
+        gsl_rng_free(rng);
+    }
+
+    // The transverse spring preserves a finite lattice spacing instead of
+    // collapsing thick-filament centerlines.
+    {
+        gsl_rng* rng = gsl_rng_alloc(gsl_rng_mt19937);
+        auto model = make_model(output, rng, seed, K);
+        configure(*model, 1, 0.0, 0.0);
+        place_pair(*model, 0.0, 0.14);
+        assert(model->prebind_myomesin_bridge(0, 1));
+        model->update_system();
+        assert(model->myosin.force[0].y > 0.0);
+        assert(model->myosin.force[1].y < 0.0);
+        place_pair(*model, 0.0, 0.08);
+        model->update_system();
+        assert(model->myosin.force[0].y < 0.0);
+        assert(model->myosin.force[1].y > 0.0);
+        gsl_rng_free(rng);
+    }
+
+    // Local capture: an aligned near pair binds, while an axially or radially
+    // distant pair does not.
+    {
+        gsl_rng* rng = gsl_rng_alloc(gsl_rng_mt19937);
+        auto model = make_model(output, rng, seed, K);
+        configure(*model, 1, 1e12, 0.0);
+        place_pair(*model, 0.15, 0.11);
+        model->update_system();
+        assert(model->myomesin_bridges.size() == 1);
+        model->myomesin_bridges.clear();
+        place_pair(*model, 0.40, 0.11);
+        model->update_system();
+        assert(model->myomesin_bridges.empty());
+        place_pair(*model, 0.10, 0.50);
+        model->update_system();
+        assert(model->myomesin_bridges.empty());
+        gsl_rng_free(rng);
+    }
+
+    // Finite valency: three mutually local thick filaments with one site each
+    // can form only one bridge, never the old three-edge complete graph.
+    {
+        gsl_rng* rng = gsl_rng_alloc(gsl_rng_mt19937);
+        auto model = make_model(output, rng, seed, K, 3);
+        configure(*model, 1, 1e12, 0.0);
+        model->myosin.center[0] = {0.00, 0.00, 0.0};
+        model->myosin.center[1] = {0.02, 0.11, 0.0};
+        model->myosin.center[2] = {-0.02, 0.055, 0.0952628};
+        model->myosin.update_endpoints();
+        model->update_system();
+        assert(model->myomesin_bridges.size() == 1);
+        for (int i = 0; i < 3; ++i) {
+            assert(model->myomesin_degree(i) <= 1);
+        }
+        gsl_rng_free(rng);
+    }
+
+    // Turnover changes only bridge occupancy; it does not alter AM ownership.
+    {
+        gsl_rng* rng = gsl_rng_alloc(gsl_rng_mt19937);
+        auto model = make_model(output, rng, seed, K);
+        configure(*model, 1, 0.0, 1e12);
+        place_pair(*model, 0.15, 0.11);
+        assert(model->prebind_myomesin_bridge(0, 1));
+        model->update_system();
+        assert(model->myomesin_bridges.empty());
+        gsl_rng_free(rng);
+    }
+
+    // k_mm=0 remains an exact opt-out.
+    {
+        gsl_rng* rng = gsl_rng_alloc(gsl_rng_mt19937);
         auto model = make_model(output, rng, seed, 0.0);
-        place(*model, 0.40, TRANSVERSE);
+        configure(*model, 1, 1e12, 0.0);
+        place_pair(*model, 0.15, 0.11);
         model->update_system();
-        assert(model->myosin.force[0].norm() < 1e-12);
-        assert(model->myosin.force[1].norm() < 1e-12);
-        gsl_rng_free(rng);
-    }
-
-    // 3. Magnitude grows with axial offset -- the law is a zero-rest-length
-    //    spring, so coplanar filaments feel nothing and offset ones are pulled
-    //    back together.
-    {
-        std::remove(output.c_str());
-        gsl_rng* rng = gsl_rng_alloc(gsl_rng_mt19937);
-        gsl_rng_set(rng, seed);
-        auto model = make_model(output, rng, seed, K);
-        place(*model, 0.20, TRANSVERSE);
-        model->update_system();
-        const double near = model->myosin.force[0].x;
-        place(*model, 0.60, TRANSVERSE);
-        model->update_system();
-        const double far = model->myosin.force[0].x;
-        assert(far > near);
-        assert(near > 0.0);
-        gsl_rng_free(rng);
-    }
-
-    // 4. Beyond the axial cutoff (one myosin length) the pair does not couple.
-    //    This is what keeps the spring from collapsing every thick filament
-    //    onto a single plane: separate M-bands stay independent.
-    {
-        std::remove(output.c_str());
-        gsl_rng* rng = gsl_rng_alloc(gsl_rng_mt19937);
-        gsl_rng_set(rng, seed);
-        auto model = make_model(output, rng, seed, K);
-        place(*model, 1.90, TRANSVERSE);   // > myosin_length = 1.5
-        model->update_system();
-        assert(model->myosin.force[0].norm() < 1e-12);
-        gsl_rng_free(rng);
-    }
-
-    // 5. Transversely distant filaments do not couple either, so the spring is
-    //    a local neighbour rule rather than a global centroid device.
-    {
-        std::remove(output.c_str());
-        gsl_rng* rng = gsl_rng_alloc(gsl_rng_mt19937);
-        gsl_rng_set(rng, seed);
-        auto model = make_model(output, rng, seed, K);
-        place(*model, 0.40, 1.20);   // far beyond 2*am_cutoff
-        model->update_system();
+        assert(model->myomesin_bridges.empty());
         assert(model->myosin.force[0].norm() < 1e-12);
         gsl_rng_free(rng);
     }

@@ -1,0 +1,721 @@
+#include "geometry.h"
+#include <cmath>
+#include <vector>
+#include <map>
+#include <algorithm>
+#include <numeric>
+#include <utility>
+#include <tuple>
+#include <string>
+#include <array>
+
+
+namespace geometry {
+
+const double EPS = 1e-9;
+
+
+// Helper function to compute the difference between two vectors using PBC
+vec pbc_diff(const vec& a, const vec& b, const std::vector<double>& box,
+             const std::array<bool,3>& periodic) {
+    vec diff = a - b;
+    diff.pbc_wrap(box, periodic); // Adjusts diff.x, diff.y, and diff.z using the minimal image convention
+    return diff;
+}
+
+
+// A simple clamp helper
+double clamp(double x, double lo, double hi) {
+    return std::max(lo, std::min(x, hi));
+}
+
+// This function computes the shortest distance between segments AB and CD by solving
+// the constrained optimization problem: minimize || (A+t*(B-A)) - (C+s*(D-C)) ||^2 subject to t,s in [0,1].
+double segment_segment_distance(const vec& A, const vec& B,
+        const vec& C, const vec& D,
+        const std::vector<double>& box,
+        const std::array<bool,3>& periodic)
+    {
+        // Make local copies of the first segment's endpoints.
+        vec A_adj = A;
+        vec B_adj = B;
+        
+        // Compute the midpoints of the two segments.
+        vec actin_mid = (A + B) / 2;
+        vec myosin_mid = (C + D) / 2;
+        
+        // Compute the displacement between midpoints.
+        vec displacement = actin_mid - myosin_mid;
+        
+        auto axis_length = [&](int axis) -> double {
+            if (axis >= static_cast<int>(box.size())) {
+                return 0.0;
+            }
+            return box[axis];
+        };
+        auto compute_shift = [&](double disp, int axis) -> double {
+            double L = axis_length(axis);
+            if (!periodic[axis] || L <= 0.0) {
+                return 0.0;
+            }
+            return -L * std::round(disp / L);
+        };
+        
+        // Compute the shift vector using the box dimensions.
+        vec shift;
+        shift.x = compute_shift(displacement.x, 0);
+        shift.y = compute_shift(displacement.y, 1);
+        shift.z = compute_shift(displacement.z, 2);
+        
+        // Shift the first segment's endpoints so that they are in the minimum image.
+        A_adj = A_adj + shift;
+        B_adj = B_adj + shift;
+        
+        // Now compute the vectors between the adjusted A, B and original C, D.
+        vec u = B_adj - A_adj;   // Direction of segment AB.
+        vec v = D - C;           // Direction of segment CD.
+        vec w = A_adj - C;       // Vector from C to adjusted A.
+        
+        // Precompute dot products.
+        double a = u.dot(u);
+        double b = u.dot(v);
+        double c = v.dot(v);
+        double d_val = u.dot(w);
+        double e_val = v.dot(w);
+        
+        double denom = a * c - b * b;
+        
+        // Compute unconstrained optimum parameters.
+        double t_opt = 0.0, s_opt = 0.0;
+        if (std::fabs(denom) > EPS) {
+            t_opt = (b * e_val - c * d_val) / denom;
+            s_opt = (a * e_val - b * d_val) / denom;
+        } else {
+            // Nearly parallel: fix t = 0 and optimize over s.
+            t_opt = 0.0;
+            s_opt = clamp(v.dot(w) / c, 0.0, 1.0);
+        }
+        
+        // Search for the best (t,s) in [0,1]^2.
+        double best_dist2 = std::numeric_limits<double>::infinity();
+        double best_t = 0.0, best_s = 0.0;
+
+        const double w2 = w.dot(w);
+        auto evaluate = [&](double t, double s) {
+            // ||w + t*u - s*v||^2 using the dot products above. This avoids
+            // constructing three temporary vectors for every candidate.
+            double d2 = w2 + a * t * t + c * s * s +
+                        2.0 * d_val * t - 2.0 * e_val * s -
+                        2.0 * b * t * s;
+            d2 = std::max(0.0, d2);
+            if (d2 < best_dist2) {
+                best_dist2 = d2;
+                best_t = t;
+                best_s = s;
+            }
+        };
+
+        // An interior closest point of two non-parallel infinite lines is
+        // already the constrained segment minimum. Avoid evaluating four
+        // endpoint candidates in this common case.
+        const bool interior_line_minimum =
+            std::fabs(denom) > EPS &&
+            t_opt >= 0.0 && t_opt <= 1.0 &&
+            s_opt >= 0.0 && s_opt <= 1.0;
+        if (interior_line_minimum) {
+            evaluate(t_opt, s_opt);
+        } else {
+            // Otherwise the constrained minimum lies on a boundary.
+            for (int i = 0; i < 2; i++) {
+                double t_candidate = (i == 0) ? 0.0 : 1.0;
+                double s_candidate = clamp((e_val + b * t_candidate) / c, 0.0, 1.0);
+                evaluate(t_candidate, s_candidate);
+            }
+            for (int j = 0; j < 2; j++) {
+                double s_candidate = (j == 0) ? 0.0 : 1.0;
+                double t_candidate = clamp((b * s_candidate - d_val) / a, 0.0, 1.0);
+                evaluate(t_candidate, s_candidate);
+            }
+        }
+        
+        return std::sqrt(best_dist2);
+        
+    }    
+
+double segment_segment_distance(const vec& A, const vec& B,
+        const vec& C, const vec& D,
+        const std::vector<double>& box)
+{
+    static const std::array<bool,3> default_periodic{true, true, true};
+    return segment_segment_distance(A, B, C, D, box, default_periodic);
+}
+
+
+// Compute the shortest distance between two line segments by solving
+// the constrained minimization problem.
+// Returns a pair: (distance, { "start": P, "end": Q, "normal": (P-Q) } ).
+std::pair<double, SegmentInfo> segment_segment_distance_w_normal(
+    const vec& A, const vec& B, 
+    const vec& C, const vec& D, 
+    const std::vector<double>& box,
+    const std::array<bool,3>& periodic)
+{
+    // Make local copies of the first segment's endpoints.
+    vec A_adj = A;
+    vec B_adj = B;
+    
+    // Compute the midpoints of the two segments.
+    vec actin_mid = (A + B) / 2;
+    vec myosin_mid = (C + D) / 2;
+    
+    // Compute the displacement between midpoints.
+    vec displacement = actin_mid - myosin_mid;
+    
+    auto axis_length = [&](int axis) -> double {
+        if (axis >= static_cast<int>(box.size())) {
+            return 0.0;
+        }
+        return box[axis];
+    };
+    auto compute_shift = [&](double disp, int axis) -> double {
+        double L = axis_length(axis);
+        if (!periodic[axis] || L <= 0.0) {
+            return 0.0;
+        }
+        return -L * std::round(disp / L);
+    };
+    // Compute the shift vector using the box dimensions.
+    vec shift;
+    shift.x = compute_shift(displacement.x, 0);
+    shift.y = compute_shift(displacement.y, 1);
+    shift.z = compute_shift(displacement.z, 2);
+    
+    // Shift the first segment's endpoints so that they are in the minimum image.
+    A_adj = A_adj + shift;
+    B_adj = B_adj + shift;
+    
+    // Now compute the vectors between the adjusted A, B and original C, D.
+    vec u = B_adj - A_adj;   // Direction of segment AB.
+    vec v = D - C;           // Direction of segment CD.
+    vec w = A_adj - C;       // Vector from C to adjusted A.
+    
+    // Precompute dot products.
+    double a = u.dot(u);
+    double b = u.dot(v);
+    double c = v.dot(v);
+    double d_val = u.dot(w);
+    double e_val = v.dot(w);
+    
+    double denom = a * c - b * b;
+    
+    // Compute unconstrained optimum parameters.
+    double t_opt = 0.0, s_opt = 0.0;
+    if (std::fabs(denom) > EPS) {
+        t_opt = (b * e_val - c * d_val) / denom;
+        s_opt = (a * e_val - b * d_val) / denom;
+    } else {
+        // Nearly parallel: fix t = 0 and optimize over s.
+        t_opt = 0.0;
+        s_opt = clamp(v.dot(w) / c, 0.0, 1.0);
+    }
+    
+    // Search for the best (t,s) in [0,1]^2.
+    double best_dist2 = std::numeric_limits<double>::infinity();
+    double best_t = 0.0, best_s = 0.0;
+
+    const double w2 = w.dot(w);
+    auto evaluate = [&](double t, double s) {
+        double d2 = w2 + a * t * t + c * s * s +
+                    2.0 * d_val * t - 2.0 * e_val * s -
+                    2.0 * b * t * s;
+        d2 = std::max(0.0, d2);
+        if (d2 < best_dist2) {
+            best_dist2 = d2;
+            best_t = t;
+            best_s = s;
+        }
+    };
+
+    const bool interior_line_minimum =
+        std::fabs(denom) > EPS &&
+        t_opt >= 0.0 && t_opt <= 1.0 &&
+        s_opt >= 0.0 && s_opt <= 1.0;
+    if (interior_line_minimum) {
+        evaluate(t_opt, s_opt);
+    } else {
+        // Otherwise the constrained minimum lies on a boundary.
+        for (int i = 0; i < 2; i++) {
+            double t_candidate = (i == 0) ? 0.0 : 1.0;
+            double s_candidate = clamp((e_val + b * t_candidate) / c, 0.0, 1.0);
+            evaluate(t_candidate, s_candidate);
+        }
+        for (int j = 0; j < 2; j++) {
+            double s_candidate = (j == 0) ? 0.0 : 1.0;
+            double t_candidate = clamp((b * s_candidate - d_val) / a, 0.0, 1.0);
+            evaluate(t_candidate, s_candidate);
+        }
+    }
+    
+    double distance = std::sqrt(best_dist2);
+    
+    // Compute the closest points on the segments.
+    vec P = A_adj + u * best_t;  // Closest point on the shifted segment AB.
+    vec Q = C + v * best_s;      // Closest point on segment CD.
+    
+    // Compute the normal vector from Q to P (using pbc_diff if further adjustment is needed).
+    vec normal = pbc_diff(P, Q, box, periodic);
+    
+    return {distance, SegmentInfo{P, Q, normal}};
+}
+
+std::pair<double, SegmentInfo> segment_segment_distance_w_normal(
+    const vec& A, const vec& B,
+    const vec& C, const vec& D,
+    const std::vector<double>& box)
+{
+    static const std::array<bool,3> default_periodic{true, true, true};
+    return segment_segment_distance_w_normal(A, B, C, D, box, default_periodic);
+}
+
+
+
+void apply_pbc(vec& actin_left, vec& actin_right, 
+                        vec& myosin_left, vec& myosin_right,
+                        const std::vector<double>& box, const std::array<bool,3>& periodic){
+
+    vec actin_mid = (actin_left + actin_right) / 2;
+    vec myosin_mid = (myosin_left + myosin_right) / 2;
+    vec displacement = actin_mid - myosin_mid;
+    vec shift;
+    auto axis_length = [&](int axis) -> double {
+        if (axis >= static_cast<int>(box.size())) {
+            return 0.0;
+        }
+        return box[axis];
+    };
+    auto compute_shift = [&](double disp, int axis) -> double {
+        double L = axis_length(axis);
+        if (!periodic[axis] || L <= 0.0) {
+            return 0.0;
+        }
+        return -L * std::round(disp / L);
+    };
+    shift.x = compute_shift(displacement.x, 0);
+    shift.y = compute_shift(displacement.y, 1);
+    shift.z = compute_shift(displacement.z, 2);
+    actin_left = actin_left + shift;
+    actin_right = actin_right + shift;
+}
+
+void apply_pbc(vec& actin_left, vec& actin_right,
+                        vec& myosin_left, vec& myosin_right,
+                        const std::vector<double>& box){
+    static const std::array<bool,3> default_periodic{true, true, true};
+    apply_pbc(actin_left, actin_right, myosin_left, myosin_right, box, default_periodic);
+}
+
+
+
+
+// Filter roots within the interval [t_start, t_end]
+std::vector<double> findRootsInInterval(const std::vector<double>& roots, double t_start, double t_end) {
+    std::vector<double> valid_roots;
+    for (double t : roots) {
+        if (t >= t_start - EPS && t <= t_end + EPS) {
+            valid_roots.push_back(t);
+        }
+    }
+    return valid_roots;
+}
+
+
+
+
+// Solve quadratic equation: a*t^2 + b*t + c = 0
+std::vector<double> solveQuadratic(double a, double b, double c) {
+    std::vector<double> roots;
+    double discriminant = b * b - 4 * a * c;
+
+    if (discriminant < -EPS) {
+        // No real roots
+        return roots;
+    } else if (std::abs(discriminant) < EPS) {
+        // One real root
+        double t = -b / (2 * a);
+        roots.push_back(t);
+    } else {
+        // Two real roots
+        double sqrt_disc = std::sqrt(discriminant);
+        double t1 = (-b - sqrt_disc) / (2 * a);
+        double t2 = (-b + sqrt_disc) / (2 * a);
+        roots.push_back(t1);
+        roots.push_back(t2);
+    }
+    return roots;
+}
+
+namespace {
+struct SmallValues {
+    std::array<double, 8> values{};
+    size_t count = 0;
+
+    void push(double value) {
+        if (count < values.size()) values[count++] = value;
+    }
+    double& operator[](size_t i) { return values[i]; }
+    const double& operator[](size_t i) const { return values[i]; }
+    void sort_unique() {
+        std::sort(values.begin(), values.begin() + count);
+        auto last = std::unique(values.begin(), values.begin() + count,
+                                [](double a, double b) { return std::abs(a - b) < EPS; });
+        count = static_cast<size_t>(last - values.begin());
+    }
+};
+
+SmallValues solve_quadratic_small(double a, double b, double c) {
+    SmallValues roots;
+    const double discriminant = b * b - 4 * a * c;
+    if (discriminant < -EPS) return roots;
+    if (std::abs(discriminant) < EPS) {
+        roots.push(-b / (2 * a));
+    } else {
+        const double sqrt_disc = std::sqrt(discriminant);
+        roots.push((-b - sqrt_disc) / (2 * a));
+        roots.push((-b + sqrt_disc) / (2 * a));
+    }
+    return roots;
+}
+} // namespace
+
+SmallValues compute_transitions(vec A, vec B, vec C, vec D) {
+    vec AB_dir = B - A;
+    vec CD_dir = D - C;
+    double CD_len_sq = CD_dir.dot(CD_dir);
+    
+    // Avoid division by zero if CD is a point
+    if (CD_len_sq < EPS) {
+        SmallValues result;
+        result.push(0.0);
+        result.push(1.0);
+        return result;
+    }
+
+    // Compute s(t) coefficients
+    vec AC = A - C;
+    double numerator_const = AC.dot(CD_dir);
+    double numerator_t_coeff = AB_dir.dot(CD_dir);
+    
+    // Case 1: s(t) = 0
+    double t0 = -numerator_const / numerator_t_coeff;
+    
+    // Case 2: s(t) = 1
+    double t1 = (CD_len_sq - numerator_const) / numerator_t_coeff;
+    
+    // Case 3: Equidistant to C and D
+    double dist_C_sq = (A - C).norm_squared();
+    double dist_D_sq = (A - D).norm_squared();
+    double t2 = (dist_D_sq - dist_C_sq) / (2 * AB_dir.dot(CD_dir));
+
+    // Collect and clamp boundaries
+    SmallValues boundaries;
+    boundaries.push(0.0);
+    boundaries.push(1.0);
+    auto add_clamped = [&](double t) {
+        if (t > 0 && t < 1) boundaries.push(std::clamp(t, 0.0, 1.0));
+    };
+    add_clamped(t0);
+    add_clamped(t1);
+    add_clamped(t2);
+
+    // Remove duplicates
+    boundaries.sort_unique();
+    return boundaries;
+}
+
+// Main function to find intervals on AB where distance to CD is less than d
+std::tuple<double,vec,vec> subsegment_within_distance(vec A, vec B, vec C, vec D, double d) {
+    double interval_start = 1.0;
+    double interval_end = 0.0;
+    vec dirAB = B - A; // Direction vector of AB
+    vec dirCD = D - C; // Direction vector of CD
+    double lenAB_sq = dirAB.norm_squared();
+    double lenCD_sq = dirCD.norm_squared();
+
+    // Bounding spheres around the two segments cannot approach within d when
+    // their midpoint separation exceeds the sum of their half-lengths plus d.
+    // The previous test used full lengths, admitting many impossible pairs.
+    const vec midpoint_delta = 0.5 * ((A + B) - (C + D));
+    const double midpoint_reach = 0.5 * std::sqrt(lenAB_sq) +
+                                  0.5 * std::sqrt(lenCD_sq) +
+                                  std::max(0.0, d);
+    if (midpoint_delta.norm_squared() > midpoint_reach * midpoint_reach) {
+        return std::make_tuple(0.0, A, A);
+    }
+    // Find transition points where closest point on CD changes
+    SmallValues boundaries;
+    boundaries.push(0.0);
+    boundaries.push(1.0);
+
+    if (lenAB_sq > EPS) {
+        // Compute transition points
+        boundaries = compute_transitions(A, B, C, D);
+    }
+    // Process each subsegment
+    for (size_t i = 0; i + 1 < boundaries.count; ++i) {
+        double t_start = boundaries[i];
+        double t_end = boundaries[i + 1];
+        if (t_end - t_start < EPS) {
+            continue; // Skip negligible intervals
+        }
+
+        // Determine the closest point on CD for this subsegment
+        // Use midpoint to determine whether closest point is along CD or at an endpoint
+        //double t_mid = (t_start + t_end) / 2.0;
+        double t_mid = t_start+(t_end-t_start)/5.0;
+        vec P_mid = A + dirAB * t_mid;
+
+        // Compute s for the projection of P_mid onto CD
+        double s = (P_mid - C).dot(dirCD) / lenCD_sq;
+        vec closest_point;
+        bool closest_is_projection = true;
+
+        if (s <= 0.0) {
+            closest_point = C;
+            closest_is_projection = false;
+        } else if (s >= 1.0) {
+            closest_point = D;
+            closest_is_projection = false;
+        } else {
+            closest_point = C + dirCD * s;
+        }
+        if (closest_is_projection) {
+            // Closest point lies along CD
+            // Set up the quadratic equation for D(t)^2 = d^2
+            vec E = A - C;
+            double A_coef = lenCD_sq * dirAB.dot(dirAB) - pow(dirAB.dot(dirCD), 2);
+            double B_coef = 2 * (lenCD_sq * dirAB.dot(E) - dirAB.dot(dirCD) * dirCD.dot(E));
+            double C_coef = lenCD_sq * E.dot(E) - pow(dirCD.dot(E), 2) - lenCD_sq * d * d;
+
+            // Solve quadratic equation A_coef * t^2 + B_coef * t + C_coef = 0
+            SmallValues roots = solve_quadratic_small(A_coef, B_coef, C_coef);
+
+            SmallValues interval_points;
+            interval_points.push(t_start);
+            for (size_t root_idx = 0; root_idx < roots.count; ++root_idx) {
+                const double t_root = roots[root_idx];
+                if (t_root >= t_start - EPS && t_root <= t_end + EPS) {
+                    interval_points.push(t_root);
+                }
+            }
+            interval_points.push(t_end);
+            interval_points.sort_unique();
+
+            // Determine intervals where D(t) < d
+            for (size_t j = 0; j + 1 < interval_points.count; ++j) {
+                double t0 = interval_points[j];
+                double t1 = interval_points[j + 1];
+
+                if (t1 - t0 < EPS) {
+                    continue;
+                }
+
+                // Test midpoint
+                double t_test = (t0 + t1) / 2.0;
+                vec P_test = A + dirAB * t_test;
+
+                // Compute s for P_test
+                double s_test = (P_test - C).dot(dirCD) / lenCD_sq;
+                s_test = std::max(0.0, std::min(1.0, s_test));
+                vec closest_test = C + dirCD * s_test;
+                double dist_sq = (P_test - closest_test).norm_squared();
+
+                if (dist_sq < d * d + EPS) {
+                    // Interval where distance < d
+                    if (t0<interval_start){
+                        interval_start = t0;
+                    }
+                    if (t1>interval_end){
+                        interval_end = t1;
+                    }
+                }
+            }
+        } else {
+            // Closest point is at C or D
+            vec Q = closest_point;
+            vec M = A - Q;
+            vec N = dirAB;
+
+            double a_quad = N.dot(N);
+            double b_quad = 2 * M.dot(N);
+            double c_quad = M.dot(M) - d * d;
+
+            // Solve quadratic equation a_quad * t^2 + b_quad * t + c_quad = 0
+            SmallValues roots = solve_quadratic_small(a_quad, b_quad, c_quad);
+
+            SmallValues interval_points;
+            interval_points.push(t_start);
+            for (size_t root_idx = 0; root_idx < roots.count; ++root_idx) {
+                const double t_root = roots[root_idx];
+                if (t_root >= t_start - EPS && t_root <= t_end + EPS) {
+                    interval_points.push(t_root);
+                }
+            }
+            interval_points.push(t_end);
+            interval_points.sort_unique();
+
+            // Determine intervals where D(t) < d
+            for (size_t j = 0; j + 1 < interval_points.count; ++j) {
+                double t0 = interval_points[j];
+                double t1 = interval_points[j + 1];
+                if (t1 - t0 < EPS) {
+                    continue;
+                }
+
+                // Test midpoint
+                double t_test = (t0 + t1) / 2.0;
+                vec P_test = A + dirAB * t_test;
+                double dist_sq = (P_test - Q).norm_squared();
+
+                if (dist_sq < d * d + EPS) {
+                    // Interval where distance < d
+                    if (t0<interval_start){
+                        interval_start = t0;
+                    }
+                    if (t1>interval_end){
+                        interval_end = t1;
+                    }
+                }
+            }
+        }
+    }
+    if (interval_start<=interval_end){
+        vec inter = A + dirAB * interval_start;
+        return {interval_end-interval_start, A + dirAB * interval_start, A+dirAB*interval_end};
+    }
+    else{
+        return {0.0,A,A};
+    }
+}
+
+// Function to calculate the points on segment 1 that are distance d away from segment 2
+am_interaction analyze_am(vec actin_left, vec actin_right, 
+                        vec myosin_left, vec myosin_right, double d, const std::vector<double>& box,
+                        const std::array<bool,3>& periodic, bool directional) {
+    apply_pbc(actin_left, actin_right, myosin_left, myosin_right, box, periodic);
+    vec actin_mid = 0.5 * (actin_left + actin_right);
+    vec myosin_mid = 0.5 * (myosin_left + myosin_right);
+    std::tuple<double, vec, vec> result = subsegment_within_distance(actin_left, actin_right, myosin_left, myosin_right, d);
+    am_interaction interaction;
+    interaction.myosin_binding_ratio = std::get<0>(result);
+    interaction.myosin_binding_start = std::get<1>(result);
+    interaction.myosin_binding_end = std::get<2>(result);
+    
+    //crosslinkable
+    if (directional) {
+        interaction.crosslinkable_start = actin_left;
+        interaction.crosslinkable_end = interaction.myosin_binding_start;
+    } else {
+        // For non-directional, choose the end that's NOT between myosin_binding_start and myosin_binding_end
+        vec actin_dir = actin_right - actin_left;
+        double actin_length_sq = actin_dir.norm_squared();
+        
+        // Calculate parametric positions of myosin_binding_start and myosin_binding_end on actin segment
+        double t_binding_start = actin_dir.dot(interaction.myosin_binding_start - actin_left) / actin_length_sq;
+        double t_binding_end = actin_dir.dot(interaction.myosin_binding_end - actin_left) / actin_length_sq;
+        
+        // Ensure t_binding_start <= t_binding_end
+        if (t_binding_start > t_binding_end) {
+            std::swap(t_binding_start, t_binding_end);
+        }
+        
+        // Check if actin_left (t=0) is between binding start and end
+        bool left_is_between = (t_binding_start <= 0.0 && 0.0 <= t_binding_end);
+        // Check if actin_right (t=1) is between binding start and end
+        bool right_is_between = (t_binding_start <= 1.0 && 1.0 <= t_binding_end);
+        
+        if (!left_is_between) {
+            interaction.crosslinkable_start = actin_left;
+            interaction.crosslinkable_end = interaction.myosin_binding_start;
+        } else if (!right_is_between) {
+            interaction.crosslinkable_start = actin_right;
+            interaction.crosslinkable_end = interaction.myosin_binding_end;
+        } else {
+            // Both ends are between binding region, default to left
+            interaction.crosslinkable_start = actin_left;
+            interaction.crosslinkable_end = interaction.myosin_binding_start;
+        }
+    }
+    
+    interaction.crosslinkable_ratio = (interaction.crosslinkable_end - interaction.crosslinkable_start).norm()
+        / actin_right.distance(actin_left, box, periodic);
+    double dot = (actin_mid-actin_left).dot(myosin_mid-myosin_left);
+    vec partial_start, partial_end;
+    if (dot>0){
+        partial_start = myosin_left;
+        partial_end = myosin_left +
+            am_head_bearing_fraction * (myosin_right - myosin_left);
+    }
+    else{
+        partial_start = myosin_right -
+            am_head_bearing_fraction * (myosin_right - myosin_left);
+        partial_end = myosin_right;
+    }
+    // printf("partial_start: %f %f\n",partial_start.x,partial_start.y);
+    // printf("partial_end: %f %f\n",partial_end.x,partial_end.y);
+    std::tuple<double, vec, vec> result2 = subsegment_within_distance(actin_left, actin_right, partial_start, partial_end, d);
+    // A finite-segment distance includes spherical end caps. Without an axial
+    // slab intersection, an actin lying wholly in the central bare zone can
+    // appear close enough to the first head at the bare-zone boundary and
+    // attach despite having zero head-bearing axial overlap. Intersect the
+    // radial capture interval with the actual head-bearing axial interval.
+    const vec actin_span = actin_right - actin_left;
+    const double actin_span_sq = actin_span.norm_squared();
+    const vec head_span = partial_end - partial_start;
+    const double head_length = head_span.norm();
+    double partial_ratio = 0.0;
+    if (actin_span_sq > EPS && head_length > EPS && std::get<0>(result2) > 0.0) {
+        const double distance_t0 = std::clamp(
+            actin_span.dot(std::get<1>(result2) - actin_left) /
+                actin_span_sq,
+            0.0, 1.0);
+        const double distance_t1 = std::clamp(
+            actin_span.dot(std::get<2>(result2) - actin_left) /
+                actin_span_sq,
+            0.0, 1.0);
+        const double capture_min = std::min(distance_t0, distance_t1);
+        const double capture_max = std::max(distance_t0, distance_t1);
+        const vec head_axis = head_span / head_length;
+        const double axial_at_zero =
+            (actin_left - partial_start).dot(head_axis);
+        const double axial_slope = actin_span.dot(head_axis);
+        double slab_min = 0.0;
+        double slab_max = 1.0;
+        if (std::abs(axial_slope) <= EPS) {
+            if (axial_at_zero < -EPS || axial_at_zero > head_length + EPS) {
+                slab_min = 1.0;
+                slab_max = 0.0;
+            }
+        } else {
+            const double first_crossing = -axial_at_zero / axial_slope;
+            const double second_crossing =
+                (head_length - axial_at_zero) / axial_slope;
+            slab_min = std::max(
+                0.0, std::min(first_crossing, second_crossing));
+            slab_max = std::min(
+                1.0, std::max(first_crossing, second_crossing));
+        }
+        const double clipped_min = std::max(capture_min, slab_min);
+        const double clipped_max = std::min(capture_max, slab_max);
+        partial_ratio = std::max(0.0, clipped_max - clipped_min);
+    }
+    interaction.partial_binding_ratio = partial_ratio;
+    return interaction;
+}
+
+am_interaction analyze_am(vec actin_left, vec actin_right, 
+                        vec myosin_left, vec myosin_right, double d, const std::vector<double>& box, bool directional) {
+    static const std::array<bool,3> default_periodic{true, true, true};
+    return analyze_am(actin_left, actin_right, myosin_left, myosin_right, d, box, default_periodic, directional);
+}
+
+} // namespace geometry

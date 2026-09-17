@@ -39,7 +39,7 @@ void pbc_wrap_centered(vec& x, const std::vector<double>& box, const std::array<
     auto wrap_centered_axis = [](double coord, double Lk) {
         double q = coord;
         double H = 0.5 * Lk;
-        q -= Lk * std::round(q / Lk);
+        q -= Lk * round_half_away(q / Lk);
         if (q <= -H) {
             q += Lk;
         }

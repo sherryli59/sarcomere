@@ -1,0 +1,224 @@
+{
+  "trajectory": "/scratch/users/xsli/sarcomere/prod_theta01_weaker_titin_20260805_r2/data/A1280_M640_thetaPerp0p1_titinK40_L0p75_seed20260805_40ms.h5",
+  "analysis_start_ms": 20.0,
+  "analysis_end_ms": 40.0,
+  "window_ms": 2.0,
+  "positive_velocity_semantics": "A-A overlap shrinking (motor-driven extension)",
+  "negative_velocity_semantics": "A-A overlap increasing (re-annealing)",
+  "load_semantics": "sum of favorable bilateral ACTN2 axial load for the pair, pN per actin",
+  "selection": "antiparallel pair continuously ACTN2-linked for full window and mean >0.5 A-M heads per actin",
+  "groups": {
+    "all_crosslinked": {
+      "sample_count": 757,
+      "unique_pair_count": 233,
+      "mean_load_pN_per_actin": 1.0909976086100677,
+      "median_load_pN_per_actin": 0.7362923978393546,
+      "mean_extension_velocity_um_per_s": -0.17175696004067684,
+      "mean_velocity_pair_clustered_95ci": [
+        -0.6416135566381681,
+        0.30478323648032857
+      ],
+      "slope_um_per_s_per_pN": 0.9499199009804151,
+      "slope_pair_clustered_95ci": [
+        0.48178784513212164,
+        2.1708067707692216
+      ],
+      "intercept_um_per_s": -1.208117300381422,
+      "linear_zero_crossing_pN": 1.271809653776619,
+      "pearson_r": 0.20355459645732196,
+      "conventional_decreasing_fv_supported": false
+    },
+    "status1": {
+      "sample_count": 652,
+      "unique_pair_count": 226,
+      "mean_load_pN_per_actin": 0.8611602172697985,
+      "median_load_pN_per_actin": 0.667377133052323,
+      "mean_extension_velocity_um_per_s": -0.3436649165936396,
+      "mean_velocity_pair_clustered_95ci": [
+        -0.8501176886953884,
+        0.17395548031296262
+      ],
+      "slope_um_per_s_per_pN": 2.638122787199971,
+      "slope_pair_clustered_95ci": [
+        1.8823226586261854,
+        3.6025115143940316
+      ],
+      "intercept_um_per_s": -2.615511309203172,
+      "linear_zero_crossing_pN": 0.9914289516369335,
+      "pearson_r": 0.3296050371673308,
+      "conventional_decreasing_fv_supported": false
+    },
+    "cb2": {
+      "sample_count": 105,
+      "unique_pair_count": 17,
+      "mean_load_pN_per_actin": 2.518178362456311,
+      "median_load_pN_per_actin": 1.744395778099386,
+      "mean_extension_velocity_um_per_s": 0.8957095892215298,
+      "mean_velocity_pair_clustered_95ci": [
+        0.12394051220970125,
+        1.8762687326062624
+      ],
+      "slope_um_per_s_per_pN": -0.02579420077609062,
+      "slope_pair_clustered_95ci": [
+        -0.40024994615370596,
+        0.4451621410739148
+      ],
+      "intercept_um_per_s": 0.9606639874927347,
+      "linear_zero_crossing_pN": 37.24340970406036,
+      "pearson_r": -0.015675476200747954,
+      "conventional_decreasing_fv_supported": false
+    }
+  },
+  "bins": [
+    {
+      "group": "all_crosslinked",
+      "load_bin_left_pN": 0.0,
+      "load_bin_right_pN": 0.5,
+      "sample_count": 282,
+      "mean_load_pN_per_actin": 0.20282637009305182,
+      "mean_velocity_um_per_s": -2.4742972276091084,
+      "velocity_ci_low": -3.2820302264599204,
+      "velocity_ci_high": -1.6826188299343094
+    },
+    {
+      "group": "all_crosslinked",
+      "load_bin_left_pN": 0.5,
+      "load_bin_right_pN": 1.0,
+      "sample_count": 184,
+      "mean_load_pN_per_actin": 0.7295360759472934,
+      "mean_velocity_um_per_s": 0.019588595170021775,
+      "velocity_ci_low": -0.7762640496352903,
+      "velocity_ci_high": 0.8580123178937629
+    },
+    {
+      "group": "all_crosslinked",
+      "load_bin_left_pN": 1.0,
+      "load_bin_right_pN": 2.0,
+      "sample_count": 193,
+      "mean_load_pN_per_actin": 1.401368254423322,
+      "mean_velocity_um_per_s": 1.245981248987541,
+      "velocity_ci_low": 0.42128329392881886,
+      "velocity_ci_high": 2.0455212672328336
+    },
+    {
+      "group": "all_crosslinked",
+      "load_bin_left_pN": 2.0,
+      "load_bin_right_pN": 4.0,
+      "sample_count": 71,
+      "mean_load_pN_per_actin": 2.6858627308608716,
+      "mean_velocity_um_per_s": 4.040756303543406,
+      "velocity_ci_low": 2.7502735366888933,
+      "velocity_ci_high": 5.496308160426389
+    },
+    {
+      "group": "all_crosslinked",
+      "load_bin_left_pN": 4.0,
+      "load_bin_right_pN": Infinity,
+      "sample_count": 27,
+      "mean_load_pN_per_actin": 6.418266236387248,
+      "mean_velocity_um_per_s": 1.3614599747227776,
+      "velocity_ci_low": 0.03845363646349853,
+      "velocity_ci_high": 3.0525772664102213
+    },
+    {
+      "group": "status1",
+      "load_bin_left_pN": 0.0,
+      "load_bin_right_pN": 0.5,
+      "sample_count": 260,
+      "mean_load_pN_per_actin": 0.20450247449602718,
+      "mean_velocity_um_per_s": -2.7073840041296884,
+      "velocity_ci_low": -3.5581681210561498,
+      "velocity_ci_high": -1.8905844487570542
+    },
+    {
+      "group": "status1",
+      "load_bin_left_pN": 0.5,
+      "load_bin_right_pN": 1.0,
+      "sample_count": 171,
+      "mean_load_pN_per_actin": 0.7236624188784403,
+      "mean_velocity_um_per_s": -0.03420729406507669,
+      "velocity_ci_low": -0.8972422782386368,
+      "velocity_ci_high": 0.8277342259638685
+    },
+    {
+      "group": "status1",
+      "load_bin_left_pN": 1.0,
+      "load_bin_right_pN": 2.0,
+      "sample_count": 168,
+      "mean_load_pN_per_actin": 1.387001725797941,
+      "mean_velocity_um_per_s": 1.166268195618996,
+      "velocity_ci_low": 0.2378318914284604,
+      "velocity_ci_high": 2.0787648003252173
+    },
+    {
+      "group": "status1",
+      "load_bin_left_pN": 2.0,
+      "load_bin_right_pN": 4.0,
+      "sample_count": 47,
+      "mean_load_pN_per_actin": 2.5325729404732344,
+      "mean_velocity_um_per_s": 5.773538212368097,
+      "velocity_ci_low": 4.041639743091379,
+      "velocity_ci_high": 7.587378391310346
+    },
+    {
+      "group": "status1",
+      "load_bin_left_pN": 4.0,
+      "load_bin_right_pN": Infinity,
+      "sample_count": 6,
+      "mean_load_pN_per_actin": 5.418721087738692,
+      "mean_velocity_um_per_s": 3.0684016490837003,
+      "velocity_ci_low": 0.596433524063403,
+      "velocity_ci_high": 5.6638015696222785
+    },
+    {
+      "group": "cb2",
+      "load_bin_left_pN": 0.0,
+      "load_bin_right_pN": 0.5,
+      "sample_count": 22,
+      "mean_load_pN_per_actin": 0.18301786351243388,
+      "mean_velocity_um_per_s": 0.28036467672501647,
+      "velocity_ci_low": -0.9744761173201889,
+      "velocity_ci_high": 2.2227509262683873
+    },
+    {
+      "group": "cb2",
+      "load_bin_left_pN": 0.5,
+      "load_bin_right_pN": 1.0,
+      "sample_count": 13,
+      "mean_load_pN_per_actin": 0.806797257391441,
+      "mean_velocity_um_per_s": 0.727211445877853,
+      "velocity_ci_low": -1.4648467586342013,
+      "velocity_ci_high": 3.7966362811430927
+    },
+    {
+      "group": "cb2",
+      "load_bin_left_pN": 1.0,
+      "load_bin_right_pN": 2.0,
+      "sample_count": 25,
+      "mean_load_pN_per_actin": 1.4979113267858801,
+      "mean_velocity_um_per_s": 1.7816529676241648,
+      "velocity_ci_low": 0.16442975270743965,
+      "velocity_ci_high": 3.9625261741385565
+    },
+    {
+      "group": "cb2",
+      "load_bin_left_pN": 2.0,
+      "load_bin_right_pN": 4.0,
+      "sample_count": 24,
+      "mean_load_pN_per_actin": 2.9860552370366613,
+      "mean_velocity_um_per_s": 0.6473917320950531,
+      "velocity_ci_low": -0.49591401346863034,
+      "velocity_ci_high": 2.4196391365166305
+    },
+    {
+      "group": "cb2",
+      "load_bin_left_pN": 4.0,
+      "load_bin_right_pN": Infinity,
+      "sample_count": 21,
+      "mean_load_pN_per_actin": 6.703850564572548,
+      "mean_velocity_um_per_s": 0.8737623534767996,
+      "velocity_ci_low": -0.4704419017071603,
+      "velocity_ci_high": 2.915059781144055
+    }
+  ]
+}

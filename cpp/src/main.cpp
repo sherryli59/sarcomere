@@ -51,6 +51,16 @@ int main(int argc, char* argv[]){
     double kappa_aa;
     double k_am;
     double k_mm;
+    int myomesin_sites_per_filament;
+    double myomesin_k_on;
+    double myomesin_k_off;
+    double myomesin_axial_capture;
+    double myomesin_radial_rest;
+    double myomesin_radial_capture;
+    double myomesin_radial_k;
+    double myomesin_alignment_cos;
+    double myomesin_bell_distance;
+    double myomesin_force_max;
     double kappa_am;
     double v_am;
     int n_actins;
@@ -71,6 +81,11 @@ int main(int argc, char* argv[]){
     double am_steric_k;
     double actin_steric_k;
     double myosin_steric_k;
+    double myosin_exclusion_distance;
+    bool am_stroke_detailed_balance;
+    double am_stroke_base_rate;
+    double am_stroke_theta;
+    double am_stroke_free_energy;
     bool aa_double_overlap_contact;
     double aa_double_overlap_contact_diameter;
     double aa_double_overlap_contact_epsilon;
@@ -92,10 +107,21 @@ int main(int argc, char* argv[]){
     double init_aa_overlap;
     double aa_barbed_zone;
     double aa_axial_register_force_max;
+    double aa_radial_force_max;
+    double am_tether_force_max;
+    double am_tether_occupancy_floor;
+    double am_tether_occupancy_floor_reach;
+    double probe_tilt_deg;
+    double probe_confine_k;
     double aa_axial_register_ratio;
     bool aa_register_all_statuses;
     bool aa_perpendicular_all_statuses;
     double aa_status2_support_window;
+    double aa_motor_pair_support_window;
+    double aa_motor_pair_commit_time;
+    double aa_motor_pair_switch_ratio;
+    double aa_motor_pair_exchange_time;
+    double aa_motor_pair_dropout_time;
     double aa_status2_registry_on;
     double aa_status2_registry_off;
     double aa_register_saturation_error;
@@ -110,6 +136,33 @@ int main(int argc, char* argv[]){
     double aa_status1_radial_k;
     double aa_status1_site_diffusion;
     bool aa_status2_locked_until_detach;
+    double aa_status2_unlock_rate;
+    double aa_status2_unlock_force_scale;
+    double aa_status2_unlock_registry_scale;
+    bool aa_arm_state_model;
+    double aa_arm_open_rate_weak;
+    double aa_arm_open_rate_mature;
+    double aa_arm_bell_distance;
+    double aa_tether_off_rate;
+    double aa_tether_rebind_rate;
+    double aa_tether_capture_distance;
+    double aa_arm_rebind_theta;
+    double aa_actn2_contact_radius;
+    double aa_myosin_contact_epsilon;
+    double aa_myosin_contact_force_cap;
+    double aa_myosin_contact_shell_width;
+    double aa_myosin_contact_shell_energy;
+    bool aa_zdisc_tip_contact;
+    double aa_zdisc_tip_onset;
+    double aa_zdisc_tip_stiffness;
+    double aa_zdisc_tip_force_max;
+    double aa_barbed_lateral_range;
+    double aa_barbed_lateral_k;
+    double aa_barbed_lateral_force_max;
+    double aa_barbed_lateral_axial_window;
+    double aa_zdisc_tip_transverse_flat;
+    double aa_zdisc_tip_transverse_cutoff;
+    double aa_occlusion_rupture_penetration;
     double aa_association_max_direction_dot;
     double aa_link_rupture_length;
     int aa_stiffness_reference_links;
@@ -140,6 +193,7 @@ int main(int argc, char* argv[]){
     bool directional;
     bool stabilize_status1;
     std::string aa_status_mode_name;
+    actn2_load_kinetics::StatusMode parsed_aa_status_mode;
     double aa_status2_force_on;
     double aa_status2_force_off;
     bool dynamic_am;
@@ -196,6 +250,11 @@ int main(int argc, char* argv[]){
     double am_thick_tension_scale;
     double am_thick_initial_on_fraction;
     double am_thick_force_clamp;
+    bool actin_turnover;
+    double actin_turnover_rate;
+    double actin_turnover_start_time;
+    int actin_turnover_max_placement_attempts;
+    double actin_turnover_clearance_ratio;
     double am_status2_memory;
     bool deterministic;
     bool isometric_actin_axial;
@@ -232,6 +291,8 @@ int main(int argc, char* argv[]){
 
     std::string filename;
     std::string init_struc;
+    std::string initial_geometry_file;
+    int initial_geometry_frame;
     bool beta_was_explicit = false;
     try {
         cxxopts::Options options("sarcomere", "simulate sarcomere assembly using Monte Carlo");
@@ -274,14 +335,24 @@ int main(int argc, char* argv[]){
             ("directional_base_lifetime", "Additional constant lifetime for status-2 bonds", cxxopts::value<double>(directional_base_lifetime)->default_value("0.05"))
             ("lifetime_coeff", "Load-dependent lifetime coefficient", cxxopts::value<double>(lifetime_coeff)->default_value("0.4"))
             ("stabilize_status1", "Also apply lifetime_coeff*f_load to status-1 bonds (original kinetics)", cxxopts::value<bool>(stabilize_status1)->default_value("false")->implicit_value("true"))
-            ("aa_status_mode", "AA status classifier: productive_register is the minimal production rule (registry plus opposed productive motor load for formation; kinetic persistence thereafter); legacy alternatives remain available", cxxopts::value<std::string>(aa_status_mode_name)->default_value("productive_register"))
+            ("aa_status_mode", "AA status classifier: motor_transmitted_register uses a persistent, source-resolved myosin pair and the actual ACTN2 connector reaction; productive_register retains the aggregate-vector rule", cxxopts::value<std::string>(aa_status_mode_name)->default_value("productive_register"))
             ("aa_status2_force_on", "Load required for status 1->2", cxxopts::value<double>(aa_status2_force_on)->default_value("1.0"))
             ("aa_status2_force_off", "Load below which status 2->1", cxxopts::value<double>(aa_status2_force_off)->default_value("0.5"))
             ("k_aa", "k_aa", cxxopts::value<double>(k_aa)->default_value("10"))
             ("kappa_aa", "kappa_aa", cxxopts::value<double>(kappa_aa)->default_value("100"))
             ("k_am", "k_am", cxxopts::value<double>(k_am)->default_value("10"))
-            ("k_mm", "k_mm", cxxopts::value<double>(k_mm)->default_value("0"))
-            ("kmm", "Alias for k_mm (myomesin spring constant)", cxxopts::value<double>(k_mm))
+            ("k_mm", "Effective axial stiffness (pN/um) of one occupied sparse coarse-grained myomesin module; 0 disables all modules", cxxopts::value<double>(k_mm)->default_value("0"))
+            ("kmm", "Alias for k_mm", cxxopts::value<double>(k_mm))
+            ("myomesin_sites_per_filament", "Finite local-module edge valency of each thick filament", cxxopts::value<int>(myomesin_sites_per_filament)->default_value("2"))
+            ("myomesin_k_on", "Local coarse-grained myomesin-module association rate (1/s)", cxxopts::value<double>(myomesin_k_on)->default_value("5000"))
+            ("myomesin_k_off", "Zero-load coarse-grained myomesin-module dissociation rate (1/s)", cxxopts::value<double>(myomesin_k_off)->default_value("1"))
+            ("myomesin_axial_capture", "Maximum bare-zone axial mismatch for new module capture (um)", cxxopts::value<double>(myomesin_axial_capture)->default_value("0.25"))
+            ("myomesin_radial_rest", "Nonzero transverse rest spacing of a myomesin module (um)", cxxopts::value<double>(myomesin_radial_rest)->default_value("0.11"))
+            ("myomesin_radial_capture", "Allowed deviation from myomesin radial rest spacing at capture (um)", cxxopts::value<double>(myomesin_radial_capture)->default_value("0.04"))
+            ("myomesin_radial_k", "Independent transverse stiffness of one coarse-grained module (pN/um); 0 uses k_mm", cxxopts::value<double>(myomesin_radial_k)->default_value("0"))
+            ("myomesin_alignment_cos", "Minimum absolute thick-axis dot product for new bridge capture", cxxopts::value<double>(myomesin_alignment_cos)->default_value("0.94"))
+            ("myomesin_bell_distance", "Bell-model transition distance for load-accelerated module release (um); 0 gives load-independent turnover", cxxopts::value<double>(myomesin_bell_distance)->default_value("0.0005"))
+            ("myomesin_force_max", "Maximum resultant force carried by one coarse-grained myomesin module (pN); scale with represented molecular occupancy; 0 disables the cap", cxxopts::value<double>(myomesin_force_max)->default_value("10"))
             ("kappa_am", "kappa_am", cxxopts::value<double>(kappa_am)->default_value("100"))
             ("v_am", "v_am", cxxopts::value<double>(v_am)->default_value("10"))
             ("dynamic_am", "Use persistent detached/weak/strong actin-myosin kinetics", cxxopts::value<bool>(dynamic_am)->default_value("true")->implicit_value("true"))
@@ -339,6 +410,11 @@ int main(int argc, char* argv[]){
             ("am_thick_tension_scale", "Half-filament tension scale for thick recruitment", cxxopts::value<double>(am_thick_tension_scale)->default_value("0.1"))
             ("am_thick_initial_on_fraction", "Initial detached-ON fraction per thick-filament half", cxxopts::value<double>(am_thick_initial_on_fraction)->default_value("0.1"))
             ("am_thick_force_clamp", "Diagnostic half-filament tension clamp; negative uses mechanical tension", cxxopts::value<double>(am_thick_force_clamp)->default_value("-1"))
+            ("actin_turnover", "Enable fixed-population whole-actin renewal", cxxopts::value<bool>(actin_turnover)->default_value("false")->implicit_value("true"))
+            ("actin_turnover_rate", "Per-actin Poisson renewal rate (1/s)", cxxopts::value<double>(actin_turnover_rate)->default_value("0"))
+            ("actin_turnover_start_time", "Simulation time before actin renewal begins (s)", cxxopts::value<double>(actin_turnover_start_time)->default_value("0"))
+            ("actin_turnover_max_placement_attempts", "Maximum sterically rejected placement proposals per renewal event", cxxopts::value<int>(actin_turnover_max_placement_attempts)->default_value("1000"))
+            ("actin_turnover_clearance_ratio", "Fraction of the nominal hard-core contact distance a renewed actin must clear; the soft force-capped sterics let the equilibrium population sit inside the nominal distance, so 1.0 rejects nearly every proposal", cxxopts::value<double>(actin_turnover_clearance_ratio)->default_value("0.8"))
             ("am_status2_memory", "Time that an established status-2 AA bond retains status 2 after mechanical support is lost", cxxopts::value<double>(am_status2_memory)->default_value("0"))
             ("n_actins", "Number of actins", cxxopts::value<int>(n_actins)->default_value("50"))
             ("n_myosins", "Number of myosins", cxxopts::value<int>(n_myosins)->default_value("4"))
@@ -360,6 +436,11 @@ int main(int argc, char* argv[]){
             ("am_steric_k", "Actin-myosin radial hard-core stiffness", cxxopts::value<double>(am_steric_k)->default_value("1000"))
             ("actin_steric_k", "Actin-actin hard-core penalty independent of AA mechanics", cxxopts::value<double>(actin_steric_k)->default_value("10000"))
             ("myosin_steric_k", "Myosin-myosin hard-core stiffness independent of AA mechanics", cxxopts::value<double>(myosin_steric_k)->default_value("1000"))
+            ("am_stroke_detailed_balance", "Discrete working stroke with strain-dependent forward/reverse rates obeying detailed balance, instead of the prescribed force-velocity ramp", cxxopts::value<bool>(am_stroke_detailed_balance)->default_value("false")->implicit_value("true"))
+            ("am_stroke_base_rate", "Attempt rate for the discrete working stroke (1/s)", cxxopts::value<double>(am_stroke_base_rate)->default_value("1000"))
+            ("am_stroke_theta", "Bell split of the stroke barrier (0..1)", cxxopts::value<double>(am_stroke_theta)->default_value("0.5"))
+            ("am_stroke_free_energy", "Chemical free energy driving one stroke (pN.um); <0 derives it from am_stall_force", cxxopts::value<double>(am_stroke_free_energy)->default_value("-1"))
+            ("myosin_exclusion_distance", "Range of the myosin-myosin repulsion (0 = 2*myosin_radius hard core only; ~0.0953 holds the thick-filament lattice at the spacing that seats an actin in the trigonal interstice)", cxxopts::value<double>(myosin_exclusion_distance)->default_value("0"))
             ("aa_double_overlap_contact", "Enable local antiparallel pointed-end unilateral contact (sandbox; default off)", cxxopts::value<bool>(aa_double_overlap_contact)->default_value("false")->implicit_value("true"))
             ("aa_double_overlap_contact_diameter", "Decorated pointed-end contact diameter (um)", cxxopts::value<double>(aa_double_overlap_contact_diameter)->default_value("0.012"))
             ("aa_double_overlap_contact_epsilon", "Pointed-end WCA energy scale (pN um)", cxxopts::value<double>(aa_double_overlap_contact_epsilon)->default_value("0.00428"))
@@ -371,11 +452,22 @@ int main(int argc, char* argv[]){
             ("init_aa_overlap", "Initial Z-disc interdigitation for two_sarcomere_unit; <=0 starts perfectly registered at aa_antiparallel_overlap", cxxopts::value<double>(init_aa_overlap)->default_value("-1"))
             ("aa_barbed_zone", "Z-disc width: ACTN2 binds only within this distance (um) of a barbed end; <=0 binds anywhere in the mutual overlap", cxxopts::value<double>(aa_barbed_zone)->default_value("-1"))
             ("aa_axial_register_force_max", "Ceiling (pN) for a saturating status-2 axial register force that does not decay far from the target; <=0 keeps the Gaussian-attenuated form", cxxopts::value<double>(aa_axial_register_force_max)->default_value("0"))
+            ("aa_radial_force_max", "Saturating cap on the ACTN2 radial force (pN); <=0 keeps the unbounded quadratic. Small-displacement stiffness is unchanged; bounding the force is what permits a larger dt without a displacement clamp", cxxopts::value<double>(aa_radial_force_max)->default_value("0"))
+            ("am_tether_force_max", "Saturating cap on the AM head tether force (pN); <=0 keeps the unbounded quadratic", cxxopts::value<double>(am_tether_force_max)->default_value("0"))
+            ("am_tether_occupancy_floor", "Floor on the radial pair tether occupancy multiplier; 0 keeps the bound-head gate", cxxopts::value<double>(am_tether_occupancy_floor)->default_value("0"))
+            ("am_tether_occupancy_floor_reach", "Reach past am_preferred_centerline within which the occupancy floor applies (um)", cxxopts::value<double>(am_tether_occupancy_floor_reach)->default_value("0.04"))
+            ("probe_tilt_deg", "Initial actin-myosin misalignment for single_am_tilted (degrees)", cxxopts::value<double>(probe_tilt_deg)->default_value("20"))
+            ("probe_confine_k", "Harmonic trap (pN/um) on each actin centre toward its initial position; torque-free; 0 disables", cxxopts::value<double>(probe_confine_k)->default_value("0"))
             ("aa_axial_register_ratio", "Status-2 axial register stiffness as a fraction of radial AA stiffness", cxxopts::value<double>(aa_axial_register_ratio)->default_value("1.0"))
             ("aa_register_all_statuses", "Let every attached local ACTN2 link carry axial register mechanics while status 1/2 still controls turnover lifetime", cxxopts::value<bool>(aa_register_all_statuses)->default_value("false")->implicit_value("true"))
             ("aa_perpendicular_all_statuses", "Whether status-1 ACTN2 links also carry the perpendicular (axial-sliding) constraint. Default true preserves historical behaviour; set false to make status 1 a sliding bond of radial + alignment only, so crosslinked filaments can still slide to search for register. NOTE: aa_status_mode=arm_load_productive gates status-2 promotion on exactly this load, so false makes promotion impossible in that mode", cxxopts::value<bool>(aa_perpendicular_all_statuses)->default_value("true")->implicit_value("true"))
             ("aa_status2_registry_on", "Maximum barbed-end register error for status 1 to status 2 capture", cxxopts::value<double>(aa_status2_registry_on)->default_value("0.1"))
             ("aa_status2_support_window", "Motor-timescale window (s) over which productive opposed load is averaged for status-2 FORMATION only; <=0 requires instantaneous bilateral loading", cxxopts::value<double>(aa_status2_support_window)->default_value("0"))
+            ("aa_motor_pair_support_window", "EMA window (s) for one selected motor pair's ACTN2-transmitted support in motor_transmitted_register", cxxopts::value<double>(aa_motor_pair_support_window)->default_value("0.010"))
+            ("aa_motor_pair_commit_time", "Minimum continuous candidate-identity residence time (s) before status-2 maturation", cxxopts::value<double>(aa_motor_pair_commit_time)->default_value("0.010"))
+            ("aa_motor_pair_switch_ratio", "Alternative/current transmitted-support ratio required to exchange the weak-state motor pair (>=1)", cxxopts::value<double>(aa_motor_pair_switch_ratio)->default_value("1.5"))
+            ("aa_motor_pair_exchange_time", "Minimum continuous time (s) that the same stronger challenger must remain best before weak-state partner exchange", cxxopts::value<double>(aa_motor_pair_exchange_time)->default_value("0.001"))
+            ("aa_motor_pair_dropout_time", "Maximum time (s) a weak selected motor pair may provide zero transmitted support before its identity and commitment clock are cleared", cxxopts::value<double>(aa_motor_pair_dropout_time)->default_value("0.010"))
             ("aa_status2_registry_off", "Maximum barbed-end register error for status-2 retention", cxxopts::value<double>(aa_status2_registry_off)->default_value("0.15"))
             ("aa_register_saturation_error", "Error scale that bounds the status-2 register energy and force", cxxopts::value<double>(aa_register_saturation_error)->default_value("0.05"))
             ("am_bidirectional_crossbridge", "Strong heads act as bidirectional elastic springs (restoring force on overshoot) instead of tension-only", cxxopts::value<bool>(am_bidirectional_crossbridge)->default_value("false")->implicit_value("true"))
@@ -389,6 +481,33 @@ int main(int argc, char* argv[]){
             ("aa_status1_radial_k", "Per-molecule radial stiffness (pN/um) for weak/status-1 ACTN2 links; <=0 uses the locked per-link stiffness", cxxopts::value<double>(aa_status1_radial_k)->default_value("-1"))
             ("aa_status1_site_diffusion", "One-dimensional diffusion coefficient (um^2/s) of each status-1 ACTN2 binding domain along its actin barbed-end zone", cxxopts::value<double>(aa_status1_site_diffusion)->default_value("0"))
             ("aa_status2_locked_until_detach", "Keep stereospecific status-2 ACTN2 material sites locked until molecular detachment or contour rupture", cxxopts::value<bool>(aa_status2_locked_until_detach)->default_value("false")->implicit_value("true"))
+            ("aa_status2_unlock_rate", "Zero-support mature-to-weak ACTN2 conformational rate (1/s); 0 disables this transition", cxxopts::value<double>(aa_status2_unlock_rate)->default_value("0"))
+            ("aa_status2_unlock_force_scale", "Motor-support scale (pN) suppressing mature-to-weak ACTN2 relaxation", cxxopts::value<double>(aa_status2_unlock_force_scale)->default_value("0.1"))
+            ("aa_status2_unlock_registry_scale", "Registry-error scale (um) accelerating mature-to-weak ACTN2 relaxation outside the retention band", cxxopts::value<double>(aa_status2_unlock_registry_scale)->default_value("0.02"))
+            ("aa_arm_state_model", "Use explicit two-arm ACTN2 opening, single-arm tethering, and local rebinding; disables continuous status-1 site diffusion and permanent status-2 locking", cxxopts::value<bool>(aa_arm_state_model)->default_value("false")->implicit_value("true"))
+            ("aa_arm_open_rate_weak", "Zero-force opening rate (1/s) of each arm in a weak two-arm ACTN2 bridge", cxxopts::value<double>(aa_arm_open_rate_weak)->default_value("20"))
+            ("aa_arm_open_rate_mature", "Zero-force opening rate (1/s) of each arm in a mature two-arm ACTN2 bridge", cxxopts::value<double>(aa_arm_open_rate_mature)->default_value("1"))
+            ("aa_arm_bell_distance", "Bell distance (um) for tensile/contact-assisted opening of one ACTN2 arm", cxxopts::value<double>(aa_arm_bell_distance)->default_value("0.001"))
+            ("aa_tether_off_rate", "Zero-force rate (1/s) for loss of the remaining arm of a singly tethered ACTN2", cxxopts::value<double>(aa_tether_off_rate)->default_value("5"))
+            ("aa_tether_rebind_rate", "Attempt rate (1/s) for a tethered ACTN2 free arm to close onto a local exposed actin site", cxxopts::value<double>(aa_tether_rebind_rate)->default_value("100"))
+            ("aa_tether_capture_distance", "Maximum connector length (um) considered for tethered ACTN2 free-arm rebinding", cxxopts::value<double>(aa_tether_capture_distance)->default_value("0.10"))
+            ("aa_arm_rebind_theta", "Transition-state fraction multiplying candidate bridge energy in the tethered-arm rebinding rate", cxxopts::value<double>(aa_arm_rebind_theta)->default_value("0.5"))
+            ("aa_actn2_contact_radius", "Effective ACTN2 connector radius (um) used for finite contact with a thick filament", cxxopts::value<double>(aa_actn2_contact_radius)->default_value("0.005"))
+            ("aa_myosin_contact_epsilon", "WCA energy scale (pN um) for ACTN2-connector/thick-filament contact", cxxopts::value<double>(aa_myosin_contact_epsilon)->default_value("0.00428"))
+            ("aa_myosin_contact_force_cap", "Coarse-grained force cap (pN) for one ACTN2/thick-filament contact; <=0 is uncapped", cxxopts::value<double>(aa_myosin_contact_force_cap)->default_value("40"))
+            ("aa_myosin_contact_shell_width", "Width (um) of the optional soft ACTN2/thick-filament crowded-head corona; 0 disables it and preserves the original WCA contact", cxxopts::value<double>(aa_myosin_contact_shell_width)->default_value("0"))
+            ("aa_myosin_contact_shell_energy", "Corona energy (pN um) at the physical hard-core surface; 0 disables the soft corona", cxxopts::value<double>(aa_myosin_contact_shell_energy)->default_value("0"))
+            ("aa_zdisc_tip_contact", "Enable head-independent axial exclusion and nonpenetration between myosin tips and bilateral ACTN2/Z-disc patches", cxxopts::value<bool>(aa_zdisc_tip_contact)->default_value("false")->implicit_value("true"))
+            ("aa_zdisc_tip_onset", "Axial myosin-tip/Z-patch gap (um) where the end-stop begins", cxxopts::value<double>(aa_zdisc_tip_onset)->default_value("0.050"))
+            ("aa_zdisc_tip_stiffness", "Small-compression axial stiffness (pN/um) of one myosin-tip/Z-patch contact", cxxopts::value<double>(aa_zdisc_tip_stiffness)->default_value("1000"))
+            ("aa_zdisc_tip_force_max", "Saturating force (pN) for one myosin-tip/Z-patch contact", cxxopts::value<double>(aa_zdisc_tip_force_max)->default_value("20"))
+            ("aa_zdisc_tip_transverse_flat", "Transverse radius (um) over which myosin-tip/Z-patch contact has full strength", cxxopts::value<double>(aa_zdisc_tip_transverse_flat)->default_value("0.100"))
+            ("aa_zdisc_tip_transverse_cutoff", "Transverse cutoff (um) for myosin-tip/Z-patch contact", cxxopts::value<double>(aa_zdisc_tip_transverse_cutoff)->default_value("0.130"))
+            ("aa_barbed_lateral_range", "Target transverse barbed-end spacing (um) enforced between ALL barbed-end pairs; 0 disables. ACTN2 alone contracts a crosslinked cluster to the actin hard core, so this supplies the lateral pressure a Z-disc face needs to tile", cxxopts::value<double>(aa_barbed_lateral_range)->default_value("0"))
+            ("aa_barbed_lateral_k", "Stiffness (pN/um) of the barbed-end lateral repulsion; 0 disables", cxxopts::value<double>(aa_barbed_lateral_k)->default_value("0"))
+            ("aa_barbed_lateral_force_max", "Saturating force (pN) for one barbed-end lateral contact; <=0 is uncapped", cxxopts::value<double>(aa_barbed_lateral_force_max)->default_value("0"))
+            ("aa_barbed_lateral_axial_window", "Axial gate (um): barbed ends separated by more than this along the filament axis belong to different Z-discs and do not repel", cxxopts::value<double>(aa_barbed_lateral_axial_window)->default_value("0.250"))
+            ("aa_occlusion_rupture_penetration", "Deep ACTN2/thick-filament penetration (um) causing immediate geometric rupture", cxxopts::value<double>(aa_occlusion_rupture_penetration)->default_value("0.010"))
             ("aa_association_max_direction_dot", "Maximum actin director dot product for a new local ACTN2 association; >=1 disables", cxxopts::value<double>(aa_association_max_direction_dot)->default_value("1"))
             ("aa_link_rupture_length", "Finite explicit ACTN2 contour length in um; <=0 disables forced contour rupture", cxxopts::value<double>(aa_link_rupture_length)->default_value("0"))
             ("aa_stiffness_reference_links", "Reference explicit-link count used to convert legacy k_aa and kappa_aa pair stiffnesses into fixed per-ACTN2 stiffnesses", cxxopts::value<int>(aa_stiffness_reference_links)->default_value("3"))
@@ -432,6 +551,8 @@ int main(int argc, char* argv[]){
             ("n_fixed_myosins", "Number of fixed myosins", cxxopts::value<int>(n_fixed_myosins)->default_value("0"))
             ("filename", "Filename", cxxopts::value<std::string>(filename)->default_value("data/traj.h5"))
             ("initial_structure", "Type of initial structure", cxxopts::value<std::string>(init_struc)->default_value("random"))
+            ("initial_geometry_file", "HDF5 trajectory supplying initial filament centers and directions", cxxopts::value<std::string>(initial_geometry_file)->default_value(""))
+            ("initial_geometry_frame", "Zero-based source frame for geometry import; -1 selects the latest committed frame", cxxopts::value<int>(initial_geometry_frame)->default_value("-1"))
             ("pre_phase_steps", "Number of sterics-only pre-phase steps (used by myosin_x_noise and default init paths)", cxxopts::value<int>(pre_phase_steps)->default_value("500"))
             ("interaction_ramp_steps", "Steps used to smooth-ramp mature AM/AA stiffness after pre-relaxation", cxxopts::value<int>(interaction_ramp_steps)->default_value("0"))
             ("max_myosin_bonds", "Maximum actin bonds per myosin",cxxopts::value<int>(max_myosin_bonds)->default_value("10"))
@@ -478,6 +599,14 @@ int main(int argc, char* argv[]){
 		    return 1;
 	  }
 
+    try {
+        parsed_aa_status_mode =
+            actn2_load_kinetics::parse_status_mode(aa_status_mode_name);
+    } catch (const std::exception& e) {
+        std::cerr << "Invalid aa_status_mode: " << e.what() << std::endl;
+        return 1;
+    }
+
 
     if (dimension != 2 && dimension != 3) {
         std::cerr << "dimension must be 2 or 3" << std::endl;
@@ -496,6 +625,57 @@ int main(int argc, char* argv[]){
     }
     pre_phase_steps = std::max(0, pre_phase_steps);
     interaction_ramp_steps = std::max(0, interaction_ramp_steps);
+    if (initial_geometry_frame < -1) {
+        std::cerr << "initial_geometry_frame must be -1 or non-negative"
+                  << std::endl;
+        return 1;
+    }
+    if (init_struc == "geometry_h5") {
+        if (resume) {
+            std::cerr << "geometry_h5 is a fresh molecular initialization, not "
+                         "a checkpoint resume; set resume=false"
+                      << std::endl;
+            return 1;
+        }
+        if (initial_geometry_file.empty()) {
+            std::cerr << "initial_structure=geometry_h5 requires "
+                         "initial_geometry_file"
+                      << std::endl;
+            return 1;
+        }
+    } else if (!initial_geometry_file.empty()) {
+        std::cerr << "initial_geometry_file is only used with "
+                     "initial_structure=geometry_h5"
+                  << std::endl;
+        return 1;
+    }
+    if (!(myosin_exclusion_distance >= 0.0) ||
+        !std::isfinite(myosin_exclusion_distance)) {
+        std::cerr << "myosin_exclusion_distance must be finite and non-negative"
+                  << std::endl;
+        return 1;
+    }
+    if (k_mm < 0.0 || !std::isfinite(k_mm) ||
+        myomesin_sites_per_filament < 1 ||
+        myomesin_sites_per_filament > 16 ||
+        myomesin_k_on < 0.0 || myomesin_k_off < 0.0 ||
+        !(myomesin_axial_capture > 0.0) ||
+        !(myomesin_radial_rest > 0.0) ||
+        myomesin_radial_capture < 0.0 || myomesin_radial_k < 0.0 ||
+        myomesin_alignment_cos < 0.0 || myomesin_alignment_cos > 1.0 ||
+        myomesin_bell_distance < 0.0 || myomesin_force_max < 0.0 ||
+        !std::isfinite(myomesin_k_on) ||
+        !std::isfinite(myomesin_k_off) ||
+        !std::isfinite(myomesin_axial_capture) ||
+        !std::isfinite(myomesin_radial_rest) ||
+        !std::isfinite(myomesin_radial_capture) ||
+        !std::isfinite(myomesin_radial_k) ||
+        !std::isfinite(myomesin_alignment_cos) ||
+        !std::isfinite(myomesin_bell_distance) ||
+        !std::isfinite(myomesin_force_max)) {
+        std::cerr << "Invalid sparse myomesin module parameters" << std::endl;
+        return 1;
+    }
     if (!(actin_steric_k >= 0.0) || !(myosin_steric_k >= 0.0) ||
         !(aa_encounter_k >= 0.0) || !(aa_encounter_kappa >= 0.0) ||
         !std::isfinite(actin_steric_k) || !std::isfinite(myosin_steric_k) ||
@@ -566,6 +746,56 @@ int main(int argc, char* argv[]){
         !std::isfinite(aa_status1_radial_k) || aa_status1_radial_k == 0.0 ||
         aa_status1_site_diffusion < 0.0 ||
         !std::isfinite(aa_status1_site_diffusion) ||
+        aa_status2_unlock_rate < 0.0 ||
+        !std::isfinite(aa_status2_unlock_rate) ||
+        aa_status2_unlock_force_scale <= 0.0 ||
+        !std::isfinite(aa_status2_unlock_force_scale) ||
+        aa_status2_unlock_registry_scale <= 0.0 ||
+        !std::isfinite(aa_status2_unlock_registry_scale) ||
+        aa_arm_open_rate_weak < 0.0 || !std::isfinite(aa_arm_open_rate_weak) ||
+        aa_arm_open_rate_mature < 0.0 || !std::isfinite(aa_arm_open_rate_mature) ||
+        aa_arm_bell_distance < 0.0 || !std::isfinite(aa_arm_bell_distance) ||
+        aa_tether_off_rate < 0.0 || !std::isfinite(aa_tether_off_rate) ||
+        aa_tether_rebind_rate < 0.0 || !std::isfinite(aa_tether_rebind_rate) ||
+        aa_tether_capture_distance <= 0.0 || !std::isfinite(aa_tether_capture_distance) ||
+        aa_arm_rebind_theta < 0.0 || aa_arm_rebind_theta > 1.0 ||
+        !std::isfinite(aa_arm_rebind_theta) ||
+        aa_actn2_contact_radius < 0.0 || !std::isfinite(aa_actn2_contact_radius) ||
+        aa_myosin_contact_epsilon < 0.0 || !std::isfinite(aa_myosin_contact_epsilon) ||
+        !std::isfinite(aa_myosin_contact_force_cap) ||
+        aa_myosin_contact_shell_width < 0.0 ||
+        !std::isfinite(aa_myosin_contact_shell_width) ||
+        aa_myosin_contact_shell_energy < 0.0 ||
+        !std::isfinite(aa_myosin_contact_shell_energy) ||
+        ((aa_myosin_contact_shell_width > 0.0) !=
+         (aa_myosin_contact_shell_energy > 0.0)) ||
+        aa_zdisc_tip_onset <= 0.0 || !std::isfinite(aa_zdisc_tip_onset) ||
+        aa_zdisc_tip_stiffness <= 0.0 ||
+        !std::isfinite(aa_zdisc_tip_stiffness) ||
+        aa_zdisc_tip_force_max <= 0.0 ||
+        !std::isfinite(aa_zdisc_tip_force_max) ||
+        aa_zdisc_tip_transverse_flat < 0.0 ||
+        !std::isfinite(aa_zdisc_tip_transverse_flat) ||
+        aa_zdisc_tip_transverse_cutoff <= aa_zdisc_tip_transverse_flat ||
+        !std::isfinite(aa_zdisc_tip_transverse_cutoff) ||
+        aa_barbed_lateral_range < 0.0 ||
+        !std::isfinite(aa_barbed_lateral_range) ||
+        aa_barbed_lateral_k < 0.0 || !std::isfinite(aa_barbed_lateral_k) ||
+        !std::isfinite(aa_barbed_lateral_force_max) ||
+        aa_barbed_lateral_axial_window <= 0.0 ||
+        !std::isfinite(aa_barbed_lateral_axial_window) ||
+        aa_occlusion_rupture_penetration < 0.0 ||
+        !std::isfinite(aa_occlusion_rupture_penetration) ||
+        aa_motor_pair_support_window < 0.0 ||
+        !std::isfinite(aa_motor_pair_support_window) ||
+        aa_motor_pair_commit_time < 0.0 ||
+        !std::isfinite(aa_motor_pair_commit_time) ||
+        aa_motor_pair_switch_ratio < 1.0 ||
+        !std::isfinite(aa_motor_pair_switch_ratio) ||
+        aa_motor_pair_exchange_time < 0.0 ||
+        !std::isfinite(aa_motor_pair_exchange_time) ||
+        aa_motor_pair_dropout_time < 0.0 ||
+        !std::isfinite(aa_motor_pair_dropout_time) ||
         aa_association_max_direction_dot < -1.0 ||
         !std::isfinite(aa_association_max_direction_dot) ||
         aa_link_rupture_length < 0.0 ||
@@ -573,6 +803,23 @@ int main(int argc, char* argv[]){
         aa_total_link_pool < 0 || aa_stiffness_reference_links < 1 ||
         aa_stiffness_reference_links > 16) {
         std::cerr << "Invalid local AA multi-link parameters" << std::endl;
+        return 1;
+    }
+    if (aa_arm_state_model && !aa_local_multilink) {
+        std::cerr << "aa_arm_state_model requires aa_local_multilink=true"
+                  << std::endl;
+        return 1;
+    }
+    if (aa_status2_locked_until_detach && aa_status2_unlock_rate > 0.0) {
+        std::cerr << "aa_status2_locked_until_detach=true conflicts with a "
+                     "positive aa_status2_unlock_rate" << std::endl;
+        return 1;
+    }
+    if (parsed_aa_status_mode ==
+            actn2_load_kinetics::StatusMode::motor_transmitted_register &&
+        (!dynamic_am || !aa_local_multilink)) {
+        std::cerr << "motor_transmitted_register requires dynamic_am=true "
+                     "and aa_local_multilink=true" << std::endl;
         return 1;
     }
     if (!std::isfinite(aa_preferred_centerline)) {
@@ -599,6 +846,17 @@ int main(int argc, char* argv[]){
         am_activation_active_fraction > 1.0) {
         std::cerr << "am_activation_active_fraction must be in (0, 1]"
                   << std::endl;
+        return 1;
+    }
+    if (!std::isfinite(actin_turnover_rate) || actin_turnover_rate < 0.0 ||
+        !std::isfinite(actin_turnover_start_time) ||
+        actin_turnover_start_time < 0.0 ||
+        actin_turnover_max_placement_attempts <= 0 ||
+        !std::isfinite(actin_turnover_clearance_ratio) ||
+        actin_turnover_clearance_ratio <= 0.0 ||
+        actin_turnover_clearance_ratio > 1.0) {
+        std::cerr << "Actin turnover parameters must be finite and non-negative, "
+                     "with positive placement attempts" << std::endl;
         return 1;
     }
     if (aa_passive_detailed_balance &&
@@ -797,7 +1055,7 @@ int main(int argc, char* argv[]){
                         max_actin_torque, max_myosin_torque);
     model.stabilize_status1 = stabilize_status1;
     model.set_aa_status_kinetics(
-        actn2_load_kinetics::parse_status_mode(aa_status_mode_name),
+        parsed_aa_status_mode,
         aa_status2_force_on, aa_status2_force_off);
     model.set_am_kinetics(
         dynamic_am, am_k_on, am_k_weak_off, am_k_powerstroke,
@@ -821,7 +1079,17 @@ int main(int argc, char* argv[]){
     model.am_spatial_heads = am_spatial_heads;
     model.sterics_enabled = sterics_enabled;
     model.set_am_radial_geometry(actin_radius, am_surface_gap, am_steric_k);
-    model.set_steric_stiffness(actin_steric_k, myosin_steric_k);
+    model.set_steric_stiffness(actin_steric_k, myosin_steric_k, myosin_exclusion_distance);
+    model.configure_myomesin_bridges(
+        myomesin_sites_per_filament, myomesin_k_on, myomesin_k_off,
+        myomesin_axial_capture, myomesin_radial_rest,
+        myomesin_radial_capture, myomesin_radial_k,
+        myomesin_alignment_cos, myomesin_bell_distance,
+        myomesin_force_max);
+    model.am_stroke_detailed_balance = am_stroke_detailed_balance;
+    model.am_stroke_base_rate = am_stroke_base_rate;
+    model.am_stroke_theta = am_stroke_theta;
+    model.am_stroke_free_energy = am_stroke_free_energy;
     model.configure_double_overlap_contact(
         aa_double_overlap_contact,
         aa_double_overlap_contact_diameter,
@@ -837,12 +1105,52 @@ int main(int argc, char* argv[]){
     model.am_crossover_pull_through = am_crossover_pull_through;
     model.am_overlap_target_ratio = am_overlap_target_ratio;
     model.aa_axial_register_force_max = aa_axial_register_force_max;
+    model.aa_radial_force_max = aa_radial_force_max;
+    model.am_tether_force_max = am_tether_force_max;
+    model.am_tether_occupancy_floor = am_tether_occupancy_floor;
+    model.am_tether_occupancy_floor_reach = am_tether_occupancy_floor_reach;
+    model.probe_tilt_deg = probe_tilt_deg;
+    model.probe_confine_k = probe_confine_k;
     model.aa_register_all_statuses = aa_register_all_statuses;
     model.aa_perpendicular_all_statuses = aa_perpendicular_all_statuses;
     model.aa_barbed_zone = aa_barbed_zone;
     model.aa_status1_radial_k = aa_status1_radial_k;
     model.aa_status1_site_diffusion = aa_status1_site_diffusion;
     model.aa_status2_locked_until_detach = aa_status2_locked_until_detach;
+    model.aa_status2_unlock_rate = aa_status2_unlock_rate;
+    model.aa_status2_unlock_force_scale = aa_status2_unlock_force_scale;
+    model.aa_status2_unlock_registry_scale =
+        aa_status2_unlock_registry_scale;
+    model.aa_arm_state_model = aa_arm_state_model;
+    model.aa_arm_open_rate_weak = aa_arm_open_rate_weak;
+    model.aa_arm_open_rate_mature = aa_arm_open_rate_mature;
+    model.aa_arm_bell_distance = aa_arm_bell_distance;
+    model.aa_tether_off_rate = aa_tether_off_rate;
+    model.aa_tether_rebind_rate = aa_tether_rebind_rate;
+    model.aa_tether_capture_distance = aa_tether_capture_distance;
+    model.aa_arm_rebind_theta = aa_arm_rebind_theta;
+    model.aa_actn2_contact_radius = aa_actn2_contact_radius;
+    model.aa_myosin_contact_epsilon = aa_myosin_contact_epsilon;
+    model.aa_myosin_contact_force_cap = aa_myosin_contact_force_cap;
+    model.aa_myosin_contact_shell_width = aa_myosin_contact_shell_width;
+    model.aa_myosin_contact_shell_energy = aa_myosin_contact_shell_energy;
+    model.aa_zdisc_tip_contact = aa_zdisc_tip_contact;
+    model.aa_zdisc_tip_onset = aa_zdisc_tip_onset;
+    model.aa_zdisc_tip_stiffness = aa_zdisc_tip_stiffness;
+    model.aa_zdisc_tip_force_max = aa_zdisc_tip_force_max;
+    model.aa_zdisc_tip_transverse_flat = aa_zdisc_tip_transverse_flat;
+    model.aa_zdisc_tip_transverse_cutoff = aa_zdisc_tip_transverse_cutoff;
+    model.aa_barbed_lateral_range = aa_barbed_lateral_range;
+    model.aa_barbed_lateral_k = aa_barbed_lateral_k;
+    model.aa_barbed_lateral_force_max = aa_barbed_lateral_force_max;
+    model.aa_barbed_lateral_axial_window = aa_barbed_lateral_axial_window;
+    model.aa_occlusion_rupture_penetration = aa_occlusion_rupture_penetration;
+    if (model.aa_zdisc_tip_contact) {
+        std::cout
+            << "ACTN2 tip projection traversal: spatial_incidence "
+               "(default; exact conservative broad phase)"
+            << std::endl;
+    }
     model.titin_mode = titin_mode;
     if (titin_mode == Sarcomere::TitinMode::explicit_dynamic) {
         model.configure_explicit_titin(
@@ -873,6 +1181,11 @@ int main(int argc, char* argv[]){
     model.six_ring_axis_noise_deg = std::max(0.0, six_ring_axis_noise_deg);
     model.max_aa_bonds_per_actin = max_aa_bonds_per_actin;
     model.aa_status2_support_window = aa_status2_support_window;
+    model.aa_motor_pair_support_window = aa_motor_pair_support_window;
+    model.aa_motor_pair_commit_time = aa_motor_pair_commit_time;
+    model.aa_motor_pair_switch_ratio = aa_motor_pair_switch_ratio;
+    model.aa_motor_pair_exchange_time = aa_motor_pair_exchange_time;
+    model.aa_motor_pair_dropout_time = aa_motor_pair_dropout_time;
     model.aa_energy_gated_association = aa_energy_gated_association;
     model.aa_transition_state_theta = aa_transition_state_theta;
     model.aa_passive_detailed_balance = aa_passive_detailed_balance;
@@ -900,8 +1213,25 @@ int main(int argc, char* argv[]){
         am_thick_feedback, am_thick_recruit_rate, am_thick_fold_rate,
         am_thick_tension_scale, am_thick_initial_on_fraction,
         am_thick_force_clamp);
+    model.configure_actin_turnover(
+        actin_turnover, actin_turnover_rate, actin_turnover_start_time,
+        actin_turnover_max_placement_attempts,
+        actin_turnover_clearance_ratio);
     model.set_bundling_parameters(k_bundle_max, bundle_ramp_steps);
     model.set_periodicity(periodic_axes);
+    if (!resume && init_struc == "geometry_h5") {
+        try {
+            const int loaded_frame = model.load_initial_geometry(
+                initial_geometry_file, initial_geometry_frame);
+            std::cout << "Imported filament geometry from "
+                      << initial_geometry_file << " frame " << loaded_frame
+                      << "; molecular states initialized fresh" << std::endl;
+        } catch (const std::exception& error) {
+            std::cerr << "Initial geometry import failed: " << error.what()
+                      << std::endl;
+            return 1;
+        }
+    }
     if (!is3D) {
         for (int i = 0; i < n_actins; ++i) {
             model.actin.center[i].z = 0;
@@ -1008,6 +1338,15 @@ int main(int argc, char* argv[]){
             if (prebundle_assembly) sim.model.prebind_assembly_actin_links();
             sim.model.current_step = 0;
         }
+        else if (init_struc == "geometry_h5") {
+            // A zero-step pre-phase preserves the imported pose exactly;
+            // positive values request sterics-only relaxation before chemistry.
+            if (pre_phase_steps > 0) {
+                sim.volume_exclusion(
+                    pre_phase_steps, rng, n_fixed_myosins, false);
+            }
+            sim.model.current_step = 0;
+        }
         else{
             sim.volume_exclusion(pre_phase_steps, rng, n_fixed_myosins, false);
             sim.model.current_step = 0;}
@@ -1026,6 +1365,44 @@ int main(int argc, char* argv[]){
         }
     }
     sim.run_langevin(nsteps, rng, n_fixed_myosins);
+    const auto& tip_profile = sim.actn2_tip_projection_profile();
+    if (tip_profile.calls > 0) {
+        std::cout << "actn2_tip_projection profile: traversal=spatial_incidence"
+                  << ", calls=" << tip_profile.calls
+                  << ", active_links=" << tip_profile.active_links
+                  << ", unique_actin_pairs=" << tip_profile.unique_actin_pairs
+                  << ", constraints=" << tip_profile.constraints
+                  << ", broadphase_tests=" << tip_profile.broadphase_tests
+                  << ", broadphase_candidates="
+                  << tip_profile.broadphase_candidates
+                  << ", solve_evaluations=" << tip_profile.solve_evaluations
+                  << ", audit_evaluations=" << tip_profile.audit_evaluations
+                  << ", corrections=" << tip_profile.corrections
+                  << ", sweeps=" << tip_profile.sweeps
+                  << ", exhausted_calls=" << tip_profile.exhausted_calls
+                  << ", audited_calls=" << tip_profile.audited_calls
+                  << ", certified_without_audit_calls="
+                  << tip_profile.certified_without_audit_calls
+                  << ", build_wall_s=" << tip_profile.build_seconds
+                  << ", solve_wall_s=" << tip_profile.solve_seconds
+                  << ", audit_wall_s=" << tip_profile.audit_seconds
+                  << ", total_wall_s=" << tip_profile.total_seconds
+                  << std::endl;
+    }
+    if (parsed_aa_status_mode ==
+        actn2_load_kinetics::StatusMode::motor_transmitted_register) {
+        const auto& profile = sim.model;
+        std::cout << "motor_transmitted_register profile: steps="
+                  << profile.aa_motor_profile_steps
+                  << ", local_update_wall_s="
+                  << profile.aa_motor_local_update_seconds
+                  << ", source_build_thread_s="
+                  << profile.aa_motor_support_build_seconds
+                  << ", candidate_scan_thread_s="
+                  << profile.aa_motor_candidate_seconds
+                  << ", candidate_pairs="
+                  << profile.aa_motor_candidate_pairs_evaluated << std::endl;
+    }
     gsl_rng_free(rng);
     return 0;
 }

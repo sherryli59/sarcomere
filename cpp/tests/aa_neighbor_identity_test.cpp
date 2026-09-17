@@ -8,6 +8,8 @@ int main() {
 
     assert(slots.reserve(0, 1, 0, 2));
     assert(slots.reserve(0, 2, 0, 2));
+    assert(slots.can_reserve(0, 1, 2));
+    assert(!slots.can_reserve(0, 3, 2));
     assert(!slots.reserve(0, 3, 0, 2));
     assert(slots.degree(0) == 2);
 

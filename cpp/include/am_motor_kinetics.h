@@ -20,6 +20,23 @@ inline double transition_probability(double rate, double dt) {
     return -std::expm1(-exponent);
 }
 
+// Select the requested rounded number of initially ON heads while spreading
+// them deterministically across the ordered half-filament pool.  Rounding is
+// important for small coarse-grained pools: nine heads at a 0.10 equilibrium
+// fraction should contain one ON head, rather than being truncated to zero.
+inline bool initially_on_head(int head_index, int head_count,
+                              double on_fraction) {
+    if (head_index < 0 || head_count <= 0 || head_index >= head_count) {
+        return false;
+    }
+    const int target_on = std::clamp(
+        static_cast<int>(std::lround(static_cast<double>(head_count) *
+                                    std::clamp(on_fraction, 0.0, 1.0))),
+        0, head_count);
+    return (head_index + 1) * target_on / head_count >
+           head_index * target_on / head_count;
+}
+
 // A normalized calcium-like transient. A non-positive period selects tonic
 // activation, which is useful for matching the legacy time-independent model.
 inline double activation(double time, double period, double rise, double decay,
@@ -264,6 +281,31 @@ inline double passive_crossbridge_force(double stiffness, double strain) {
 // Linear Hill-like force-velocity branch for the finite working stroke. The
 // internal motor coordinate advances at unloaded_velocity at zero load and
 // stops at stall. Motion is bounded separately by the remaining stroke.
+// Free-energy change of advancing the head's rest coordinate by the full
+// working stroke `d` while the thin-filament attachment sits at axial
+// coordinate `z`:  dG = 1/2 k [(d-z)^2 - z^2] = k d (d/2 - z).
+inline double stroke_mechanical_free_energy(double stiffness, double stroke,
+                                            double z) {
+    return stiffness * stroke * (0.5 * stroke - z);
+}
+
+// Forward / reverse rates for the discrete working stroke, split by a Bell
+// coefficient and satisfying k_+/k_- = exp(-beta (dG_mech - dG_chem)).
+struct StrokeRates { double forward; double reverse; };
+inline StrokeRates stroke_transition_rates(double base_rate, double beta,
+                                           double dG_mech, double dG_chem,
+                                           double theta, double max_exponent) {
+    StrokeRates r{0.0, 0.0};
+    if (!(base_rate > 0.0)) return r;
+    const double dG = dG_mech - dG_chem;
+    const double th = std::clamp(theta, 0.0, 1.0);
+    const double fwd = std::clamp(-beta * th * dG, -max_exponent, max_exponent);
+    const double rev = std::clamp(beta * (1.0 - th) * dG, -max_exponent, max_exponent);
+    r.forward = base_rate * std::exp(fwd);
+    r.reverse = base_rate * std::exp(rev);
+    return r;
+}
+
 inline double working_stroke_velocity(double unloaded_velocity,
                                       double resisting_force,
                                       double stall_force) {

@@ -1,0 +1,15 @@
+{
+  "production_sources": [
+    "/scratch/users/xsli/sarcomere/prod_titin_serial_20260802/data/PRODALIGN120_A1280_M640_h35_100ms_seed2080201.h5",
+    "/scratch/users/xsli/sarcomere/prod_titin_serial_20260802/data/PRODALIGN120_A1280_M640_h35_100ms_seed2080202.h5"
+  ],
+  "excluded_result_class": "later production runs with collapsed ACTN2 retention",
+  "interactive_fragment": "/home/users/xsli/.codex/visualizations/2026/07/29/019faf8b-ec1d-74d1-8391-d59895a6c70a/successful-production-3d.html",
+  "fragment_bytes": 658905,
+  "animations": [
+    "minimal-free-actin-walkoff.mp4",
+    "minimal-one-sided-crosslink.mp4",
+    "minimal-force-balanced.mp4",
+    "minimal-annealing-start.mp4"
+  ]
+}

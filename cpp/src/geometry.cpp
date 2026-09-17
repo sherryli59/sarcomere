@@ -58,7 +58,7 @@ double segment_segment_distance(const vec& A, const vec& B,
             if (!periodic[axis] || L <= 0.0) {
                 return 0.0;
             }
-            return -L * std::round(disp / L);
+            return -L * utils::round_half_away(disp / L);
         };
         
         // Compute the shift vector using the box dimensions.
@@ -182,7 +182,7 @@ std::pair<double, SegmentInfo> segment_segment_distance_w_normal(
         if (!periodic[axis] || L <= 0.0) {
             return 0.0;
         }
-        return -L * std::round(disp / L);
+        return -L * utils::round_half_away(disp / L);
     };
     // Compute the shift vector using the box dimensions.
     vec shift;
@@ -298,7 +298,7 @@ void apply_pbc(vec& actin_left, vec& actin_right,
         if (!periodic[axis] || L <= 0.0) {
             return 0.0;
         }
-        return -L * std::round(disp / L);
+        return -L * utils::round_half_away(disp / L);
     };
     shift.x = compute_shift(displacement.x, 0);
     shift.y = compute_shift(displacement.y, 1);
@@ -598,6 +598,56 @@ std::tuple<double,vec,vec> subsegment_within_distance(vec A, vec B, vec C, vec D
 }
 
 // Function to calculate the points on segment 1 that are distance d away from segment 2
+// ---------------------------------------------------------------------------
+// Conservative rejection test for a pair of rods.
+//
+// analyze_am returns a zero binding ratio exactly when the two segments are
+// further apart than the capture centreline, and the partial ratio is then zero
+// too because the head-bearing span is a subset of the myosin.  The full
+// analysis costs ~2.5x a bare segment-segment distance and is run on every
+// entry of the neighbour list, of which ~1.3% actually interact: the list is
+// built on a centre-centre sphere of radius max(actin_length, myosin_length) +
+// neighbour cutoff, which at Lx=6 is a 27 um^3 sphere inside a 24 um^3 box.
+//
+// Writing s for the min-image centre separation and u for the myosin axis,
+// every point of the actin lies within half_a*|cos| of the actin centre along u
+// and within half_a*|sin| of it perpendicular to u, so
+//     seg_seg >= |s.u| - half_a*|cos| - half_m        (axial)
+//     seg_seg >= |s - (s.u)u| - half_a*|sin|          (radial)
+// Both are strict lower bounds, so a rejection can never discard a real
+// interaction.  Using |sin| rather than half_a is what makes this bite: the
+// filaments are strongly nematic (S ~ 0.95), so an actin's extent perpendicular
+// to a myosin is small.
+// ---------------------------------------------------------------------------
+bool segments_may_interact(const vec& actin_left, const vec& actin_right,
+                           const vec& myosin_left, const vec& myosin_right,
+                           double capture, const std::vector<double>& box,
+                           const std::array<bool, 3>& periodic) {
+    const vec actin_span = actin_right - actin_left;
+    const vec myosin_span = myosin_right - myosin_left;
+    const double actin_length = actin_span.norm();
+    const double myosin_length = myosin_span.norm();
+    if (!(actin_length > 0.0) || !(myosin_length > 0.0)) {
+        return true;  // degenerate rod: fall through to the exact analysis
+    }
+    const vec myosin_axis = myosin_span / myosin_length;
+    const double half_actin = 0.5 * actin_length;
+    const double half_myosin = 0.5 * myosin_length;
+    vec separation = 0.5 * (actin_left + actin_right) -
+                     0.5 * (myosin_left + myosin_right);
+    separation.pbc_wrap(box, periodic);
+    const double axial = separation.dot(myosin_axis);
+    const double cos_ab =
+        std::clamp(actin_span.dot(myosin_axis) / actin_length, -1.0, 1.0);
+    if (std::abs(axial) >
+        capture + half_actin * std::abs(cos_ab) + half_myosin) {
+        return false;
+    }
+    const double sin_ab = std::sqrt(std::max(0.0, 1.0 - cos_ab * cos_ab));
+    const vec radial = separation - axial * myosin_axis;
+    return radial.norm() <= capture + half_actin * sin_ab;
+}
+
 am_interaction analyze_am(vec actin_left, vec actin_right, 
                         vec myosin_left, vec myosin_right, double d, const std::vector<double>& box,
                         const std::array<bool,3>& periodic, bool directional) {

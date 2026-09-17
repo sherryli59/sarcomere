@@ -116,6 +116,60 @@ if(BUILD_TESTING)
     target_include_directories(actn2_load_kinetics_test PRIVATE ${INCLUDE_DIR})
     add_test(NAME actn2_load_kinetics COMMAND actn2_load_kinetics_test)
 
+    add_executable(actn2_arm_kinetics_test tests/actn2_arm_kinetics_test.cpp)
+    target_include_directories(actn2_arm_kinetics_test PRIVATE ${INCLUDE_DIR})
+    add_test(NAME actn2_arm_kinetics COMMAND actn2_arm_kinetics_test)
+
+    add_executable(zdisc_tip_gap_test tests/zdisc_tip_gap_test.cpp)
+    target_link_libraries(zdisc_tip_gap_test PRIVATE my_library)
+    target_include_directories(zdisc_tip_gap_test PRIVATE ${INCLUDE_DIR})
+    add_test(NAME zdisc_tip_gap COMMAND zdisc_tip_gap_test)
+
+    add_executable(pbc_round_test tests/pbc_round_test.cpp)
+    target_link_libraries(pbc_round_test PRIVATE my_library)
+    target_include_directories(pbc_round_test PRIVATE ${INCLUDE_DIR})
+    add_test(NAME pbc_round COMMAND pbc_round_test)
+
+    add_executable(am_prefilter_test tests/am_prefilter_test.cpp)
+    target_link_libraries(am_prefilter_test PRIVATE my_library)
+    target_include_directories(am_prefilter_test PRIVATE ${INCLUDE_DIR})
+    add_test(NAME am_prefilter COMMAND am_prefilter_test)
+
+    add_executable(barbed_lateral_test tests/barbed_lateral_test.cpp)
+    target_link_libraries(barbed_lateral_test PRIVATE my_library)
+    target_include_directories(barbed_lateral_test PRIVATE ${INCLUDE_DIR})
+    add_test(NAME barbed_lateral COMMAND barbed_lateral_test)
+
+    add_executable(actn2_myosin_contact_test
+                   tests/actn2_myosin_contact_test.cpp)
+    target_link_libraries(actn2_myosin_contact_test PRIVATE my_library)
+    add_test(NAME actn2_myosin_contact COMMAND actn2_myosin_contact_test)
+
+    add_executable(zdisc_myosin_tip_contact_test
+                   tests/zdisc_myosin_tip_contact_test.cpp)
+    target_link_libraries(zdisc_myosin_tip_contact_test PRIVATE my_library)
+    add_test(NAME zdisc_myosin_tip_contact COMMAND zdisc_myosin_tip_contact_test)
+
+    add_executable(actn2_arm_state_integration_test
+                   tests/actn2_arm_state_integration_test.cpp)
+    target_link_libraries(actn2_arm_state_integration_test PRIVATE my_library)
+    add_test(NAME actn2_arm_state_integration
+             COMMAND actn2_arm_state_integration_test)
+
+    # Manual single-link timing harness; intentionally not registered in CTest.
+    add_executable(actn2_arm_benchmark tests/actn2_arm_benchmark.cpp)
+    target_link_libraries(actn2_arm_benchmark PRIVATE my_library)
+
+    # Dense ACTN2-tip solver A/B parity test and scalable timing harness.
+    add_executable(actn2_tip_projection_benchmark
+                   tests/actn2_tip_projection_benchmark.cpp)
+    target_link_libraries(actn2_tip_projection_benchmark PRIVATE my_library)
+    target_compile_options(actn2_tip_projection_benchmark PRIVATE -UNDEBUG)
+    add_test(NAME actn2_tip_projection_parity
+             COMMAND actn2_tip_projection_benchmark 200 2)
+    set_tests_properties(actn2_tip_projection_parity PROPERTIES
+                         ENVIRONMENT "OMP_NUM_THREADS=1")
+
     add_executable(explicit_crossbridge_mechanics_test
                    tests/explicit_crossbridge_mechanics_test.cpp)
     target_link_libraries(explicit_crossbridge_mechanics_test PRIVATE my_library)
@@ -218,6 +272,11 @@ if(BUILD_TESTING)
     target_link_libraries(actn2_motor_removal_test PRIVATE my_library)
     add_test(NAME actn2_motor_removal COMMAND actn2_motor_removal_test)
 
+    add_executable(actn2_am_occlusion_test
+                   tests/actn2_am_occlusion_test.cpp)
+    target_link_libraries(actn2_am_occlusion_test PRIVATE my_library)
+    add_test(NAME actn2_am_occlusion COMMAND actn2_am_occlusion_test)
+
     add_executable(minimal_balanced_initialization_test
                    tests/minimal_balanced_initialization_test.cpp)
     target_link_libraries(minimal_balanced_initialization_test PRIVATE my_library)
@@ -239,6 +298,7 @@ if(BUILD_TESTING)
 
     set_tests_properties(
         am_geometry_regression am_mobility_direction actn2_motor_removal
+        actn2_am_occlusion
         minimal_balanced_initialization
         minimal_double_myosin_balanced_initialization
         shared_lattice_initialization
@@ -253,6 +313,14 @@ if(BUILD_TESTING)
         catch_bond_kinetics_test
         am_motor_kinetics_test
         actn2_load_kinetics_test
+        actn2_arm_kinetics_test
+        actn2_myosin_contact_test
+        am_prefilter_test
+        pbc_round_test
+        zdisc_tip_gap_test
+        barbed_lateral_test
+        zdisc_myosin_tip_contact_test
+        actn2_arm_state_integration_test
         explicit_crossbridge_mechanics_test
         am_head_ownership_test
         lattice_spacing_test
@@ -275,6 +343,7 @@ if(BUILD_TESTING)
         am_geometry_regression_test
         am_mobility_direction_test
         actn2_motor_removal_test
+        actn2_am_occlusion_test
         minimal_balanced_initialization_test
         minimal_double_myosin_balanced_initialization_test
         shared_lattice_initialization_test)

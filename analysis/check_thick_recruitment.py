@@ -21,10 +21,14 @@ def analyze(path: Path, dt: float, tail_fraction: float) -> dict[str, float | st
         fold0 = float(meta["am_thick_fold_rate"])
         scale = float(meta["am_thick_tension_scale"])
         steps = np.asarray(handle["state/current_step"][:, 0], dtype=float)
-        on_minus = np.asarray(handle["myosin/am_on_count_minus"][:, 0, :], dtype=float)
-        on_plus = np.asarray(handle["myosin/am_on_count_plus"][:, 0, :], dtype=float)
-        off_minus = np.asarray(handle["myosin/am_off_count_minus"][:, 0, :], dtype=float)
-        off_plus = np.asarray(handle["myosin/am_off_count_plus"][:, 0, :], dtype=float)
+        on_minus = np.asarray(
+            handle["myosin/am_on_count_minus"][:], dtype=float).reshape(len(steps), -1)
+        on_plus = np.asarray(
+            handle["myosin/am_on_count_plus"][:], dtype=float).reshape(len(steps), -1)
+        off_minus = np.asarray(
+            handle["myosin/am_off_count_minus"][:], dtype=float).reshape(len(steps), -1)
+        off_plus = np.asarray(
+            handle["myosin/am_off_count_plus"][:], dtype=float).reshape(len(steps), -1)
         events = np.asarray(handle["actin_myo/thick_transitions"], dtype=float)
 
     on = on_minus.sum(axis=1) + on_plus.sum(axis=1)

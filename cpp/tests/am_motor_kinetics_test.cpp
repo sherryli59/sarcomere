@@ -18,6 +18,15 @@ int main() {
     assert(transition_probability(0.0, 1e-3) == 0.0);
     assert(std::abs(transition_probability(100.0, 1e-3) -
                     (1.0 - std::exp(-0.1))) < 1e-14);
+    const auto initial_on_count = [](double fraction) {
+        int count = 0;
+        for (int head = 0; head < 9; ++head) {
+            count += initially_on_head(head, 9, fraction) ? 1 : 0;
+        }
+        return count;
+    };
+    assert(initial_on_count(0.1) == 1);
+    assert(initial_on_count(0.3) == 3 && initial_on_count(0.5) == 5);
 
     assert(activation(0.2, 0.0, 0.02, 0.2, 0.1) == 1.0);
     const double a0 = activation(0.0, 1.0, 0.02, 0.2, 0.1);

@@ -1,0 +1,1966 @@
+#include "initialization.h"
+#include <vector>
+#include <cmath>
+#include <cstdio>
+#include <limits>
+#include <stdexcept>
+#include <tuple>
+#include <gsl/gsl_randist.h>
+
+// Moved initialization/setup methods from sarcomere.cpp
+
+void Sarcomere::set_bundling_parameters(double max_strength, int ramp_steps) {
+    k_bundle_max = (max_strength > 0.0) ? max_strength : 0.0;
+    bundle_ramp_steps = (ramp_steps > 0) ? ramp_steps : 0;
+}
+
+void Sarcomere::set_physical_mobility(
+    double temperature,
+    double beta_value,
+    const rod_mobility::Diffusion& actin_mobility,
+    const rod_mobility::Diffusion& myosin_mobility) {
+    if (actin_mobility.enabled != myosin_mobility.enabled) {
+        throw std::invalid_argument(
+            "actin and myosin tensor mobility must be enabled together");
+    }
+    physical_rod_mobility = actin_mobility.enabled;
+    temperature_kelvin = temperature;
+    thermal_beta = beta_value;
+    actin_rod_mobility = actin_mobility;
+    myosin_rod_mobility = myosin_mobility;
+}
+
+void Sarcomere::set_am_kinetics(bool enabled, double k_on_am, double k_weak_off,
+                                double k_powerstroke, double k_strong_off,
+                                double force_scale, double motor_k, double power_stroke,
+                                double stall_force, double unloaded_velocity,
+                                double weak_stiffness_ratio, double rupture_distance,
+                                double cycle_period, double activation_rise,
+                                double activation_decay, double activation_floor,
+                                double status2_memory_time,
+                                double activation_active_fraction) {
+    if (!std::isfinite(activation_active_fraction) ||
+        activation_active_fraction <= 0.0 ||
+        activation_active_fraction > 1.0) {
+        throw std::invalid_argument(
+            "AM activation active fraction must be in (0, 1]");
+    }
+    dynamic_am = enabled;
+    am_k_on = std::max(0.0, k_on_am);
+    am_k_weak_off = std::max(0.0, k_weak_off);
+    am_k_powerstroke = std::max(0.0, k_powerstroke);
+    am_k_strong_off = std::max(0.0, k_strong_off);
+    am_force_scale = std::max(0.0, force_scale);
+    am_motor_k = std::max(0.0, motor_k);
+    am_power_stroke = std::max(0.0, power_stroke);
+    am_stall_force = std::max(0.0, stall_force);
+    am_unloaded_velocity = std::max(0.0, unloaded_velocity);
+    am_weak_stiffness_ratio = std::clamp(weak_stiffness_ratio, 0.0, 1.0);
+    am_rupture_distance = rupture_distance > 0.0 ? rupture_distance : 2.0 * am_cutoff;
+    am_cycle_period = std::max(0.0, cycle_period);
+    am_activation_rise = std::max(1e-12, activation_rise);
+    am_activation_decay = std::max(am_activation_rise + 1e-12, activation_decay);
+    am_activation_floor = std::clamp(activation_floor, 0.0, 1.0);
+    am_activation_active_fraction = activation_active_fraction;
+    const double memory_time = std::max(0.0, status2_memory_time);
+    const double memory_steps = std::ceil(memory_time / dt);
+    if (memory_steps > static_cast<double>(std::numeric_limits<int>::max())) {
+        throw std::overflow_error("AM status-2 memory exceeds checkpoint step range");
+    }
+    am_status2_memory_steps = static_cast<size_t>(memory_steps);
+}
+
+void Sarcomere::set_am_head_count(int heads_per_half) {
+    if (heads_per_half < 1 || heads_per_half > 256) {
+        throw std::invalid_argument("am_heads_per_half must be between 1 and 256");
+    }
+    am_heads_per_half = heads_per_half;
+    _initialize_am_head_pools();
+}
+
+void Sarcomere::set_am_neighbor_head_cap(int full_overlap_cap) {
+    if (full_overlap_cap < 0 || full_overlap_cap > 256) {
+        throw std::invalid_argument(
+            "am_max_heads_per_actin_half must be between 0 and 256");
+    }
+    am_max_heads_per_actin_half = full_overlap_cap;
+}
+
+void Sarcomere::set_am_site_count(int sites_per_actin) {
+    if (sites_per_actin < 1 || sites_per_actin > 512) {
+        throw std::invalid_argument(
+            "am_sites_per_actin must be between 1 and 512");
+    }
+    am_sites_per_actin = sites_per_actin;
+}
+
+void Sarcomere::set_am_global_head_cap(int maximum_heads) {
+    if (maximum_heads < 1 || maximum_heads > 512) {
+        throw std::invalid_argument(
+            "am_max_heads_per_actin must be between 1 and 512");
+    }
+    am_max_heads_per_actin = maximum_heads;
+}
+
+void Sarcomere::set_am_weak_binding_floor(double basal_fraction) {
+    if (!std::isfinite(basal_fraction)) {
+        throw std::invalid_argument("AM weak-binding floor must be finite");
+    }
+    am_weak_binding_floor = std::clamp(basal_fraction, 0.0, 1.0);
+}
+
+void Sarcomere::set_am_proximity_tether(
+    double stiffness, double slack, bool select_binding_azimuth,
+    double azimuth_half_width_deg, double alignment_stiffness,
+    double alignment_slack_deg) {
+    if (!std::isfinite(stiffness) || stiffness < 0.0 ||
+        !std::isfinite(slack) || slack < 0.0 ||
+        !std::isfinite(azimuth_half_width_deg) ||
+        azimuth_half_width_deg < 0.0 ||
+        !std::isfinite(alignment_stiffness) ||
+        alignment_stiffness < 0.0 ||
+        !std::isfinite(alignment_slack_deg) ||
+        alignment_slack_deg < 0.0 || alignment_slack_deg > 90.0) {
+        throw std::invalid_argument(
+            "AM tether parameters must be finite and non-negative, and the "
+            "alignment slack angle must not exceed 90 degrees");
+    }
+    am_tether_k = stiffness;
+    am_tether_slack = slack;
+    am_alignment_k = alignment_stiffness;
+    am_alignment_slack = alignment_slack_deg * M_PI / 180.0;
+    am_binding_azimuth_selection = select_binding_azimuth;
+    am_binding_azimuth_half_width =
+        std::min(180.0, azimuth_half_width_deg) * M_PI / 180.0;
+}
+
+void Sarcomere::set_am_head_transverse_tether(double stiffness) {
+    if (!std::isfinite(stiffness) || stiffness < 0.0) {
+        throw std::invalid_argument(
+            "Per-head AM transverse stiffness must be finite and non-negative");
+    }
+    am_head_transverse_k = stiffness;
+}
+
+void Sarcomere::set_am_retention_kinetics(
+    bool strain_dependent, double axial_barrier_fraction,
+    double transverse_barrier_fraction,
+    double maximum_exponent, int tether_saturation_heads,
+    double strong_off_floor_fraction) {
+    if (!std::isfinite(axial_barrier_fraction) ||
+        axial_barrier_fraction < 0.0 ||
+        !std::isfinite(transverse_barrier_fraction) ||
+        transverse_barrier_fraction < 0.0 ||
+        !std::isfinite(maximum_exponent) || maximum_exponent < 0.0 ||
+        tether_saturation_heads < 1 ||
+        !std::isfinite(strong_off_floor_fraction) ||
+        strong_off_floor_fraction < 0.0 || strong_off_floor_fraction > 1.0) {
+        throw std::invalid_argument(
+            "AM retention parameters must be finite and non-negative, and "
+            "tether_saturation_heads must be positive");
+    }
+    am_strain_dependent_detachment = strain_dependent;
+    am_strain_detachment_theta = axial_barrier_fraction;
+    am_transverse_strain_detachment_theta =
+        transverse_barrier_fraction;
+    am_strain_detachment_max_exponent = maximum_exponent;
+    am_tether_saturation_heads = tether_saturation_heads;
+    am_strong_off_floor_fraction = strong_off_floor_fraction;
+}
+
+void Sarcomere::set_am_thin_activation(
+    bool enabled, bool feedback_enabled,
+    double calcium_open_rate, double calcium_half, double calcium_hill,
+    double strong_feedback_rate, double strong_half, double strong_hill,
+    double close_rate) {
+    am_thin_activation_enabled = enabled;
+    am_thin_feedback_enabled = feedback_enabled;
+    am_q_calcium_open_rate = std::max(0.0, calcium_open_rate);
+    am_q_calcium_half = std::max(1e-12, calcium_half);
+    am_q_calcium_hill = std::max(1e-12, calcium_hill);
+    am_q_strong_feedback_rate = std::max(0.0, strong_feedback_rate);
+    am_q_strong_half = std::max(1e-12, strong_half);
+    am_q_strong_hill = std::max(1e-12, strong_hill);
+    am_q_close_rate = std::max(0.0, close_rate);
+    am_thin_activation.assign(
+        static_cast<size_t>(actin.n),
+        am_thin_activation_enabled ? am_activation_floor : am_activation);
+    am_q_initialized_at_calcium_equilibrium = false;
+    am_initial_q = am_thin_activation_enabled ? am_activation_floor
+                                              : am_activation;
+}
+
+void Sarcomere::initialize_am_thin_activation_calcium_equilibrium() {
+    if (!am_thin_activation_enabled) {
+        throw std::invalid_argument(
+            "calcium-equilibrium q initialization requires dynamic thin activation");
+    }
+    const double calcium_at_start = am_motor_kinetics::activation(
+        0.0, am_cycle_period, am_activation_rise, am_activation_decay,
+        am_activation_floor, am_activation_active_fraction);
+    am_activation = calcium_at_start;
+    am_initial_q = am_motor_kinetics::thin_activation_calcium_equilibrium(
+        calcium_at_start, am_q_calcium_open_rate, am_q_calcium_half,
+        am_q_calcium_hill, am_q_close_rate);
+    am_thin_activation.assign(static_cast<size_t>(actin.n), am_initial_q);
+    am_q_initialized_at_calcium_equilibrium = true;
+
+    // Keep a frame saved before the first chemistry update faithful to the
+    // actual molecular state, rather than showing the feature's zero default.
+    auto& q_feature = actin["am_q"];
+    auto& activation_feature = actin["am_activation"];
+    auto& calcium_feature = actin["am_calcium"];
+    for (int i = 0; i < actin.n; ++i) {
+        q_feature[i] = am_initial_q;
+        activation_feature[i] = calcium_at_start;
+        calcium_feature[i] = calcium_at_start;
+    }
+}
+
+void Sarcomere::set_am_thick_regulation(
+    bool enabled, double recruit_rate, double fold_rate,
+    double tension_scale, double initial_on_fraction, double force_clamp) {
+    am_thick_feedback_enabled = enabled;
+    am_thick_recruit_rate = std::max(0.0, recruit_rate);
+    am_thick_fold_rate = std::max(0.0, fold_rate);
+    am_thick_tension_scale = std::max(1e-12, tension_scale);
+    am_thick_initial_on_fraction = std::clamp(initial_on_fraction, 0.0, 1.0);
+    am_thick_force_clamp = force_clamp;
+    for (auto& myosin_halves : am_heads_by_myosin) {
+        for (auto& half_heads : myosin_halves) {
+            for (int h = 0; h < static_cast<int>(half_heads.size()); ++h) {
+                auto& head = half_heads[static_cast<size_t>(h)];
+                const bool initially_on = am_motor_kinetics::initially_on_head(
+                    h, static_cast<int>(half_heads.size()), am_thick_initial_on_fraction);
+                head.bound_actin = -1;
+                head.target_axial = 0.0;
+                head.stroke_progress = 0.0;
+                head.state = static_cast<BondFlag>(
+                    !am_thick_feedback_enabled || initially_on
+                        ? am_motor_kinetics::State::detached
+                        : am_motor_kinetics::State::off_srx);
+            }
+        }
+    }
+}
+
+void Sarcomere::configure_actin_turnover(
+    bool enabled, double rate, double start_time,
+    int max_placement_attempts, double clearance_ratio) {
+    if (!std::isfinite(rate) || rate < 0.0 ||
+        !std::isfinite(start_time) || start_time < 0.0 ||
+        max_placement_attempts <= 0 ||
+        !std::isfinite(clearance_ratio) || clearance_ratio <= 0.0 ||
+        clearance_ratio > 1.0) {
+        throw std::invalid_argument("invalid actin turnover configuration");
+    }
+    actin_turnover_clearance_ratio = clearance_ratio;
+    actin_turnover_enabled = enabled && rate > 0.0;
+    actin_turnover_rate = rate;
+    actin_turnover_start_time = start_time;
+    actin_turnover_max_placement_attempts = max_placement_attempts;
+    if (actin_last_turnover_step.size() != static_cast<size_t>(actin.n)) {
+        actin_last_turnover_step.assign(
+            static_cast<size_t>(actin.n),
+            static_cast<RecoveryStep>(std::min(
+                current_step,
+                static_cast<size_t>(std::numeric_limits<RecoveryStep>::max()))));
+    }
+}
+
+void Sarcomere::set_am_radial_geometry(
+    double actin_radius_value, double preferred_surface_gap,
+    double steric_stiffness) {
+    actin_radius = std::max(0.0, actin_radius_value);
+    am_surface_gap = std::max(0.0, preferred_surface_gap);
+    am_steric_k = std::max(0.0, steric_stiffness);
+}
+
+void Sarcomere::set_aa_spacing_geometry(
+    double ratio, double am_centerline, double capture_margin) {
+    aa_spacing_ratio = ratio;
+    am_preferred_centerline = am_centerline;
+    aa_capture_margin = capture_margin;
+}
+
+void Sarcomere::set_aa_axial_overlap(
+    double overlap, double register_ratio, double registry_on,
+    double registry_off, double saturation_error) {
+    if (!std::isfinite(registry_on) || registry_on < 0.0 ||
+        !std::isfinite(registry_off) || registry_off < registry_on ||
+        !std::isfinite(saturation_error) || saturation_error <= 0.0) {
+        throw std::invalid_argument("invalid AA status-2 registry parameters");
+    }
+    aa_antiparallel_overlap = std::max(0.0, overlap);
+    aa_axial_register_ratio = std::max(0.0, register_ratio);
+    aa_status2_registry_on = registry_on;
+    aa_status2_registry_off = registry_off;
+    aa_register_saturation_error = saturation_error;
+}
+
+void Sarcomere::set_local_aa_model(
+    bool enabled, int links_per_pair, double site_exclusion,
+    double overlap_capture, double perpendicular_stiffness,
+    int total_link_pool, int stiffness_reference_links) {
+    if (links_per_pair < 1 || links_per_pair > 16 ||
+        !std::isfinite(site_exclusion) || site_exclusion < 0.0 ||
+        !std::isfinite(overlap_capture) || overlap_capture <= 0.0 ||
+        !std::isfinite(perpendicular_stiffness) || perpendicular_stiffness < 0.0 ||
+        total_link_pool < 0 || stiffness_reference_links < 1 ||
+        stiffness_reference_links > 16) {
+        throw std::invalid_argument("invalid local AA model parameters");
+    }
+    aa_local_multilink = enabled;
+    aa_prebundle_links_per_pair = links_per_pair;
+    aa_site_exclusion = site_exclusion;
+    aa_overlap_capture = overlap_capture;
+    aa_perpendicular_k = perpendicular_stiffness;
+    aa_total_link_pool = total_link_pool;
+    aa_stiffness_reference_links = stiffness_reference_links;
+    aa_links.clear();
+    aa_free_link_slots.clear();
+    aa_active_link_slots.clear();
+    aa_links_by_pair.clear();
+    aa_links_by_actin.assign(static_cast<size_t>(actin.n), {});
+    aa_neighbor_slots.clear();
+    aa_next_link_id = 1;
+}
+
+void Sarcomere::transport_myosin_material_frame(
+    int myosin_index, const vec& old_axis_input, const vec& new_axis_input,
+    double axial_rotation) {
+    if (myosin_index < 0 || myosin_index >= myosin.n) return;
+    vec old_axis = old_axis_input;
+    vec new_axis = new_axis_input;
+    old_axis.normalize();
+    new_axis.normalize();
+    vec e1 = myosin_material_e1[static_cast<size_t>(myosin_index)];
+
+    const vec cross_axis = old_axis.cross(new_axis);
+    const double sin_angle = cross_axis.norm();
+    const double cos_angle = std::clamp(old_axis.dot(new_axis), -1.0, 1.0);
+    auto rodrigues = [](const vec& value, const vec& axis, double angle) {
+        return std::cos(angle) * value +
+               std::sin(angle) * axis.cross(value) +
+               (1.0 - std::cos(angle)) * axis * axis.dot(value);
+    };
+    if (sin_angle > 1e-12) {
+        const vec rotation_axis = cross_axis / sin_angle;
+        e1 = rodrigues(e1, rotation_axis,
+                       std::atan2(sin_angle, cos_angle));
+    } else if (cos_angle < 0.0) {
+        vec rotation_axis = old_axis.cross(e1);
+        if (rotation_axis.norm() <= 1e-12) rotation_axis = {0.0, 1.0, 0.0};
+        rotation_axis.normalize();
+        e1 = rodrigues(e1, rotation_axis, M_PI);
+    }
+    if (std::abs(axial_rotation) > 0.0) {
+        e1 = rodrigues(e1, new_axis, axial_rotation);
+    }
+    e1 = e1 - new_axis * e1.dot(new_axis);
+    if (e1.norm() <= 1e-12) {
+        const vec reference = std::abs(new_axis.z) < 0.9
+            ? vec{0.0, 0.0, 1.0} : vec{0.0, 1.0, 0.0};
+        e1 = new_axis.cross(reference);
+    }
+    e1.normalize();
+    vec e2 = new_axis.cross(e1);
+    e2.normalize();
+    myosin_material_e1[static_cast<size_t>(myosin_index)] = e1;
+    myosin_material_e2[static_cast<size_t>(myosin_index)] = e2;
+    myosin["material_e1_x"][myosin_index] = e1.x;
+    myosin["material_e1_y"][myosin_index] = e1.y;
+    myosin["material_e1_z"][myosin_index] = e1.z;
+    myosin["material_e2_x"][myosin_index] = e2.x;
+    myosin["material_e2_y"][myosin_index] = e2.y;
+    myosin["material_e2_z"][myosin_index] = e2.z;
+}
+
+void Sarcomere::reset_myosin_material_frames() {
+    for (int m = 0; m < myosin.n; ++m) {
+        vec axis = myosin.direction[m];
+        axis.normalize();
+        const vec reference = std::abs(axis.z) < 0.9
+            ? vec{0.0, 0.0, 1.0} : vec{0.0, 1.0, 0.0};
+        myosin_material_e1[static_cast<size_t>(m)] = axis.cross(reference);
+        if (myosin_material_e1[static_cast<size_t>(m)].norm() <= 1e-12) {
+            myosin_material_e1[static_cast<size_t>(m)] = {1.0, 0.0, 0.0};
+        }
+        myosin_material_e1[static_cast<size_t>(m)].normalize();
+        myosin_material_e2[static_cast<size_t>(m)] =
+            axis.cross(myosin_material_e1[static_cast<size_t>(m)]);
+        myosin_material_e2[static_cast<size_t>(m)].normalize();
+        transport_myosin_material_frame(m, axis, axis, 0.0);
+    }
+}
+
+void Sarcomere::set_aa_status_kinetics(
+    actn2_load_kinetics::StatusMode mode,
+    double force_on,
+    double force_off) {
+    aa_status_mode = mode;
+    aa_status2_force_on = std::max(0.0, force_on);
+    aa_status2_force_off = std::clamp(force_off, 0.0, aa_status2_force_on);
+}
+
+void Sarcomere::partial_fix(int& n_fixed){
+    std::vector<vector> myosin_positions;
+    myosin_positions = {
+        {0, -2, 0}, {0, -1, 0}, {0, 0, 0}, {0, 1, 0}, {0, 2, 0},
+        {0, -2.5, 0}, {0, -1.5, 0}, {0, -0.5, 0}, {0, 0.5, 0}, {0, 1.5, 0}
+    };
+    for (int i = 0; i < n_fixed; i++){
+        myosin.center[i].x = myosin_positions[i][0];
+        myosin.center[i].y = myosin_positions[i][1];
+        myosin.center[i].z = myosin_positions[i][2];
+    }
+    for (int i = 0; i < myosin.n; i++){
+        myosin.direction[i] = {1, 0, 0};
+    }
+    myosin.update_endpoints();
+    update_system();
+}
+
+void Sarcomere::single_am(){
+    if (actin.n < 1 || myosin.n < 1) return;
+    // Geometry copied from one arm of the established `cb` initializer: the
+    // filaments overlap within the AM cutoff while retaining a defined actin
+    // polarity and a small transverse separation.
+    actin.center[0] = {
+        0.5, myosin.radius + actin_radius + am_surface_gap, 0.0};
+    actin.direction[0] = {1.0, 0.0, 0.0};
+    myosin.center[0] = {1.33, 0.0, 0.0};
+    myosin.direction[0] = {1.0, 0.0, 0.0};
+    actin.update_endpoints();
+    myosin.update_endpoints();
+}
+
+void Sarcomere::single_am_tilted(){
+    if (actin.n < 1 || myosin.n < 1) return;
+
+    // Minimal off-center-torque probe.  A +x actin contacts the productive
+    // outer third of the negative half of a myosin tilted by 20 degrees.  The
+    // active force on the myosin points toward -x, so r_head x F rotates its
+    // axis toward the actin axis when the sign convention is correct.
+    constexpr double angle = 20.0 * M_PI / 180.0;
+    const vec myosin_axis{std::cos(angle), std::sin(angle), 0.0};
+    const vec transverse{-std::sin(angle), std::cos(angle), 0.0};
+
+    myosin.center[0] = {0.0, 0.0, 0.0};
+    myosin.direction[0] = myosin_axis;
+    const vec myosin_center = static_cast<vec>(myosin.center[0]);
+    const vec head_location = myosin_center -
+                              (myosin.length / 3.0) * myosin_axis;
+
+    actin.center[0] = head_location +
+        (myosin.radius + actin_radius + am_surface_gap) * transverse;
+    actin.direction[0] = {1.0, 0.0, 0.0};
+    actin.update_endpoints();
+    myosin.update_endpoints();
+}
+
+void Sarcomere::six_actin_ring() {
+    if (actin.n < 6 || myosin.n < 1) return;
+    myosin.center[0] = {0.0, 0.0, 0.0};
+    myosin.direction[0] = {1.0, 0.0, 0.0};
+    const double d_am = myosin.radius + actin_radius + am_surface_gap;
+    // For a regular six-actin ring the adjacent AA distance equals its radius.
+    // Start rho != 1 tests at the symmetric spring estimate rather than
+    // artificially placing one interaction exactly at rest and pre-straining
+    // the other.  A numerical minimizer remains the next refinement once all
+    // active-head contributions are included in the lattice energy audit.
+    const double stiffness_sum = std::max(0.0, k_am) + std::max(0.0, k_aa);
+    const double base_radius = stiffness_sum > 0.0
+        ? (std::max(0.0, k_am) * d_am +
+           std::max(0.0, k_aa) * aa_optimal) / stiffness_sum
+        : d_am;
+    for (int a = 0; a < 6; ++a) {
+        const double angle = 2.0 * M_PI * static_cast<double>(a) / 6.0 +
+            (rng != nullptr ? gsl_ran_gaussian(
+                rng, six_ring_angle_noise_deg * M_PI / 180.0) : 0.0);
+        const double radius = std::max(
+            0.04, base_radius +
+            (rng != nullptr ? gsl_ran_gaussian(
+                rng, six_ring_radial_noise) : 0.0));
+        actin.center[a] = {-0.30, radius * std::cos(angle),
+                           radius * std::sin(angle)};
+        const double axis_sigma = six_ring_axis_noise_deg * M_PI / 180.0;
+        vec direction{1.0,
+                      rng != nullptr ? gsl_ran_gaussian(rng, axis_sigma) : 0.0,
+                      rng != nullptr ? gsl_ran_gaussian(rng, axis_sigma) : 0.0};
+        direction.normalize();
+        actin.direction[a] = direction;
+    }
+    actin.update_endpoints();
+    myosin.update_endpoints();
+}
+
+void Sarcomere::prebind_six_actin_ring() {
+    if (actin.n < 6) return;
+    if (aa_local_multilink) {
+        aa_links.clear();
+        aa_free_link_slots.clear();
+        aa_active_link_slots.clear();
+        aa_links_by_pair.clear();
+        aa_links_by_actin.assign(static_cast<size_t>(actin.n), {});
+        aa_next_link_id = 1;
+        for (int index = 0; index < 6; ++index) {
+            const int neighbor = (index + 1) % 6;
+            const int i = std::min(index, neighbor);
+            const int j = std::max(index, neighbor);
+            double overlap = 0.0;
+            const auto attachment = _local_aa_attachment_candidate(
+                i, j, 0, overlap);
+            if (overlap <= 0.0) continue;
+            AACrosslink link;
+            link.id = aa_next_link_id++;
+            link.actin_i = i;
+            link.actin_j = j;
+            link.s_i = attachment.first;
+            link.s_j = attachment.second;
+            link.status = 1;
+            link.attach_step = 0;
+            link.status2_memory_until = 0;
+            link.active = true;
+            aa_links.push_back(link);
+        }
+        _rebuild_local_aa_indices();
+        return;
+    }
+    active_aa_pairs.clear();
+    for (int index = 0; index < 6; ++index) {
+        const int neighbor = (index + 1) % 6;
+        const int i = std::min(index, neighbor);
+        const int j = std::max(index, neighbor);
+        actin_actin_bonds[i][j] = actin_actin_bonds[j][i] = 1;
+        actin_actin_status[i][j] = actin_actin_status[j][i] = 1;
+        actin_actin_lifetime[i][j] = actin_actin_lifetime[j][i] = 0;
+        if (aa_attach_step.size()) {
+            aa_attach_step[i][j] = aa_attach_step[j][i] = 0;
+        }
+        active_aa_pairs.emplace_back(i, j);
+    }
+    std::sort(active_aa_pairs.begin(), active_aa_pairs.end());
+    active_aa_pairs.erase(
+        std::unique(active_aa_pairs.begin(), active_aa_pairs.end()),
+        active_aa_pairs.end());
+}
+
+void Sarcomere::bilateral_six_actin_ring() {
+    if (actin.n < 12 || myosin.n < 1) return;
+    myosin.center[0] = {0.0, 0.0, 0.0};
+    myosin.direction[0] = {1.0, 0.0, 0.0};
+    const double d_am = myosin.radius + actin_radius + am_surface_gap;
+    const double k_link = aa_stiffness_reference_links > 0
+        ? k_aa / static_cast<double>(aa_stiffness_reference_links) : k_aa;
+    const double stiffness_sum =
+        std::max(0.0, am_tether_k) + std::max(0.0, k_link);
+    const double base_radius = stiffness_sum > 0.0
+        ? (std::max(0.0, am_tether_k) * d_am +
+           std::max(0.0, k_link) * aa_optimal) / stiffness_sum
+        : d_am;
+    for (int slot = 0; slot < 6; ++slot) {
+        const double angle =
+            2.0 * M_PI * static_cast<double>(slot) / 6.0 +
+            (rng != nullptr ? gsl_ran_gaussian(
+                rng, six_ring_angle_noise_deg * M_PI / 180.0) : 0.0);
+        const double radius = std::max(
+            0.04, base_radius +
+            (rng != nullptr ? gsl_ran_gaussian(
+                rng, six_ring_radial_noise) : 0.0));
+        const double sigma = six_ring_axis_noise_deg * M_PI / 180.0;
+        vec direction{
+            1.0,
+            rng != nullptr ? gsl_ran_gaussian(rng, sigma) : 0.0,
+            rng != nullptr ? gsl_ran_gaussian(rng, sigma) : 0.0};
+        direction.normalize();
+        actin.center[slot] = {-0.30, radius * std::cos(angle),
+                             radius * std::sin(angle)};
+        actin.direction[slot] = direction;
+        actin.center[6 + slot] = {0.30, radius * std::cos(angle),
+                                 radius * std::sin(angle)};
+        actin.direction[6 + slot] = {-direction.x, -direction.y, -direction.z};
+    }
+    actin.update_endpoints();
+    myosin.update_endpoints();
+}
+
+void Sarcomere::seed_balanced_six_actin_heads(int heads_per_actin) {
+    if (actin.n < 12 || myosin.n < 1 || heads_per_actin <= 0) return;
+    for (int half = 0; half < 2; ++half) {
+        auto& heads = am_heads_by_myosin[0][static_cast<size_t>(half)];
+        for (int slot = 0; slot < 6; ++slot) {
+            const int actin_index = 6 * half + slot;
+            int seeded = 0;
+            for (auto& head : heads) {
+                if (head.bound_actin >= 0) continue;
+                const double azimuth = am_binding_azimuth_selection &&
+                                               am_spatial_heads
+                    ? select_am_binding_azimuth(
+                          actin, myosin, actin_index, 0, box,
+                          head.anchor_axial, head.anchor_azimuth,
+                          am_binding_azimuth_half_width,
+                          myosin_material_e1[0], myosin_material_e2[0])
+                    : head.anchor_azimuth;
+                if (!(_am_head_association_gate(
+                          actin_index, 0, head, azimuth) > 0.0)) continue;
+                head.bound_actin = actin_index;
+                head.state = static_cast<BondFlag>(
+                    am_motor_kinetics::State::weak);
+                head.stroke_progress = 0.0;
+                head.binding_azimuth = azimuth;
+                head.target_axial = _nearest_free_am_site_coordinate(
+                    actin_index, 0, head, head.binding_azimuth);
+                if (!std::isfinite(head.target_axial)) {
+                    head.bound_actin = -1;
+                    head.state = static_cast<BondFlag>(
+                        am_motor_kinetics::State::detached);
+                    continue;
+                }
+                if (++seeded >= heads_per_actin) break;
+            }
+        }
+    }
+}
+
+void Sarcomere::prebind_bilateral_six_actin_ring() {
+    if (actin.n < 12) return;
+    if (!aa_local_multilink) {
+        prebind_six_actin_ring();
+        for (int index = 6; index < 12; ++index) {
+            const int neighbor = 6 + (index - 6 + 1) % 6;
+            const int i = std::min(index, neighbor);
+            const int j = std::max(index, neighbor);
+            actin_actin_bonds[i][j] = actin_actin_bonds[j][i] = 1;
+            actin_actin_status[i][j] = actin_actin_status[j][i] = 1;
+            active_aa_pairs.emplace_back(i, j);
+        }
+        return;
+    }
+    aa_links.clear();
+    aa_free_link_slots.clear();
+    aa_active_link_slots.clear();
+    aa_links_by_pair.clear();
+    aa_links_by_actin.assign(static_cast<size_t>(actin.n), {});
+    aa_next_link_id = 1;
+    for (int half = 0; half < 2; ++half) {
+        for (int slot = 0; slot < 6; ++slot) {
+            const int first = 6 * half + slot;
+            const int second = 6 * half + (slot + 1) % 6;
+            double overlap = 0.0;
+            const auto attachment = _local_aa_attachment_candidate(
+                std::min(first, second), std::max(first, second), 0, overlap);
+            if (overlap <= 0.0) continue;
+            AACrosslink link;
+            link.id = aa_next_link_id++;
+            link.actin_i = std::min(first, second);
+            link.actin_j = std::max(first, second);
+            link.s_i = attachment.first;
+            link.s_j = attachment.second;
+            link.status = 1;
+            link.attach_step = 0;
+            link.status2_memory_until = 0;
+            link.active = true;
+            aa_links.push_back(link);
+        }
+    }
+    _rebuild_local_aa_indices();
+}
+
+void Sarcomere::force_balanced_six_actin_cell() {
+    if (actin.n < 24 || myosin.n < 2) {
+        throw std::invalid_argument(
+            "force_balanced_six_actin_ring requires 24 actins and 2 myosins");
+    }
+    if (!is_periodic[0] || box.empty() || !(box[0] > 2.0)) {
+        throw std::invalid_argument(
+            "force_balanced_six_actin_ring requires periodic x");
+    }
+    const double boundary = 0.5 * box[0];
+    myosin.center[0] = {0.5 * boundary, 0.0, 0.0};
+    myosin.center[1] = {-0.5 * boundary, 0.0, 0.0};
+    myosin.direction[0] = {1.0, 0.0, 0.0};
+    myosin.direction[1] = {1.0, 0.0, 0.0};
+    const double d_am = myosin.radius + actin_radius + am_surface_gap;
+    const double k_link = k_aa /
+        static_cast<double>(std::max(1, aa_stiffness_reference_links));
+    const double sum = std::max(0.0, am_tether_k) + std::max(0.0, k_link);
+    const double radius = sum > 0.0
+        ? (std::max(0.0, am_tether_k) * d_am +
+           std::max(0.0, k_link) * aa_optimal) / sum
+        : d_am;
+    // ring: owning myosin, owning half, axial center, polarity
+    const std::array<std::tuple<int, int, double, double>, 4> rings{{
+        {0, 0, 0.50, 1.0},
+        {1, 1, -0.50 + aa_antiparallel_overlap, -1.0},
+        {0, 1, boundary - 0.50, -1.0},
+        {1, 0, -boundary + 0.50 - aa_antiparallel_overlap, 1.0},
+    }};
+    std::array<double, 6> angles{};
+    std::array<double, 6> radii{};
+    for (int slot = 0; slot < 6; ++slot) {
+        angles[slot] = 2.0 * M_PI * static_cast<double>(slot) / 6.0 +
+            (rng ? gsl_ran_gaussian(
+                rng, six_ring_angle_noise_deg * M_PI / 180.0) : 0.0);
+        radii[slot] = std::max(
+            0.04, radius +
+            (rng ? gsl_ran_gaussian(rng, six_ring_radial_noise) : 0.0));
+    }
+    for (int ring = 0; ring < 4; ++ring) {
+        const auto [owner, half, axial, polarity] = rings[ring];
+        (void)owner;
+        (void)half;
+        for (int slot = 0; slot < 6; ++slot) {
+            const int a = 6 * ring + slot;
+            actin.center[a] = {
+                axial, radii[slot] * std::cos(angles[slot]),
+                radii[slot] * std::sin(angles[slot])};
+            const double sigma = six_ring_axis_noise_deg * M_PI / 180.0;
+            vec direction{
+                1.0,
+                rng ? gsl_ran_gaussian(rng, sigma) : 0.0,
+                rng ? gsl_ran_gaussian(rng, sigma) : 0.0};
+            direction.normalize();
+            if (polarity < 0.0) direction = {-direction.x, -direction.y,
+                                             -direction.z};
+            actin.direction[a] = direction;
+        }
+    }
+    actin.update_endpoints();
+    myosin.update_endpoints();
+}
+
+void Sarcomere::prebind_force_balanced_six_actin_cell() {
+    if (!aa_local_multilink || actin.n < 24) return;
+    aa_links.clear();
+    aa_free_link_slots.clear();
+    aa_active_link_slots.clear();
+    aa_links_by_pair.clear();
+    aa_links_by_actin.assign(static_cast<size_t>(actin.n), {});
+    aa_next_link_id = 1;
+    // Parallel prebundling within each half-ring.
+    for (int ring = 0; ring < 4; ++ring) {
+        for (int slot = 0; slot < 6; ++slot) {
+            prebind_local_aa_pair(
+                6 * ring + slot, 6 * ring + (slot + 1) % 6, 1);
+        }
+    }
+    // Zig-zag antiparallel Z-disc links at the central and periodic Z-discs.
+    for (int slot = 0; slot < 6; ++slot) {
+        prebind_local_aa_pair(slot, 6 + (slot + 1) % 6, 1);
+        prebind_local_aa_pair(12 + slot, 18 + (slot + 1) % 6, 1);
+    }
+}
+
+void Sarcomere::seed_force_balanced_six_actin_heads(int heads_per_actin) {
+    if (actin.n < 24 || myosin.n < 2 || heads_per_actin <= 0) return;
+    const std::array<std::tuple<int, int, int>, 4> rings{{
+        {0, 0, 0}, {1, 1, 6}, {0, 1, 12}, {1, 0, 18},
+    }};
+    for (const auto& [myosin_index, half, first_actin] : rings) {
+        auto& heads = am_heads_by_myosin[static_cast<size_t>(myosin_index)]
+                                          [static_cast<size_t>(half)];
+        for (int slot = 0; slot < 6; ++slot) {
+            const int actin_index = first_actin + slot;
+            int seeded = 0;
+            for (auto& head : heads) {
+                if (head.bound_actin >= 0) continue;
+                const double azimuth = am_binding_azimuth_selection &&
+                                               am_spatial_heads
+                    ? select_am_binding_azimuth(
+                          actin, myosin, actin_index, myosin_index, box,
+                          head.anchor_axial, head.anchor_azimuth,
+                          am_binding_azimuth_half_width,
+                          myosin_material_e1[myosin_index],
+                          myosin_material_e2[myosin_index])
+                    : head.anchor_azimuth;
+                if (!(_am_head_association_gate(
+                          actin_index, myosin_index, head, azimuth) > 0.0)) {
+                    continue;
+                }
+                head.bound_actin = actin_index;
+                head.state = static_cast<BondFlag>(
+                    am_motor_kinetics::State::weak);
+                head.stroke_progress = 0.0;
+                head.binding_azimuth = azimuth;
+                head.target_axial = _nearest_free_am_site_coordinate(
+                    actin_index, myosin_index, head, head.binding_azimuth);
+                if (!std::isfinite(head.target_axial)) {
+                    head.bound_actin = -1;
+                    head.state = static_cast<BondFlag>(
+                        am_motor_kinetics::State::detached);
+                    continue;
+                }
+                if (++seeded >= heads_per_actin) break;
+            }
+        }
+    }
+}
+
+void Sarcomere::shared_thick_thin_lattice() {
+    if (actin.n < 16 || myosin.n < 4) {
+        throw std::invalid_argument(
+            "shared_thick_thin_lattice requires 16 actins and 4 myosins");
+    }
+    if (!is_periodic[0] || !is_periodic[1] || !is_periodic[2]) {
+        throw std::invalid_argument(
+            "shared_thick_thin_lattice requires periodic x, y, and z");
+    }
+    const double d_am =
+        myosin.radius + actin_radius + am_surface_gap;
+    const double lattice_a = std::sqrt(3.0) * d_am;
+    const double lattice_h = 1.5 * d_am;
+    const double expected_y = 2.0 * lattice_a;
+    const double expected_z = 2.0 * lattice_h;
+    if (box.size() < 3 ||
+        std::abs(box[1] - expected_y) > 1e-6 ||
+        std::abs(box[2] - expected_z) > 1e-6) {
+        throw std::invalid_argument(
+            "shared_thick_thin_lattice requires Ly=2*sqrt(3)*d_AM and "
+            "Lz=3*d_AM");
+    }
+
+    // Orthorhombic representation of a triangular thick-filament lattice.
+    // The eight thin sites are triangle centers.  Under transverse PBC every
+    // thick filament has six thin neighbors and every thin filament is shared
+    // by three thick filaments, reproducing Tanner's 4:8 unit cell.
+    const std::array<std::array<double, 2>, 4> thick_yz{{
+        {0.0, 0.0},
+        {lattice_a, 0.0},
+        {0.5 * lattice_a, lattice_h},
+        {1.5 * lattice_a, lattice_h},
+    }};
+    const std::array<std::array<double, 2>, 8> thin_yz{{
+        {0.5 * lattice_a, lattice_h / 3.0},
+        {1.5 * lattice_a, lattice_h / 3.0},
+        {lattice_a, 2.0 * lattice_h / 3.0},
+        {0.0, 2.0 * lattice_h / 3.0},
+        {0.5 * lattice_a, 5.0 * lattice_h / 3.0},
+        {1.5 * lattice_a, 5.0 * lattice_h / 3.0},
+        {lattice_a, 4.0 * lattice_h / 3.0},
+        {0.0, 4.0 * lattice_h / 3.0},
+    }};
+    const double y_shift = -0.5 * box[1];
+    const double z_shift = -0.5 * box[2];
+    for (int m = 0; m < 4; ++m) {
+        myosin.center[m] = {
+            0.0, thick_yz[m][0] + y_shift, thick_yz[m][1] + z_shift};
+        myosin.direction[m] = {1.0, 0.0, 0.0};
+    }
+
+    // Mirror the shared thin lattice across the M-line.  Both myosin halves
+    // therefore carry the same transverse coordination and their axial motor
+    // reactions balance without fixing either species.
+    // Opposing thin filaments terminate near the M-line; they do not form the
+    // antiparallel ACTN2 overlap there.  Leave one hard-core diameter between
+    // their pointed ends.  Z-disc interdigitation belongs at the axial cell
+    // boundary and will use its own small-square lattice diagnostic.
+    const double axial_center =
+        0.5 * actin.length + actin_radius + 1e-6;
+    for (int site = 0; site < 8; ++site) {
+        const double y = thin_yz[site][0] + y_shift;
+        const double z = thin_yz[site][1] + z_shift;
+        actin.center[site] = {-axial_center, y, z};
+        actin.direction[site] = {1.0, 0.0, 0.0};
+        actin.center[8 + site] = {axial_center, y, z};
+        actin.direction[8 + site] = {-1.0, 0.0, 0.0};
+    }
+    actin.update_endpoints();
+    myosin.update_endpoints();
+    reset_myosin_material_frames();
+}
+
+void Sarcomere::prebind_shared_thick_thin_lattice(int links_per_edge) {
+    if (!aa_local_multilink || actin.n < 16) return;
+    aa_links.clear();
+    aa_free_link_slots.clear();
+    aa_active_link_slots.clear();
+    aa_links_by_pair.clear();
+    aa_links_by_actin.assign(static_cast<size_t>(actin.n), {});
+    aa_neighbor_slots.clear();
+    aa_next_link_id = 1;
+
+    // Each thin site has three same-polarity thin neighbors under transverse
+    // PBC.  Geometric discovery avoids hard-coding an index graph and pins
+    // the resulting 3-regular lattice slots while ACTN2 molecules turn over.
+    for (int half = 0; half < 2; ++half) {
+        const int offset = 8 * half;
+        for (int local_i = 0; local_i < 8; ++local_i) {
+            for (int local_j = local_i + 1; local_j < 8; ++local_j) {
+                const int i = offset + local_i;
+                const int j = offset + local_j;
+                vec displacement = actin.center[i] - actin.center[j];
+                displacement.pbc_wrap(box, is_periodic);
+                const vec axis = actin.direction[i];
+                const vec transverse =
+                    displacement - axis * displacement.dot(axis);
+                const double tolerance = 1e-6;
+                const double d_am =
+                    myosin.radius + actin_radius + am_surface_gap;
+                if (std::abs(transverse.norm() - d_am) > tolerance) continue;
+                if (!reserve_aa_neighbor_pair(i, j, true)) {
+                    throw std::runtime_error(
+                        "AA neighbor cap is below the 3-regular shared lattice");
+                }
+                prebind_local_aa_pair(i, j, links_per_edge);
+            }
+        }
+    }
+}
+
+void Sarcomere::seed_shared_thick_thin_heads(int heads_per_pair) {
+    if (actin.n < 16 || myosin.n < 4 || heads_per_pair <= 0) return;
+    const double d_am =
+        myosin.radius + actin_radius + am_surface_gap;
+    for (int myosin_index = 0; myosin_index < 4; ++myosin_index) {
+        for (int half_index = 0; half_index < 2; ++half_index) {
+            const int actin_offset = half_index == 0 ? 0 : 8;
+            auto& heads =
+                am_heads_by_myosin[static_cast<size_t>(myosin_index)]
+                                   [static_cast<size_t>(half_index)];
+            for (int site = 0; site < 8; ++site) {
+                const int actin_index = actin_offset + site;
+                vec displacement =
+                    actin.center[actin_index] - myosin.center[myosin_index];
+                displacement.pbc_wrap(box, is_periodic);
+                vec axis = myosin.direction[myosin_index];
+                axis.normalize();
+                const vec transverse =
+                    displacement - axis * displacement.dot(axis);
+                if (std::abs(transverse.norm() - d_am) > 1e-6) continue;
+                int seeded = 0;
+                for (auto& head : heads) {
+                    if (head.bound_actin >= 0) continue;
+                    const double azimuth =
+                        am_binding_azimuth_selection && am_spatial_heads
+                        ? select_am_binding_azimuth(
+                              actin, myosin, actin_index, myosin_index, box,
+                              head.anchor_axial, head.anchor_azimuth,
+                              am_binding_azimuth_half_width,
+                              myosin_material_e1[myosin_index],
+                              myosin_material_e2[myosin_index])
+                        : head.anchor_azimuth;
+                    if (!(_am_head_association_gate(
+                              actin_index, myosin_index, head, azimuth) >
+                          0.0)) {
+                        continue;
+                    }
+                    head.bound_actin = actin_index;
+                    head.state = static_cast<BondFlag>(
+                        am_motor_kinetics::State::weak);
+                    head.stroke_progress = 0.0;
+                    head.binding_azimuth = azimuth;
+                    head.target_axial = _nearest_free_am_site_coordinate(
+                        actin_index, myosin_index, head,
+                        head.binding_azimuth);
+                    if (!std::isfinite(head.target_axial)) {
+                        head.bound_actin = -1;
+                        head.state = static_cast<BondFlag>(
+                            am_motor_kinetics::State::detached);
+                        continue;
+                    }
+                    if (++seeded >= heads_per_pair) break;
+                }
+            }
+        }
+    }
+}
+
+void Sarcomere::prebind_local_aa_pair(
+    int first, int second, int link_count) {
+    if (!aa_local_multilink || first < 0 || second < 0 ||
+        first >= actin.n || second >= actin.n || first == second ||
+        link_count <= 0) return;
+    if (first > second) std::swap(first, second);
+    if (aa_neighbor_identity_enabled &&
+        !reserve_aa_neighbor_pair(first, second, false)) return;
+    for (auto& link : aa_links) {
+        if (!link.active) continue;
+        if (link.actin_i == first && link.actin_j == second) {
+            link.active = false;
+        }
+    }
+    _rebuild_local_aa_indices();
+    int requested = std::min(link_count, aa_prebundle_links_per_pair);
+    if (aa_total_link_pool > 0) {
+        requested = std::min(requested, std::max(
+            0, aa_total_link_pool -
+                static_cast<int>(aa_active_link_slots.size())));
+    }
+    for (int ordinal = 0; ordinal < requested; ++ordinal) {
+        double overlap = 0.0;
+        const auto attachment = _local_aa_attachment_candidate(
+            first, second, ordinal, overlap);
+        if (overlap <= 0.0) continue;
+        AACrosslink link;
+        link.id = aa_next_link_id++;
+        link.actin_i = first;
+        link.actin_j = second;
+        link.s_i = attachment.first;
+        link.s_j = attachment.second;
+        link.status = 1;
+        link.attach_step = static_cast<RecoveryStep>(std::min(
+            current_step,
+            static_cast<size_t>(std::numeric_limits<RecoveryStep>::max())));
+        link.status2_memory_until = 0;
+        link.active = true;
+        aa_links.push_back(link);
+    }
+    _rebuild_local_aa_indices();
+}
+
+void Sarcomere::prebind_assembly_actin_links() {
+    // Seed AA links on every actin pair the KMC would capture, deterministically
+    // at t=0.  Nucleates parallel (barbed-end register, target overlap 0) and
+    // antiparallel (Z-disc, target aa_antiparallel_overlap) bundles for
+    // assembly-from-scratch, respecting the max_aa_bonds_per_actin degree cap.
+    if (!aa_local_multilink) return;
+    _rebuild_local_aa_indices();
+    const double reach = actin.length + std::max(aa_cutoff, aa_optimal);
+    for (int i = 0; i < actin.n; ++i) {
+        for (int j = i + 1; j < actin.n; ++j) {
+            vec d = actin.center[j] - actin.center[i];
+            d.pbc_wrap(box, actin.periodic_axes);
+            if (d.norm() > reach) continue;
+            if (max_aa_bonds_per_actin > 0 && aa_neighbor_identity_enabled) {
+                if (aa_neighbor_slots.degree(i) >= max_aa_bonds_per_actin ||
+                    aa_neighbor_slots.degree(j) >= max_aa_bonds_per_actin) continue;
+            }
+            double overlap = 0.0;
+            const auto attachment =
+                _local_aa_attachment_candidate(i, j, 0, overlap);
+            if (overlap <= 0.0) continue;
+            if (!_local_aa_site_outside_am_overlap(i, attachment.first) ||
+                !_local_aa_site_outside_am_overlap(j, attachment.second)) continue;
+            const auto candidate = compute_local_aa_link(
+                actin, i, j, attachment.first, attachment.second, box,
+                aa_encounter_k, aa_encounter_kappa, 0.0, aa_optimal);
+            if (candidate.length >= aa_cutoff) continue;
+            prebind_local_aa_pair(i, j, aa_prebundle_links_per_pair);
+        }
+    }
+    _rebuild_local_aa_indices();
+}
+
+void Sarcomere::minimal_sarcomere() {
+    // Minimal FORCE-BALANCED periodic sarcomere: one bipolar thick filament at
+    // the M-line whose two halves are engaged by two antiparallel thin
+    // filaments emanating from a single shared Z-disc at x=0.  The second
+    // actin wraps through the periodic boundary onto the far half, so the
+    // reaction forces on the thick filament oppose and it needs no pinning.
+    if (actin.n < 2 || myosin.n < 1 || box.size() < 1) return;
+    const double d_am = myosin.radius + actin_radius + am_surface_gap;
+    const double Ls = box[0];
+    myosin.center[0] = {0.5 * Ls, 0.0, 0.0};
+    myosin.direction[0] = {1.0, 0.0, 0.0};
+    // Place both actins on the AM centerline radius, separated in azimuth so
+    // their mutual centerline distance equals aa_optimal (the ACTN2 span).
+    const double phi = 2.0 * std::asin(
+        std::min(1.0, 0.5 * aa_optimal / std::max(d_am, 1e-12)));
+    actin.center[0] = {0.5 * actin.length, d_am, 0.0};
+    actin.direction[0] = {1.0, 0.0, 0.0};
+    actin.center[1] = {aa_antiparallel_overlap - 0.5 * actin.length,
+                       d_am * std::cos(phi), d_am * std::sin(phi)};
+    actin.direction[1] = {-1.0, 0.0, 0.0};
+    actin.update_endpoints();
+    myosin.update_endpoints();
+    reset_myosin_material_frames();
+    if (aa_local_multilink) {
+        prebind_local_aa_pair(0, 1, aa_prebundle_links_per_pair);
+    }
+}
+
+void Sarcomere::two_sarcomere_unit() {
+    // TWO sarcomeric units in one periodic box, fully force balanced:
+    //   Z-disc A at x=0 (interior)  |  M-line 0 at -Ls/2  |  M-line 1 at +Ls/2
+    //   Z-disc B at x=+/-Ls (wraps through the periodic boundary)
+    // Each Z-disc holds one antiparallel ACTN2-crosslinked actin pair, and each
+    // thick filament is engaged on BOTH halves (one actin from each Z-disc), so
+    // the reaction forces cancel and no filament needs pinning.
+    if (actin.n < 4 || myosin.n < 2 || box.size() < 1) return;
+    const double d_am = myosin.radius + actin_radius + am_surface_gap;
+    const double Ls = 0.5 * box[0];              // two sarcomeres span the box
+    const double La = actin.length;
+    const double init_ov = init_aa_overlap > 0.0 ? init_aa_overlap
+                                                 : aa_antiparallel_overlap;
+    const double half_ov = 0.5 * init_ov;
+    const double phi = 2.0 * std::asin(
+        std::min(1.0, 0.5 * aa_optimal / std::max(d_am, 1e-12)));
+    myosin.center[0] = {-0.5 * Ls, 0.0, 0.0};
+    myosin.center[1] = { 0.5 * Ls, 0.0, 0.0};
+    myosin.direction[0] = {1.0, 0.0, 0.0};
+    myosin.direction[1] = {1.0, 0.0, 0.0};
+    // barbed end sits half the Z-disc overlap on the far side of its Z-plane
+    auto place = [&](int idx, double z_plane, double dir_x, double azim) {
+        const double barbed = z_plane - dir_x * half_ov;
+        actin.center[idx] = {barbed + 0.5 * La * dir_x,
+                             d_am * std::cos(azim), d_am * std::sin(azim)};
+        actin.direction[idx] = {dir_x, 0.0, 0.0};
+    };
+    place(0, 0.0, -1.0, 0.0);          // Z-A -> M-line 0
+    place(1, 0.0, +1.0, phi);          // Z-A -> M-line 1
+    place(2,  Ls, -1.0, M_PI);         // Z-B -> M-line 1
+    place(3,  Ls, +1.0, M_PI + phi);   // Z-B -> M-line 0 (wraps)
+    actin.update_endpoints();
+    myosin.update_endpoints();
+    reset_myosin_material_frames();
+    if (aa_local_multilink) {
+        prebind_local_aa_pair(0, 1, aa_prebundle_links_per_pair);
+        prebind_local_aa_pair(2, 3, aa_prebundle_links_per_pair);
+    }
+}
+
+void Sarcomere::three_membered_lattice(bool prebind_actn2,
+                                       double transverse_jitter,
+                                       double axial_jitter,
+                                       double tilt_jitter) {
+    // Three thin filaments equidistant (120 deg) around each thick-filament
+    // half.  The two populations meeting at a Z-disc are offset by 60 deg, so
+    // the Z-disc cross-section is a closed hexagon of six actins: three
+    // pointing into the sarcomere on each side, alternating in polarity.
+    //
+    // The hexagon edge is 2*d_am*sin(30 deg) = d_am, so the ACTN2 preferred
+    // centerline coincides with the hexagon edge only when aa_optimal == d_am,
+    // i.e. aa_spacing_ratio = 1.  At the default 0.92 the ring is
+    // incommensurate (360/54.77 = 6.57 actins) and starts frustrated.
+    //
+    // Same-side neighbours sit sqrt(3)*d_am apart, comfortably outside the AA
+    // capture cutoff, so links form only across the Z-disc as intended.
+    if (actin.n < 12 || myosin.n < 2 || box.size() < 1) return;
+    const double d_am = myosin.radius + actin_radius + am_surface_gap;
+    const double Ls = 0.5 * box[0];              // two sarcomeres span the box
+    const double La = actin.length;
+    const double init_ov = init_aa_overlap > 0.0 ? init_aa_overlap
+                                                 : aa_antiparallel_overlap;
+    const double half_ov = 0.5 * init_ov;
+    myosin.center[0] = {-0.5 * Ls, 0.0, 0.0};
+    myosin.center[1] = { 0.5 * Ls, 0.0, 0.0};
+    myosin.direction[0] = {1.0, 0.0, 0.0};
+    myosin.direction[1] = {1.0, 0.0, 0.0};
+    auto place = [&](int idx, double z_plane, double dir_x, double azim) {
+        const double barbed = z_plane - dir_x * half_ov;
+        actin.center[idx] = {barbed + 0.5 * La * dir_x,
+                             d_am * std::cos(azim), d_am * std::sin(azim)};
+        actin.direction[idx] = {dir_x, 0.0, 0.0};
+    };
+    const double sixty = M_PI / 3.0;
+    // Z-disc A at x=0 : 0-2 run -x to M-line 0, 3-5 run +x to M-line 1
+    // Z-disc B at x=Ls: 6-8 run -x to M-line 1, 9-11 run +x and wrap to M-line 0
+    for (int k = 0; k < 3; ++k) {
+        place(0 + k, 0.0, -1.0, 2.0 * sixty * k);
+        place(3 + k, 0.0, +1.0, 2.0 * sixty * k + sixty);
+        place(6 + k, Ls,  -1.0, 2.0 * sixty * k);
+        place(9 + k, Ls,  +1.0, 2.0 * sixty * k + sixty);
+    }
+    if (transverse_jitter > 0.0 || axial_jitter > 0.0 ||
+        tilt_jitter > 0.0) {
+        for (int i = 0; i < 12; ++i) {
+            if (axial_jitter > 0.0) {
+                actin.center[i].x += gsl_ran_gaussian(rng, axial_jitter);
+            }
+            if (transverse_jitter > 0.0) {
+                actin.center[i].y +=
+                    gsl_ran_gaussian(rng, transverse_jitter);
+                actin.center[i].z +=
+                    gsl_ran_gaussian(rng, transverse_jitter);
+            }
+            if (tilt_jitter > 0.0) {
+                actin.direction[i].y += gsl_ran_gaussian(rng, tilt_jitter);
+                actin.direction[i].z += gsl_ran_gaussian(rng, tilt_jitter);
+                actin.direction[i].normalize();
+            }
+        }
+    }
+    actin.update_endpoints();
+    myosin.update_endpoints();
+    reset_myosin_material_frames();
+    if (prebind_actn2 && aa_local_multilink) {
+        // Each inward filament crosslinks the two outward filaments +/-60 deg
+        // away from it around the ring: six ACTN2 pairs per Z-disc.
+        for (int k = 0; k < 3; ++k) {
+            prebind_local_aa_pair(0 + k, 3 + k, aa_prebundle_links_per_pair);
+            prebind_local_aa_pair(0 + k, 3 + ((k + 2) % 3),
+                                  aa_prebundle_links_per_pair);
+            prebind_local_aa_pair(6 + k, 9 + k, aa_prebundle_links_per_pair);
+            prebind_local_aa_pair(6 + k, 9 + ((k + 2) % 3),
+                                  aa_prebundle_links_per_pair);
+        }
+    }
+}
+
+void Sarcomere::cb(){
+    std::vector<vector> actin_positions = {
+        {0.5, -0.015, 0}, {-0.5, 0.015, 0}
+    };
+    for (int i = 0; i < actin_positions.size(); i++){
+        actin.center[i].x = actin_positions[i][0];
+        actin.center[i].y = actin_positions[i][1];
+        actin.center[i].z = actin_positions[i][2];
+    }
+    actin.direction[0] = {1, 0, 0};
+    actin.direction[1] = {-1, 0, 0};
+    // The second barbed end lies aa_antiparallel_overlap along the first
+    // filament axis, giving the intended finite Z-disc interdigitation.
+    actin.center[1].x += aa_antiparallel_overlap;
+    
+    std::vector<vector> myosin_positions = {
+        {-1.33, 0.045, 0}, {-1.33, -0.015, 0}, {1.33, 0.015, 0}, {1.33, -0.045, 0}
+    };
+    for (int i = 0; i < myosin_positions.size(); i++){
+        myosin.center[i].x = myosin_positions[i][0];
+        myosin.center[i].y = myosin_positions[i][1];
+        myosin.center[i].z = myosin_positions[i][2];
+        myosin.direction[i] = {1, 0, 0};
+    }
+}
+
+void Sarcomere::minimal_catch() {
+    if (actin.n < 2 || myosin.n < 2) return;
+
+    // Two antiparallel thin filaments meet at their barbed-end region.  One
+    // bipolar thick filament is placed outside each pointed end so its inward
+    // half has the correct polarity and overlap.  With both myosins fixed,
+    // their strong heads pull the two actins apart while the AA link carries
+    // the opposed load; the pair's center of mass should remain stationary.
+    actin.center[0] = {0.50, -0.5 * aa_optimal, 0.0};
+    actin.direction[0] = {1.0, 0.0, 0.0};
+    actin.center[1] = {-0.50 + aa_antiparallel_overlap,
+                       0.5 * aa_optimal, 0.0};
+    actin.direction[1] = {-1.0, 0.0, 0.0};
+
+    myosin.center[0] = {1.33, -0.5 * aa_optimal,
+                        myosin.radius + actin_radius + am_surface_gap};
+    myosin.center[1] = {-1.33, 0.5 * aa_optimal,
+                        myosin.radius + actin_radius + am_surface_gap};
+    myosin.direction[0] = {1.0, 0.0, 0.0};
+    myosin.direction[1] = {1.0, 0.0, 0.0};
+
+    actin.update_endpoints();
+    myosin.update_endpoints();
+    if (aa_local_multilink) {
+        prebind_local_aa_pair(0, 1, aa_prebundle_links_per_pair);
+    }
+    // Begin with up to six weak, polarity-correct heads on each arm. This prevents a
+    // deliberately perfect minimal lattice from losing its freely diffusing
+    // thick filaments during the calcium/q activation latency, while retaining
+    // the physical weak->strong competition. Control variants below rupture
+    // these heads naturally when a motor is absent or has the wrong polarity.
+    const std::array<std::tuple<int, int, int>, 2> seeds{{
+        {0, 0, 0},  // myosin 0, negative half, actin 0
+        {1, 1, 1},  // myosin 1, positive half, actin 1
+    }};
+    for (const auto& [myosin_index, half_index, actin_index] : seeds) {
+        auto& heads = am_heads_by_myosin[static_cast<size_t>(myosin_index)]
+                                          [static_cast<size_t>(half_index)];
+        int seeded = 0;
+        for (auto& head : heads) {
+            const double azimuth = am_binding_azimuth_selection && am_spatial_heads
+                ? select_am_binding_azimuth(
+                      actin, myosin, actin_index, myosin_index, box,
+                      head.anchor_axial, head.anchor_azimuth,
+                      am_binding_azimuth_half_width,
+                      myosin_material_e1[static_cast<size_t>(myosin_index)],
+                      myosin_material_e2[static_cast<size_t>(myosin_index)])
+                : head.anchor_azimuth;
+            if (!(_am_head_association_gate(
+                      actin_index, myosin_index, head, azimuth) > 0.0)) {
+                continue;
+            }
+            head.bound_actin = actin_index;
+            head.state = static_cast<BondFlag>(am_motor_kinetics::State::weak);
+            head.stroke_progress = 0.0;
+            head.binding_azimuth = azimuth;
+            head.target_axial = _nearest_free_am_site_coordinate(
+                actin_index, myosin_index, head, head.binding_azimuth);
+            if (!std::isfinite(head.target_axial)) {
+                head.bound_actin = -1;
+                head.state = static_cast<BondFlag>(
+                    am_motor_kinetics::State::detached);
+                continue;
+            }
+            if (++seeded >= 6) break;
+        }
+    }
+}
+
+void Sarcomere::minimal_catch_variant(const std::string& variant) {
+    minimal_catch();
+    if (actin.n < 2 || myosin.n < 2 || variant == "perfect") return;
+
+    if (variant == "balanced" || variant == "balanced_buried" ||
+        variant == "balanced_double_myosin" ||
+        variant == "balanced_double_myosin_anneal") {
+        const bool buried_start = variant == "balanced_buried";
+        const bool double_myosin =
+            variant == "balanced_double_myosin" ||
+            variant == "balanced_double_myosin_anneal";
+        const bool anneal_double_myosin_register =
+            variant == "balanced_double_myosin_anneal";
+        if (actin.n < 4) {
+            throw std::invalid_argument(
+                "minimal_catch_balanced requires at least four actins");
+        }
+        if (double_myosin && myosin.n < 4) {
+            throw std::invalid_argument(
+                "minimal_catch_balanced_double_myosin requires at least four myosins");
+        }
+        if (!is_periodic[0] || box.empty() || !(box[0] > 2.0)) {
+            throw std::invalid_argument(
+                "minimal_catch_balanced requires a periodic x axis");
+        }
+
+        // A mobile two-myosin/two-actin fragment is not force balanced: each
+        // thick filament is occupied on only one half and must translate by
+        // Newton's third law. Complete the smallest periodic sarcomere cell by
+        // adding the counter-actin seen by the unused half of each myosin.
+        // Actins (0,1) form the central Z-disc of interest; (2,3) form its
+        // periodic image at the x boundary. Every thick filament can then
+        // receive opposed motor reactions without fixing any particle.
+        const double boundary = 0.5 * box[0];
+        const double half_aa = 0.5 * aa_optimal;
+        const double initial_overlap = init_aa_overlap > 0.0
+            ? init_aa_overlap : aa_antiparallel_overlap;
+        // Split the initial A-A interdigitation equally between the two
+        // antiparallel filaments.  Assigning the full displacement to only
+        // one filament shifts each Z-pair centroid by overlap/2 and creates
+        // alternating short/long A-M intervals in the periodic cell.
+        const double half_overlap = 0.5 * initial_overlap;
+        actin.center[0] = {0.50 - half_overlap, -half_aa, 0.0};
+        actin.direction[0] = {1.0, 0.0, 0.0};
+        actin.center[1] = {-0.50 + half_overlap,
+                           half_aa, 0.0};
+        actin.direction[1] = {-1.0, 0.0, 0.0};
+        actin.center[2] = {boundary - 0.50 + half_overlap,
+                           -half_aa, 0.0};
+        actin.direction[2] = {-1.0, 0.0, 0.0};
+        actin.center[3] = {-boundary + 0.50 - half_overlap,
+                           half_aa, 0.0};
+        actin.direction[3] = {1.0, 0.0, 0.0};
+
+        const double am_spacing =
+            myosin.radius + actin_radius + am_surface_gap;
+        std::vector<std::tuple<int, int, int>> balanced_seeds{
+            {0, 0, 0},  // right myosin, central actin
+            {0, 1, 2},  // right myosin, periodic counter-actin
+            {1, 1, 1},  // left myosin, central actin
+            {1, 0, 3},  // left myosin, periodic counter-actin
+        };
+        myosin.center[0] = {0.5 * boundary, -half_aa, am_spacing};
+        myosin.center[1] = {-0.5 * boundary, half_aa, am_spacing};
+        if (buried_start) {
+            // Local short-length challenge with room to anneal: both thick
+            // filaments start 550 nm too close to the central ACTN2 pair,
+            // while their counter-halves are correspondingly underlapped.
+            // The normal 5.32-um box is unchanged, so successful recovery can
+            // recenter the myosins rather than fighting a globally compressed
+            // periodic cell.
+            constexpr double inward_shift = 0.55;
+            myosin.center[0].x -= inward_shift;
+            myosin.center[1].x += inward_shift;
+        }
+        myosin.direction[0] = {1.0, 0.0, 0.0};
+        myosin.direction[1] = {1.0, 0.0, 0.0};
+        if (double_myosin) {
+            // Each actin is shared by two distinct thick filaments rather than
+            // being assigned to a single owner.  The duplicate thick filament
+            // is placed on the opposite transverse side, so both motors have
+            // the same axial overlap and the actin lies between them.  This is
+            // the two-neighbor slice of the hexagonal thick/thin lattice; no
+            // centroid force or artificial particle fixation is introduced.
+            myosin.center[2] = {0.5 * boundary, -half_aa, -am_spacing};
+            myosin.center[3] = {-0.5 * boundary, half_aa, -am_spacing};
+            myosin.direction[2] = {1.0, 0.0, 0.0};
+            myosin.direction[3] = {1.0, 0.0, 0.0};
+            balanced_seeds.insert(balanced_seeds.end(), {
+                {2, 0, 0},  // second right myosin, central actin
+                {2, 1, 2},  // second right myosin, periodic counter-actin
+                {3, 1, 1},  // second left myosin, central actin
+                {3, 0, 3},  // second left myosin, periodic counter-actin
+            });
+            if (anneal_double_myosin_register) {
+                // Begin with a visible 150-nm axial mismatch between the two
+                // thick filaments sharing each actin. Split the perturbation
+                // about each pair midpoint and reverse it in the periodic
+                // image, preserving inversion symmetry and zero imposed
+                // center-of-mass translation. Any subsequent reduction is
+                // therefore mechanical annealing, not an initializer shift.
+                constexpr double register_error = 0.150;
+                constexpr double half_error = 0.5 * register_error;
+                myosin.center[0].x -= half_error;
+                myosin.center[2].x += half_error;
+                myosin.center[1].x += half_error;
+                myosin.center[3].x -= half_error;
+            }
+        }
+        actin.update_endpoints();
+        myosin.update_endpoints();
+        // The constructor creates material frames for its random initial
+        // thick-filament axes.  Rebuild them after imposing the exact axial
+        // cell geometry so explicit head and titin azimuths are material
+        // coordinates of the initialized myosins, not of those discarded
+        // random axes.
+        reset_myosin_material_frames();
+        prebind_local_aa_pair(0, 1, aa_prebundle_links_per_pair);
+        prebind_local_aa_pair(2, 3, aa_prebundle_links_per_pair);
+
+        // minimal_catch() seeded the central pair before the balanced geometry
+        // was complete. Clear only those occupied chemical states, preserve
+        // the OFF/SRX pool, and seed both halves from the final exact geometry.
+        for (auto& myosin_heads : am_heads_by_myosin) {
+            for (auto& half_heads : myosin_heads) {
+                for (auto& head : half_heads) {
+                    if (head.bound_actin < 0) continue;
+                    head.bound_actin = -1;
+                    head.state = static_cast<BondFlag>(
+                        am_motor_kinetics::State::detached);
+                    head.stroke_progress = 0.0;
+                }
+            }
+        }
+        for (const auto& [myosin_index, half_index, actin_index] :
+             balanced_seeds) {
+            auto& heads = am_heads_by_myosin[static_cast<size_t>(myosin_index)]
+                                              [static_cast<size_t>(half_index)];
+            int seeded = 0;
+            for (auto& head : heads) {
+                const double azimuth =
+                    am_binding_azimuth_selection && am_spatial_heads
+                    ? select_am_binding_azimuth(
+                          actin, myosin, actin_index, myosin_index, box,
+                          head.anchor_axial, head.anchor_azimuth,
+                          am_binding_azimuth_half_width,
+                          myosin_material_e1[static_cast<size_t>(myosin_index)],
+                          myosin_material_e2[static_cast<size_t>(myosin_index)])
+                    : head.anchor_azimuth;
+                if (!(_am_head_association_gate(
+                          actin_index, myosin_index, head, azimuth) > 0.0)) {
+                    continue;
+                }
+                head.bound_actin = actin_index;
+                head.state = static_cast<BondFlag>(
+                    am_motor_kinetics::State::weak);
+                head.stroke_progress = 0.0;
+                head.binding_azimuth = azimuth;
+                head.target_axial = _nearest_free_am_site_coordinate(
+                    actin_index, myosin_index, head, head.binding_azimuth);
+                if (!std::isfinite(head.target_axial)) {
+                    head.bound_actin = -1;
+                    head.state = static_cast<BondFlag>(
+                        am_motor_kinetics::State::detached);
+                    continue;
+                }
+                if (++seeded >= 6) break;
+            }
+        }
+    } else if (variant == "one_motor") {
+        myosin.center[1] = {0.0, 1.2, 1.2};
+    } else if (variant == "no_motor") {
+        myosin.center[0] = {0.0, -1.2, -1.2};
+        myosin.center[1] = {0.0, 1.2, 1.2};
+    } else if (variant == "wrong_polarity") {
+        // Preserve the antiparallel geometry but reverse which barbed end each
+        // neighboring thick-filament half sees. Neither nearby half is then a
+        // productive attachment site.
+        actin.direction[0] *= -1.0;
+        actin.direction[1] *= -1.0;
+        actin.update_endpoints();
+        prebind_local_aa_pair(0, 1, 1);
+    } else if (variant == "parallel") {
+        const vec parallel_direction{actin.direction[0].x,
+                                     actin.direction[0].y,
+                                     actin.direction[0].z};
+        actin.direction[1] = parallel_direction;
+        actin.update_endpoints();
+        prebind_local_aa_pair(0, 1, 1);
+    } else if (variant == "anneal") {
+        // A reproducible, prebound perturbation: the local ACTN2 endpoints stay
+        // material-fixed while both rods begin displaced and misaligned.
+        constexpr double angle = 12.0 * M_PI / 180.0;
+        actin.direction[0] = {std::cos(angle), std::sin(angle), 0.0};
+        actin.direction[1] = {-std::cos(angle), std::sin(angle), 0.0};
+        actin.center[0].y -= 0.006;
+        actin.center[1].y += 0.006;
+        actin.update_endpoints();
+    } else {
+        throw std::invalid_argument("unknown minimal catch variant: " + variant);
+    }
+    myosin.update_endpoints();
+}
+
+void Sarcomere::aa_bundle_common() {
+    if (actin.n < 2 || myosin.n < 2) return;
+    const double half_spacing = 0.5 * aa_optimal;
+    const double am_spacing =
+        myosin.radius + actin_radius + am_surface_gap;
+    for (int i = 0; i < 2; ++i) {
+        const double y = i == 0 ? -half_spacing : half_spacing;
+        actin.center[i] = {0.0, y, 0.0};
+        actin.direction[i] = {1.0, 0.0, 0.0};
+        // Both fixed thick filaments contact the negative half, so every
+        // strong head drives its actin toward +x.
+        myosin.center[i] = {0.83, y, am_spacing};
+        myosin.direction[i] = {1.0, 0.0, 0.0};
+    }
+    actin.update_endpoints();
+    myosin.update_endpoints();
+    prebind_local_aa_pair(0, 1, aa_prebundle_links_per_pair);
+}
+
+void Sarcomere::aa_bundle_opposed() {
+    if (actin.n < 2 || myosin.n < 2) return;
+    const double half_spacing = 0.5 * aa_optimal;
+    const double am_spacing =
+        myosin.radius + actin_radius + am_surface_gap;
+    // Barbed ends overlap by aa_antiparallel_overlap, matching the existing
+    // cb diagnostic, while the two fixed thick filaments pull outward.
+    actin.center[0] = {0.5, -half_spacing, 0.0};
+    actin.direction[0] = {1.0, 0.0, 0.0};
+    actin.center[1] = {-0.5 + aa_antiparallel_overlap,
+                       half_spacing, 0.0};
+    actin.direction[1] = {-1.0, 0.0, 0.0};
+    myosin.center[0] = {1.33, -half_spacing, am_spacing};
+    myosin.direction[0] = {1.0, 0.0, 0.0};
+    myosin.center[1] = {-1.33 + aa_antiparallel_overlap,
+                        half_spacing, am_spacing};
+    myosin.direction[1] = {1.0, 0.0, 0.0};
+    actin.update_endpoints();
+    myosin.update_endpoints();
+    prebind_local_aa_pair(0, 1, aa_prebundle_links_per_pair);
+}
+
+namespace {
+
+void set_direction_axis_noise(Filament& filament, gsl_rng* rng,
+                              double noise_std, double tilt_deg) {
+    const double sigma = (noise_std > 0.0) ? noise_std : 0.0;
+    const double angle = tilt_deg * M_PI / 180.0;
+    const double base_x = std::cos(angle);
+    const double base_y = std::sin(angle);
+    for (int i = 0; i < filament.n; ++i) {
+        double dx = base_x;
+        double dy = base_y;
+        double dz = 0.0;
+        if (rng != nullptr && sigma > 0.0) {
+            dx += gsl_ran_gaussian(rng, sigma);
+            dy += gsl_ran_gaussian(rng, sigma);
+            dz += gsl_ran_gaussian(rng, sigma);
+        }
+        vec dir{dx, dy, dz};
+        double norm = dir.norm();
+        if (norm < EPS) {
+            dir = {1.0, 0.0, 0.0};
+        } else {
+            dir = dir / norm;
+        }
+        filament.direction[i] = dir;
+    }
+    filament.update_endpoints();
+}
+
+}  // namespace
+
+void Sarcomere::set_actin_direction_x_noise(double noise_std){
+    set_direction_axis_noise(actin, rng, noise_std, 0.0);
+}
+
+void Sarcomere::set_myosin_direction_x_noise(double noise_std,
+                                              double tilt_deg){
+    set_direction_axis_noise(myosin, rng, noise_std, tilt_deg);
+}
+
+void Sarcomere::cb_off_angle(){
+    if (actin.n < 2 || myosin.n < 4) {
+        return;
+    }
+
+    constexpr double ANG2_DEG     = 150.0;
+    constexpr double Y_ANCH_LEFT  = -0.015;
+    constexpr double Y_ANCH_RIGHT =  0.015;
+
+    const double angle_rad = ANG2_DEG * M_PI / 180.0;
+    vec dir0{1.0, 0.0, 0.0};
+    vec dir1{std::cos(angle_rad), std::sin(angle_rad), 0.0};
+    dir1.normalize();
+
+    actin.direction[0] = dir0;
+    actin.direction[1] = dir1;
+
+    const double half_len = 0.5 * actin.length;
+    vec anchor0{0.0, Y_ANCH_LEFT, 0.0};
+    vec anchor1{0.0, Y_ANCH_RIGHT, 0.0};
+
+    vec center0 = anchor0 + dir0 * half_len;
+    vec center1 = anchor1 + dir1 * half_len;
+    actin.center[0] = center0;
+    actin.center[1] = center1;
+    actin.update_endpoints();
+
+    double y0 = actin.right_end_y[0];
+    double y1 = actin.right_end_y[1];
+    std::vector<vec> myosin_positions = {
+        { 1.33, y0 - 0.03, 0.0 },
+        { 1.33, y0 + 0.03, 0.0 },
+        {-1.33, y1 - 0.03, 0.0 },
+        {-1.33, y1 + 0.03, 0.0 }
+    };
+
+
+    for (size_t i = 0; i < myosin_positions.size() && i < static_cast<size_t>(myosin.n); ++i) {
+        myosin.center[static_cast<int>(i)] = myosin_positions[i];
+        myosin.direction[static_cast<int>(i)] = vec{1.0, 0.0, 0.0};
+    }
+    myosin.update_endpoints();
+}
+
+void Sarcomere::am_off_angle(){
+    std::vector<vector> actin_positions = {
+       {-0.5, 0.015, 0}
+    };
+    for (int i = 0; i < actin_positions.size(); i++){
+        actin.center[i].x = actin_positions[i][0];
+        actin.center[i].y = actin_positions[i][1];
+        actin.center[i].z = actin_positions[i][2];
+    }
+
+    actin.direction[0] = {-0.9397, 0.3420, 0};
+
+    std::vector<vector> myosin_positions = {
+        {-1.33, 0, 0}
+    };
+    for (int i = 0; i < myosin_positions.size(); i++){
+        myosin.center[i].x = myosin_positions[i][0];
+        myosin.center[i].y = myosin_positions[i][1];
+        myosin.center[i].z = myosin_positions[i][2];
+        myosin.direction[i] = {1, 0, 0};
+    }
+}
+
+void Sarcomere::sarcomeric_structure_tight(){
+    box[0] = 5.32;
+    box[1] = 5.32;
+    box[2] = 5.32;
+
+    std::vector<vector> myosin_positions = {
+        {-1, -0.03, 0.0}, {1, -0.06, 0.0},
+        {-1,  0.03, 0.0}, {1,  0, 0.0},
+        {-1,  0.09, 0.0}, {1,  0.06, 0.0}
+    };
+    for (int i = 0; i < myosin_positions.size(); i++){
+        myosin.center[i].x   = myosin_positions[i][0];
+        myosin.center[i].y   = myosin_positions[i][1];
+        myosin.center[i].z   = myosin_positions[i][2];
+        myosin.direction[i] = {1, 0, 0};
+    }
+    myosin.update_endpoints();
+
+    std::vector<vector> actin_positions = {
+        {-2.16, -0.06, 0.0}, 
+        {-2.16, 0.0, 0.0}, 
+        {-2.16,  0.06, 0.0}, 
+        {0.1, -0.03, 0.0}, 
+        {0.1, 0.03, 0.0},
+        {0.1,  0.09, 0.0}
+    };
+    for (int i = 0; i < actin_positions.size(); i++){
+        actin.center[i].x   = actin_positions[i][0];
+        actin.center[i].y   = actin_positions[i][1];
+        actin.center[i].z   = actin_positions[i][2];
+        actin.direction[i] = {1, 0, 0};
+    }
+    int n = actin_positions.size();
+    actin_positions = {
+        {-0.1, -0.06, 0.0},
+        {-0.1,  0.00, 0.0},
+        {-0.1,  0.06, 0.0},
+        { 2.16, -0.03, 0.0},
+        { 2.16,  0.03, 0.0},
+        { 2.16,  0.09, 0.0}
+    };
+    for (int i = 0; i < actin_positions.size(); i++){
+        actin.center[i+n].x   = actin_positions[i][0];
+        actin.center[i+n].y   = actin_positions[i][1];
+        actin.center[i+n].z   = actin_positions[i][2];
+        actin.direction[i+n] = {-1, 0, 0};
+    }
+    actin.update_endpoints();
+
+    update_system();
+}
+
+void Sarcomere::sarcomeric_structure(){
+    box[0] = 5.32;
+    box[1] = 5.32;
+    box[2] = 5.32;
+
+    std::vector<vector> myosin_positions = {
+        {-1.33, -0.03, 0.0}, {1.33, -0.06, 0.0},
+        {-1.33,  0.03, 0.0}, {1.33,  0, 0.0},
+        {-1.33,  0.09, 0.0}, {1.33,  0.06, 0.0}
+    };
+    for (int i = 0; i < myosin_positions.size(); i++){
+        myosin.center[i].x   = myosin_positions[i][0];
+        myosin.center[i].y   = myosin_positions[i][1];
+        myosin.center[i].z   = myosin_positions[i][2];
+        myosin.direction[i] = {1, 0, 0};
+    }
+    myosin.update_endpoints();
+
+    std::vector<vector> actin_positions = {
+        {-2.16, -0.06, 0.0}, 
+        {-2.16, 0.0, 0.0}, 
+        {-2.16,  0.06, 0.0}, 
+        {0.5, -0.03, 0.0}, 
+        {0.5, 0.03, 0.0},
+        {0.5,  0.09, 0.0}
+    };
+    for (int i = 0; i < actin_positions.size(); i++){
+        actin.center[i].x   = actin_positions[i][0];
+        actin.center[i].y   = actin_positions[i][1];
+        actin.center[i].z   = actin_positions[i][2];
+        actin.direction[i] = {1, 0, 0};
+    }
+
+    int n = actin_positions.size();
+    actin_positions = {
+        {-0.5, -0.06, 0.0},
+        {-0.5,  0.00, 0.0},
+        {-0.5,  0.06, 0.0},
+        { 2.16, -0.03, 0.0},
+        { 2.16,  0.03, 0.0},
+        { 2.16,  0.09, 0.0}
+    };
+    for (int i = 0; i < actin_positions.size(); i++){
+        actin.center[i+n].x   = actin_positions[i][0];
+        actin.center[i+n].y   = actin_positions[i][1];
+        actin.center[i+n].z   = actin_positions[i][2];
+        actin.direction[i+n] = {-1, 0, 0};
+    }
+    actin.update_endpoints();
+
+    update_system();
+}
+#include "initialization.h"
+#include <vector>
+#include <cstdio>
+#include <cmath>
+
+namespace initialization {
+
+void partial_fix(Sarcomere& s, int& n_fixed) {
+    std::vector<vector> myosin_positions;
+    myosin_positions = {
+        {0, -2, 0}, {0, -1, 0}, {0, 0, 0}, {0, 1, 0}, {0, 2, 0},
+        {0, -2.5, 0}, {0, -1.5, 0}, {0, -0.5, 0}, {0, 0.5, 0}, {0, 1.5, 0}
+    };
+    for (int i = 0; i < n_fixed; i++){
+        s.myosin.center[i].x = myosin_positions[i][0];
+        s.myosin.center[i].y = myosin_positions[i][1];
+        s.myosin.center[i].z = myosin_positions[i][2];
+    }
+    for (int i = 0; i < s.myosin.n; i++){
+        s.myosin.direction[i] = {1, 0, 0};
+    }
+    s.myosin.update_endpoints();
+    s.update_system();
+}
+
+void cb(Sarcomere& s) {
+    std::vector<vector> actin_positions = {
+        {0.5, -0.015, 0}, {-0.5, 0.015, 0}
+    };
+    for (int i = 0; i < actin_positions.size(); i++){
+        s.actin.center[i].x = actin_positions[i][0];
+        s.actin.center[i].y = actin_positions[i][1];
+        s.actin.center[i].z = actin_positions[i][2];
+    }
+    s.actin.direction[0] = {1, 0, 0};
+    s.actin.direction[1] = {-1, 0, 0};
+
+    std::vector<vector> myosin_positions = {
+        {-1.33, 0.045, 0}, {-1.33, -0.015, 0}, {1.33, 0.015, 0}, {1.33, -0.045, 0}
+    };
+    for (int i = 0; i < myosin_positions.size(); i++){
+        s.myosin.center[i].x = myosin_positions[i][0];
+        s.myosin.center[i].y = myosin_positions[i][1];
+        s.myosin.center[i].z = myosin_positions[i][2];
+        s.myosin.direction[i] = {1, 0, 0};
+    }
+}
+
+void set_actin_direction_x_noise(Sarcomere& s, double noise_std) {
+    set_direction_axis_noise(s.actin, s.rng, noise_std, 0.0);
+}
+
+void set_myosin_direction_x_noise(Sarcomere& s, double noise_std,
+                                   double tilt_deg) {
+    set_direction_axis_noise(s.myosin, s.rng, noise_std, tilt_deg);
+}
+
+void cb_off_angle(Sarcomere& s) {
+    if (s.actin.n < 2 || s.myosin.n < 4) {
+        return;
+    }
+    constexpr double ANG2_DEG     = 150.0;
+    constexpr double Y_ANCH_LEFT  = -0.015;
+    constexpr double Y_ANCH_RIGHT =  0.015;
+
+    const double angle_rad = ANG2_DEG * M_PI / 180.0;
+    vec dir0{1.0, 0.0, 0.0};
+    vec dir1{std::cos(angle_rad), std::sin(angle_rad), 0.0};
+    dir1.normalize();
+
+    s.actin.direction[0] = dir0;
+    s.actin.direction[1] = dir1;
+
+    const double half_len = 0.5 * s.actin.length;
+    vec anchor0{0.0, Y_ANCH_LEFT, 0.0};
+    vec anchor1{0.0, Y_ANCH_RIGHT, 0.0};
+
+    vec center0 = anchor0 + dir0 * half_len;
+    vec center1 = anchor1 + dir1 * half_len;
+    s.actin.center[0] = center0;
+    s.actin.center[1] = center1;
+    s.actin.update_endpoints();
+
+    double y0 = s.actin.right_end_y[0];
+    double y1 = s.actin.right_end_y[1];
+    std::vector<vec> myosin_positions = {
+        { 1.33, y0 - 0.03, 0.0 },
+        { 1.33, y0 + 0.03, 0.0 },
+        {-1.33, y1 - 0.03, 0.0 },
+        {-1.33, y1 + 0.03, 0.0 }
+    };
+
+    for (size_t i = 0; i < myosin_positions.size() && i < static_cast<size_t>(s.myosin.n); ++i) {
+        s.myosin.center[static_cast<int>(i)] = myosin_positions[i];
+        s.myosin.direction[static_cast<int>(i)] = vec{1.0, 0.0, 0.0};
+    }
+    s.myosin.update_endpoints();
+}
+
+void am_off_angle(Sarcomere& s) {
+    std::vector<vector> actin_positions = {
+       {-0.5, 0.015, 0}
+    };
+    for (int i = 0; i < actin_positions.size(); i++){
+        s.actin.center[i].x = actin_positions[i][0];
+        s.actin.center[i].y = actin_positions[i][1];
+        s.actin.center[i].z = actin_positions[i][2];
+    }
+    s.actin.direction[0] = {-0.9397, 0.3420, 0};
+
+    std::vector<vector> myosin_positions = {
+        {-1.33, 0, 0}
+    };
+    for (int i = 0; i < myosin_positions.size(); i++){
+        s.myosin.center[i].x = myosin_positions[i][0];
+        s.myosin.center[i].y = myosin_positions[i][1];
+        s.myosin.center[i].z = myosin_positions[i][2];
+        s.myosin.direction[i] = {1, 0, 0};
+    }
+}
+
+void sarcomeric_structure_tight(Sarcomere& s) {
+    s.box[0] = 5.32;
+    s.box[1] = 5.32;
+    s.box[2] = 5.32;
+
+    std::vector<vector> myosin_positions = {
+        {-1, -0.03, 0.0}, {1, -0.06, 0.0},
+        {-1,  0.03, 0.0}, {1,  0, 0.0},
+        {-1,  0.09, 0.0}, {1,  0.06, 0.0}
+    };
+    for (int i = 0; i < myosin_positions.size(); i++){
+        s.myosin.center[i].x   = myosin_positions[i][0];
+        s.myosin.center[i].y   = myosin_positions[i][1];
+        s.myosin.center[i].z   = myosin_positions[i][2];
+        s.myosin.direction[i] = {1, 0, 0};
+    }
+    s.myosin.update_endpoints();
+
+    std::vector<vector> actin_positions = {
+        {-2.16, -0.06, 0.0}, 
+        {-2.16, 0.0, 0.0}, 
+        {-2.16,  0.06, 0.0}, 
+        {0.1, -0.03, 0.0}, 
+        {0.1, 0.03, 0.0},
+        {0.1,  0.09, 0.0}
+    };
+    for (int i = 0; i < actin_positions.size(); i++){
+        s.actin.center[i].x   = actin_positions[i][0];
+        s.actin.center[i].y   = actin_positions[i][1];
+        s.actin.center[i].z   = actin_positions[i][2];
+        s.actin.direction[i] = {1, 0, 0};
+    }
+    int n = actin_positions.size();
+    actin_positions = {
+        {-0.1, -0.06, 0.0},
+        {-0.1,  0.00, 0.0},
+        {-0.1,  0.06, 0.0},
+        { 2.16, -0.03, 0.0},
+        { 2.16,  0.03, 0.0},
+        { 2.16,  0.09, 0.0}
+    };
+    for (int i = 0; i < actin_positions.size(); i++){
+        s.actin.center[i+n].x   = actin_positions[i][0];
+        s.actin.center[i+n].y   = actin_positions[i][1];
+        s.actin.center[i+n].z   = actin_positions[i][2];
+        s.actin.direction[i+n] = {-1, 0, 0};
+    }
+    s.actin.update_endpoints();
+    s.update_system();
+}
+
+void sarcomeric_structure(Sarcomere& s) {
+    s.box[0] = 5.32;
+    s.box[1] = 5.32;
+    s.box[2] = 5.32;
+
+    std::vector<vector> myosin_positions = {
+        {-1.33, -0.03, 0.0}, {1.33, -0.06, 0.0},
+        {-1.33,  0.03, 0.0}, {1.33,  0, 0.0},
+        {-1.33,  0.09, 0.0}, {1.33,  0.06, 0.0}
+    };
+    for (int i = 0; i < myosin_positions.size(); i++){
+        s.myosin.center[i].x   = myosin_positions[i][0];
+        s.myosin.center[i].y   = myosin_positions[i][1];
+        s.myosin.center[i].z   = myosin_positions[i][2];
+        s.myosin.direction[i] = {1, 0, 0};
+    }
+    s.myosin.update_endpoints();
+
+    std::vector<vector> actin_positions = {
+        {-2.16, -0.06, 0.0}, 
+        {-2.16, 0.0, 0.0}, 
+        {-2.16,  0.06, 0.0}, 
+        {0.5, -0.03, 0.0}, 
+        {0.5, 0.03, 0.0},
+        {0.5,  0.09, 0.0}
+    };
+    for (int i = 0; i < actin_positions.size(); i++){
+        s.actin.center[i].x   = actin_positions[i][0];
+        s.actin.center[i].y   = actin_positions[i][1];
+        s.actin.center[i].z   = actin_positions[i][2];
+        s.actin.direction[i] = {1, 0, 0};
+    }
+
+    int n = actin_positions.size();
+    actin_positions = {
+        {-0.5, -0.06, 0.0}, 
+        {-0.5,  0.00, 0.0}, 
+        {-0.5,  0.06, 0.0}, 
+        { 2.16, -0.03, 0.0}, 
+        { 2.16,  0.03, 0.0}, 
+        { 2.16,  0.09, 0.0}
+    };
+    for (int i = 0; i < actin_positions.size(); i++){
+        s.actin.center[i+n].x   = actin_positions[i][0];
+        s.actin.center[i+n].y   = actin_positions[i][1];
+        s.actin.center[i+n].z   = actin_positions[i][2];
+        s.actin.direction[i+n] = {-1, 0, 0};
+    }
+    s.actin.update_endpoints();
+    s.update_system();
+}
+
+} // namespace initialization

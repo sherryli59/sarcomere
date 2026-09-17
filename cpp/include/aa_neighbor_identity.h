@@ -50,6 +50,18 @@ public:
         return iterator == slots_.end() ? nullptr : &iterator->second;
     }
 
+    // Read-only counterpart of reserve().  KMC callers use this while
+    // constructing their hazard sum so a geometrically valid event is not
+    // sampled and then silently discarded because the selected pair has no
+    // remaining finite-valency slot.
+    bool can_reserve(int first, int second, int maximum_degree) const {
+        if (first == second || first < 0 || second < 0) return false;
+        if (contains(first, second)) return true;
+        return maximum_degree <= 0 ||
+            (degree(first) < maximum_degree &&
+             degree(second) < maximum_degree);
+    }
+
     void erase(int first, int second) {
         const auto iterator = slots_.find(pair_key(first, second));
         if (iterator == slots_.end()) return;
@@ -65,18 +77,13 @@ public:
 
     bool reserve(int first, int second, Step current_step,
                  int maximum_degree, bool pinned = false) {
-        if (first == second || first < 0 || second < 0) return false;
+        if (!can_reserve(first, second, maximum_degree)) return false;
         if (first > second) std::swap(first, second);
         const auto key = pair_key(first, second);
         auto iterator = slots_.find(key);
         if (iterator != slots_.end()) {
             iterator->second.pinned = iterator->second.pinned || pinned;
             return true;
-        }
-        if (maximum_degree > 0 &&
-            (degree(first) >= maximum_degree ||
-             degree(second) >= maximum_degree)) {
-            return false;
         }
         slots_.emplace(key, Slot{
             first, second, current_step, current_step, pinned});

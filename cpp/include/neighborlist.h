@@ -44,6 +44,8 @@ public:
 
     // Check if the neighbor list needs to be rebuilt (based on displacement).
     bool needs_rebuild() const;
+    // Half the skin: the per-particle displacement that triggers a rebuild.
+    double rebuild_threshold() const { return threshold_; }
 
       // Step 0: Clear and resize internal containers.
     void clearAndResizeContainers();

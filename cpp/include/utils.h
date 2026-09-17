@@ -15,11 +15,33 @@
 
 namespace utils {
 
+// std::round is never inlined: it has to honour the C library's contract, so
+// every minimum-image wrap in the force loops pays a call through the PLT.
+// perf attributed 6.1% of all cycles to `__round` plus `round@plt`.
+//
+// This reproduces "round half away from zero" bit for bit, using operations the
+// compiler can emit inline (a single `roundsd` once SSE4.1 is available):
+//   |x| >= 2^52  -> trunc(x) == x and frac == 0, so x is returned unchanged
+//   |x| <  2^52  -> x - trunc(x) is exact, and the two comparisons add or
+//                   subtract the halfway unit in the right direction
+//   +-0, +-inf, NaN all fall out of the same expression.
+// utils::round_half_away_matches_std in tests/pbc_round_test.cpp pins the
+// equivalence over random and edge-case inputs.
+inline double round_half_away(double x) {
+    const double truncated = std::trunc(x);
+    const double fraction = x - truncated;
+    const double adjust = (fraction >= 0.5) - (fraction <= -0.5);
+    // Return `truncated` untouched when there is nothing to carry.  Adding a
+    // literal zero would turn trunc(-0.0) = -0.0 into +0.0, which std::round
+    // does not do and which would flip the sign of a wrapped coordinate.
+    return adjust == 0.0 ? truncated : truncated + adjust;
+}
+
 inline double wrap_axis(double x, double L, bool periodic) {
     if (!periodic || L == 0.0) {
         return x;
     }
-    return x - L * std::round(x / L);
+    return x - L * round_half_away(x / L);
 }
 
 //------------------------------------------------------------------------------

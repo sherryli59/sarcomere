@@ -1,0 +1,131 @@
+{
+  "trajectory": "/scratch/users/xsli/sarcomere/prod_theta01_weaker_titin_20260805_r2/data/A1280_M640_thetaPerp0p1_titinK40_L0p75_seed20260805_40ms.h5",
+  "analysis_window_ms": [
+    20.0,
+    40.0
+  ],
+  "averaging_window_ms": 5.0,
+  "overlap_semantics": "mean of the two actins' maximum productive overlap with currently head-attached myosins",
+  "velocity_semantics": "positive means A-A overlap shrinking; zero means stall; negative means re-annealing",
+  "selection": "antiparallel pair continuously ACTN2-linked and both actins mean >0.5 A-M heads over the window",
+  "groups": {
+    "status1": {
+      "sample_count": 116,
+      "unique_pair_count": 76,
+      "mean_am_overlap_um": 0.4393101945842682,
+      "median_am_overlap_um": 0.4318343446484532,
+      "mean_velocity_um_per_s": -0.05774256694370776,
+      "mean_velocity_pair_clustered_95ci": [
+        -0.8432697058269564,
+        0.7243890149690633
+      ],
+      "slope_um_per_s_per_um_overlap": 4.506371611117524,
+      "slope_pair_clustered_95ci": [
+        -0.4044571805156106,
+        9.59796328802332
+      ],
+      "intercept_um_per_s": -2.0374375562927702,
+      "pearson_r": 0.14702098669651992
+    },
+    "cb2": {
+      "sample_count": 35,
+      "unique_pair_count": 14,
+      "mean_am_overlap_um": 0.4878239093958213,
+      "median_am_overlap_um": 0.49353121884828427,
+      "mean_velocity_um_per_s": 0.25558816703015663,
+      "mean_velocity_pair_clustered_95ci": [
+        -0.10379255480340943,
+        0.7740914770681828
+      ],
+      "slope_um_per_s_per_um_overlap": -2.333727773229417,
+      "slope_pair_clustered_95ci": [
+        -5.404497258198919,
+        0.25208193782936295
+      ],
+      "intercept_um_per_s": 1.3940363728325347,
+      "pearson_r": -0.19215719532626174
+    }
+  },
+  "bins": [
+    {
+      "group": "status1",
+      "overlap_bin_left_um": 0.15,
+      "overlap_bin_right_um": 0.3,
+      "sample_count": 22,
+      "mean_am_overlap_um": 0.24709208335737537,
+      "mean_velocity_um_per_s": -1.3618525467777032,
+      "velocity_ci_low": -2.8723211346670503,
+      "velocity_ci_high": 0.08848097381228406
+    },
+    {
+      "group": "status1",
+      "overlap_bin_left_um": 0.3,
+      "overlap_bin_right_um": 0.45,
+      "sample_count": 43,
+      "mean_am_overlap_um": 0.38248643024563833,
+      "mean_velocity_um_per_s": -0.050280002131283266,
+      "velocity_ci_low": -1.3804250323980782,
+      "velocity_ci_high": 1.267933212862685
+    },
+    {
+      "group": "status1",
+      "overlap_bin_left_um": 0.45,
+      "overlap_bin_right_um": 0.6,
+      "sample_count": 33,
+      "mean_am_overlap_um": 0.5274969047138299,
+      "mean_velocity_um_per_s": 0.4168306926480164,
+      "velocity_ci_low": -0.9744675504714423,
+      "velocity_ci_high": 1.7360341773878876
+    },
+    {
+      "group": "status1",
+      "overlap_bin_left_um": 0.6,
+      "overlap_bin_right_um": 0.676,
+      "sample_count": 18,
+      "mean_am_overlap_um": 0.6483134656552232,
+      "mean_velocity_um_per_s": 0.648291416550001,
+      "velocity_ci_low": -1.2022996089945102,
+      "velocity_ci_high": 2.5576192030095073
+    },
+    {
+      "group": "cb2",
+      "overlap_bin_left_um": 0.15,
+      "overlap_bin_right_um": 0.3,
+      "sample_count": 5,
+      "mean_am_overlap_um": 0.271095726465718,
+      "mean_velocity_um_per_s": 0.1799572876141043,
+      "velocity_ci_low": 0.05116391366219334,
+      "velocity_ci_high": 0.326876423891311
+    },
+    {
+      "group": "cb2",
+      "overlap_bin_left_um": 0.3,
+      "overlap_bin_right_um": 0.45,
+      "sample_count": 6,
+      "mean_am_overlap_um": 0.38544611914859495,
+      "mean_velocity_um_per_s": 0.5981986035245087,
+      "velocity_ci_low": 0.09739897782245203,
+      "velocity_ci_high": 1.3577842253310137
+    },
+    {
+      "group": "cb2",
+      "overlap_bin_left_um": 0.45,
+      "overlap_bin_right_um": 0.6,
+      "sample_count": 16,
+      "mean_am_overlap_um": 0.5139244114015118,
+      "mean_velocity_um_per_s": 0.52417219049401,
+      "velocity_ci_low": -0.255064979961921,
+      "velocity_ci_high": 1.6993417081327495
+    },
+    {
+      "group": "cb2",
+      "overlap_bin_left_um": 0.6,
+      "overlap_bin_right_um": 0.676,
+      "sample_count": 8,
+      "mean_am_overlap_um": 0.6478613624011749,
+      "mean_velocity_um_per_s": -0.49126840763328117,
+      "velocity_ci_low": -1.1707892570438383,
+      "velocity_ci_high": 0.14608691968661344
+    }
+  ]
+}

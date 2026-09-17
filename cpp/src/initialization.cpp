@@ -230,11 +230,8 @@ void Sarcomere::set_am_thick_regulation(
         for (auto& half_heads : myosin_halves) {
             for (int h = 0; h < static_cast<int>(half_heads.size()); ++h) {
                 auto& head = half_heads[static_cast<size_t>(h)];
-                const int on_before = static_cast<int>(std::floor(
-                    static_cast<double>(h) * am_thick_initial_on_fraction));
-                const int on_after = static_cast<int>(std::floor(
-                    static_cast<double>(h + 1) * am_thick_initial_on_fraction));
-                const bool initially_on = on_after > on_before;
+                const bool initially_on = am_motor_kinetics::initially_on_head(
+                    h, static_cast<int>(half_heads.size()), am_thick_initial_on_fraction);
                 head.bound_actin = -1;
                 head.target_axial = 0.0;
                 head.stroke_progress = 0.0;
@@ -244,6 +241,30 @@ void Sarcomere::set_am_thick_regulation(
                         : am_motor_kinetics::State::off_srx);
             }
         }
+    }
+}
+
+void Sarcomere::configure_actin_turnover(
+    bool enabled, double rate, double start_time,
+    int max_placement_attempts, double clearance_ratio) {
+    if (!std::isfinite(rate) || rate < 0.0 ||
+        !std::isfinite(start_time) || start_time < 0.0 ||
+        max_placement_attempts <= 0 ||
+        !std::isfinite(clearance_ratio) || clearance_ratio <= 0.0 ||
+        clearance_ratio > 1.0) {
+        throw std::invalid_argument("invalid actin turnover configuration");
+    }
+    actin_turnover_clearance_ratio = clearance_ratio;
+    actin_turnover_enabled = enabled && rate > 0.0;
+    actin_turnover_rate = rate;
+    actin_turnover_start_time = start_time;
+    actin_turnover_max_placement_attempts = max_placement_attempts;
+    if (actin_last_turnover_step.size() != static_cast<size_t>(actin.n)) {
+        actin_last_turnover_step.assign(
+            static_cast<size_t>(actin.n),
+            static_cast<RecoveryStep>(std::min(
+                current_step,
+                static_cast<size_t>(std::numeric_limits<RecoveryStep>::max()))));
     }
 }
 
@@ -421,7 +442,7 @@ void Sarcomere::single_am_tilted(){
     // outer third of the negative half of a myosin tilted by 20 degrees.  The
     // active force on the myosin points toward -x, so r_head x F rotates its
     // axis toward the actin axis when the sign convention is correct.
-    constexpr double angle = 20.0 * M_PI / 180.0;
+    const double angle = probe_tilt_deg * M_PI / 180.0;
     const vec myosin_axis{std::cos(angle), std::sin(angle), 0.0};
     const vec transverse{-std::sin(angle), std::cos(angle), 0.0};
 
@@ -960,7 +981,12 @@ void Sarcomere::prebind_local_aa_pair(
         }
     }
     _rebuild_local_aa_indices();
-    const int requested = std::min(link_count, aa_prebundle_links_per_pair);
+    int requested = std::min(link_count, aa_prebundle_links_per_pair);
+    if (aa_total_link_pool > 0) {
+        requested = std::min(requested, std::max(
+            0, aa_total_link_pool -
+                static_cast<int>(aa_active_link_slots.size())));
+    }
     for (int ordinal = 0; ordinal < requested; ++ordinal) {
         double overlap = 0.0;
         const auto attachment = _local_aa_attachment_candidate(

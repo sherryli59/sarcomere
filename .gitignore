@@ -14,3 +14,22 @@ cpp/smoke_test_run/
 *.h5
 *.h5.lock
 *.mp4
+
+# --- added 2026-09-17 during codebase cleanup ---
+# Build trees at ANY depth: the rule above only matched cpp/build*/ at the repo
+# root, so ~170 MB of nested compiled binaries under sandbox/ stayed untracked.
+**/build*/
+*.o
+*.a
+# Generated analysis artifacts: regenerable from the scripts + /scratch data.
+*.png
+*.html
+*.ipynb
+*.ipynb_checkpoints/
+# Run outputs: SLURM logs and measurement dumps, regenerable from the sbatch.
+*.log
+*.out
+*.err
+*.csv
+*.svg
+*.jpg

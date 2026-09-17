@@ -234,7 +234,105 @@ LocalAALinkResult compute_local_aa_link(
     // saturating form whose force approaches this ceiling in pN. The
     // small-error stiffness is unchanged, so a registered pair behaves
     // exactly as before; only badly mis-registered pairs feel a difference.
-    double axial_force_max = 0.0);
+    double axial_force_max = 0.0,
+    double radial_force_max = 0.0);
+
+struct ACTN2PatchGeometry {
+    vec first {0.0, 0.0, 0.0};
+    vec second {0.0, 0.0, 0.0};
+    vec midpoint {0.0, 0.0, 0.0};
+    double half_length = 0.0;
+};
+
+ACTN2PatchGeometry compute_actn2_patch_geometry(
+    const Filament& actin, int actin_i, int actin_j, double s_i, double s_j,
+    const std::vector<double>& box);
+
+// Necessary (not sufficient) center-distance tests. Returning false proves
+// that the exact narrow-phase contact cannot apply.
+bool actn2_patch_may_contact_myosin_tip(
+    const ACTN2PatchGeometry& patch, const Myosin& myosin, int myosin_index,
+    const std::vector<double>& box, double axial_margin,
+    double transverse_cutoff);
+bool actn2_patch_may_contact_myosin_body(
+    const ACTN2PatchGeometry& patch, const Myosin& myosin, int myosin_index,
+    const std::vector<double>& box, double outer_contact_distance);
+
+struct ACTN2MyosinContactResult {
+    vec force_on_actin_i {0.0, 0.0, 0.0};
+    vec force_on_actin_j {0.0, 0.0, 0.0};
+    vec force_on_myosin {0.0, 0.0, 0.0};
+    vec torque_on_actin_i {0.0, 0.0, 0.0};
+    vec torque_on_actin_j {0.0, 0.0, 0.0};
+    vec torque_on_myosin {0.0, 0.0, 0.0};
+    double distance = 0.0;
+    // Penetration of the physical connector/thick-filament hard core.  This
+    // remains the quantity used by the emergency geometric-rupture guard.
+    double penetration = 0.0;
+    // Compression of an optional soft, crowded-head corona outside the hard
+    // core.  It must not be interpreted as hard-core penetration.
+    double shell_penetration = 0.0;
+    double force = 0.0;
+    double energy = 0.0;
+    double arm_weight_i = 0.5;
+    double arm_weight_j = 0.5;
+    bool applied = false;
+};
+
+// Conservative finite contact between the material ACTN2 connector and one
+// thick-filament capsule.  The connector reaction is distributed between its
+// two actin endpoints by the closest-point coordinate, preserving zero net
+// force; the matching myosin reaction is applied at its closest point.
+ACTN2MyosinContactResult compute_actn2_myosin_contact(
+    const Filament& actin, const Myosin& myosin,
+    int actin_i, int actin_j, double s_i, double s_j, int myosin_index,
+    const std::vector<double>& box, double hard_core_distance,
+    double epsilon, double force_cap = 0.0,
+    double shell_width = 0.0, double shell_energy = 0.0);
+
+// Axial contact between one thick-filament tip and the midpoint of a local
+// bilateral ACTN2 bridge.  This represents the finite axial extent of the
+// crowded Z-disc/ACTN2 patch, rather than enlarging the myosin hard core.
+// Just enough of the tip contact to decide whether the projection fires.
+// compute_zdisc_myosin_tip_contact() below also evaluates a smoothstep, a
+// tanh, an exp/log1p/log energy and three orientation drives -- and the solver
+// discards all of it unless axial_gap < -tolerance, which happens about twice
+// per step out of ~53,000 evaluations.
+struct ZDiscMyosinTipGap {
+    bool eligible = false;          // on the tip's own half and inside the cone
+    double axial_gap = 0.0;
+    double transverse_distance = 0.0;
+};
+
+ZDiscMyosinTipGap zdisc_myosin_tip_gap(
+    const Filament& actin, const Myosin& myosin,
+    int actin_i, int actin_j, double s_i, double s_j, int myosin_index,
+    int end_sign, const std::vector<double>& box, double onset,
+    double transverse_cutoff);
+
+struct ZDiscMyosinTipContactResult {
+    vec force_on_actin_i {0.0, 0.0, 0.0};
+    vec force_on_actin_j {0.0, 0.0, 0.0};
+    vec force_on_myosin {0.0, 0.0, 0.0};
+    vec torque_on_actin_i {0.0, 0.0, 0.0};
+    vec torque_on_actin_j {0.0, 0.0, 0.0};
+    vec torque_on_myosin {0.0, 0.0, 0.0};
+    double axial_gap = 0.0;
+    double transverse_distance = 0.0;
+    double radial_gate = 0.0;
+    double compression = 0.0;
+    double force = 0.0;
+    double energy = 0.0;
+    bool eligible_half = false;
+    bool applied = false;
+};
+
+ZDiscMyosinTipContactResult compute_zdisc_myosin_tip_contact(
+    const Filament& actin, const Myosin& myosin,
+    int actin_i, int actin_j, double s_i, double s_j, int myosin_index,
+    int end_sign, const std::vector<double>& box, double onset,
+    double stiffness, double force_max, double transverse_flat,
+    double transverse_cutoff);
 
 
 // Compute forces and energy for actin–myosin interaction in 3D.
@@ -296,7 +394,8 @@ AMTetherResult compute_am_head_tether(const Filament& actin,
                                       const vec* material_e1 = nullptr,
                                       const vec* material_e2 = nullptr,
                                       double actin_radius = 0.0,
-                                      double radial_slack = 0.0);
+                                      double radial_slack = 0.0,
+    double tether_force_max = 0.0);
 
 // Energy-consistent explicit cross-bridge.  The myosin anchor is fixed in the
 // transported thick-filament material frame and actin_coordinate is fixed in
@@ -437,7 +536,8 @@ RepulsionResult compute_myosin_repulsion(const Filament& actin,
                                          const std::vector<double>& box,
                                          int fix_myosin,
                                          const utils::MoleculeConnection& actinIndicesPerMyosin,
-                                         double stiffness);
+                                         double stiffness,
+                                         double exclusion_distance = 0.0);
 
 // Actin–actin segment repulsion helper.
 RepulsionResult compute_actin_repulsion(const Filament& actin,
@@ -462,6 +562,25 @@ RepulsionResult compute_opposing_pointed_end_contact(
     double force_cap = 0.0,
     double antiparallel_dot_max = -0.8);
 
+// Lateral (transverse) repulsion between the barbed ends of two thin
+// filaments.  ACTN2 is an attractive crosslinker carrying no excluded volume
+// of its own, so a crosslinked cluster contracts until the barbed ends reach
+// the actin hard core: measured barbed-end nearest-neighbour spacing falls
+// from 41 nm to 26 nm as links accumulate, while the spacing needed to tile a
+// Z-disc face at this filament count is ~81 nm.  This term supplies the
+// missing lateral pressure.  It acts on EVERY barbed-end pair, not only linked
+// ones, because the collapse is driven by unlinked neighbours crowding inside
+// the crosslinker rest length.  The interaction is gated on axial proximity so
+// that ends belonging to different Z-discs do not push on one another, and the
+// force acts only in the plane transverse to the local filament axis so that
+// axial registration is left to the dedicated register terms.
+// range <= 0 or stiffness <= 0 disables the term; force_cap <= 0 is uncapped.
+RepulsionResult compute_barbed_end_lateral_repulsion(
+    const Filament& actin, int i, int j,
+    const std::vector<double>& box,
+    double range, double stiffness, double force_cap,
+    double axial_window);
+
 // Actin–myosin axial end-stop repulsion helper.
 vec compute_actin_myosin_repulsion(const Filament& actin,
                                    const Myosin& myosin,
@@ -482,7 +601,8 @@ bool apply_myosin_repulsion(const Filament& actin,
                             double stiffness,
                             vec& force_on_first,
                             vec& force_on_second,
-                            double& segment_distance);
+                            double& segment_distance,
+                            double exclusion_distance = 0.0);
 
 bool apply_actin_repulsion(const Filament& actin,
                            int i,

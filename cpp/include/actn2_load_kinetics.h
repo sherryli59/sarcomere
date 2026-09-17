@@ -4,6 +4,7 @@
 #include <algorithm>
 #include <array>
 #include <cmath>
+#include <cstdint>
 #include <stdexcept>
 #include <string>
 
@@ -21,6 +22,7 @@ enum class StatusMode {
     productive_opposed = 5,
     arm_load_productive = 6,
     productive_register = 7,
+    motor_transmitted_register = 8,
 };
 
 inline StatusMode parse_status_mode(const std::string& value) {
@@ -46,10 +48,15 @@ inline StatusMode parse_status_mode(const std::string& value) {
         value == "minimal_productive_register") {
         return StatusMode::productive_register;
     }
+    if (value == "motor_transmitted_register" ||
+        value == "identity_transmitted_register") {
+        return StatusMode::motor_transmitted_register;
+    }
     throw std::invalid_argument(
         "aa_status_mode must be legacy_motor_identity, aa_force_projection, "
         "motor_only, transmitted_only, opposed_and_transmitted, or "
-        "productive_opposed, arm_load_productive, or productive_register");
+        "productive_opposed, arm_load_productive, productive_register, or "
+        "motor_transmitted_register");
 }
 
 inline const char* status_mode_name(StatusMode mode) {
@@ -70,6 +77,8 @@ inline const char* status_mode_name(StatusMode mode) {
             return "arm_load_productive";
         case StatusMode::productive_register:
             return "productive_register";
+        case StatusMode::motor_transmitted_register:
+            return "motor_transmitted_register";
     }
     return "unknown";
 }
@@ -98,6 +107,262 @@ inline double dot(const std::array<double, 3>& a,
 
 inline double norm(const std::array<double, 3>& value) {
     return std::sqrt(dot(value, value));
+}
+
+// Portion of a source-resolved motor force that directly balances the force
+// applied to the same actin by one ACTN2 connector.  A passive ACTN2 spring,
+// AA prestress, and steric forces cannot create this quantity by themselves.
+inline double opposing_support(
+    const std::array<double, 3>& motor_force_on_actin,
+    const std::array<double, 3>& connector_force_on_actin) {
+    const double connector_norm = norm(connector_force_on_actin);
+    if (!(connector_norm > 0.0)) return 0.0;
+    return std::max(
+        0.0, -dot(motor_force_on_actin, connector_force_on_actin) /
+                 connector_norm);
+}
+
+// Both ACTN2 arms must carry favorable connector load and both selected motor
+// sources must balance that same connector.  The weakest of those four
+// requirements is the motor-transmitted evidence for this particular pair.
+inline double motor_transmitted_load(const ArmLoads& connector_arm_loads,
+                                     double first_motor_support,
+                                     double second_motor_support) {
+    return std::min({
+        std::max(0.0, connector_arm_loads.first),
+        std::max(0.0, connector_arm_loads.second),
+        std::max(0.0, first_motor_support),
+        std::max(0.0, second_motor_support)});
+}
+
+inline bool distinct_motor_sources(int first_myosin, int second_myosin) {
+    return first_myosin >= 0 && second_myosin >= 0 &&
+           first_myosin != second_myosin;
+}
+
+inline double update_support_ema(double previous, double instantaneous,
+                                 double dt, double averaging_window) {
+    previous = std::max(0.0, previous);
+    instantaneous = std::max(0.0, instantaneous);
+    if (!(averaging_window > 0.0)) return instantaneous;
+    const double alpha = std::clamp(
+        std::max(0.0, dt) / averaging_window, 0.0, 1.0);
+    return previous + alpha * (instantaneous - previous);
+}
+
+// A mature ACTN2 conformation is stabilized by recently transmitted motor
+// support but is not an irreversible record of a past loading event.  The
+// unloaded registered complex relaxes at zero_load_rate; support suppresses
+// that relaxation, while registry error beyond the retention window
+// accelerates it.  The exponential form is the coarse-grained Bell analogue
+// for a reversible conformational transition rather than molecular
+// detachment.  Exponent clamping keeps extreme diagnostic inputs finite.
+inline double mature_unlock_rate(
+    double zero_load_rate, double filtered_motor_support,
+    double support_scale, double registry_error,
+    double registry_retention, double registry_scale) {
+    zero_load_rate = std::max(0.0, zero_load_rate);
+    if (!(zero_load_rate > 0.0)) return 0.0;
+    filtered_motor_support = std::max(0.0, filtered_motor_support);
+    support_scale = std::max(support_scale, 1e-12);
+    registry_error = std::max(0.0, registry_error);
+    registry_retention = std::max(0.0, registry_retention);
+    registry_scale = std::max(registry_scale, 1e-12);
+    const double support_exponent = -filtered_motor_support / support_scale;
+    const double registry_exponent =
+        std::max(0.0, registry_error - registry_retention) / registry_scale;
+    return zero_load_rate * std::exp(std::clamp(
+        support_exponent + registry_exponent, -50.0, 50.0));
+}
+
+inline double mature_unlock_probability(double rate, double dt) {
+    if (!(rate > 0.0) || !(dt > 0.0)) return 0.0;
+    return -std::expm1(-std::min(rate * dt, 700.0));
+}
+
+inline bool replace_motor_pair(double best_alternative_support,
+                               double current_pair_support,
+                               double switch_ratio) {
+    switch_ratio = std::max(1.0, switch_ratio);
+    return best_alternative_support >
+           switch_ratio * std::max(0.0, current_pair_support);
+}
+
+// A source-resolved motor force is a finite budget.  When the same source can
+// oppose several ACTN2 connector arms, distribute that budget in proportion
+// to their raw projected demands instead of crediting the full force to every
+// link independently.
+inline double allocated_source_support(double raw_support,
+                                       double total_raw_support,
+                                       double source_force_budget) {
+    raw_support = std::max(0.0, raw_support);
+    total_raw_support = std::max(0.0, total_raw_support);
+    source_force_budget = std::max(0.0, source_force_budget);
+    if (!(raw_support > 0.0) || !(total_raw_support > 0.0) ||
+        !(source_force_budget > 0.0)) {
+        return 0.0;
+    }
+    return raw_support * std::min(1.0,
+        source_force_budget / total_raw_support);
+}
+
+struct MotorPairIdentity {
+    int myosin_i = -1;
+    int myosin_j = -1;
+    std::int8_t half_i = 0;
+    std::int8_t half_j = 0;
+
+    bool valid() const {
+        return distinct_motor_sources(myosin_i, myosin_j);
+    }
+};
+
+inline bool same_motor_pair(const MotorPairIdentity& first,
+                            const MotorPairIdentity& second) {
+    return first.myosin_i == second.myosin_i &&
+           first.myosin_j == second.myosin_j &&
+           first.half_i == second.half_i &&
+           first.half_j == second.half_j;
+}
+
+struct MotorPairState {
+    MotorPairIdentity identity;
+    std::uint64_t since_step = 0;
+    std::uint64_t last_seen_step = 0;
+    double support_ema = 0.0;
+    double support_instantaneous = 0.0;
+    MotorPairIdentity challenger_identity;
+    std::uint64_t challenger_since_step = 0;
+    double challenger_support_ema = 0.0;
+    bool locked = false;
+};
+
+enum class MotorPairEvent : int {
+    none = 0,
+    selected = 1,
+    switched = 2,
+    dropped = 3,
+};
+
+struct MotorPairUpdate {
+    MotorPairEvent event = MotorPairEvent::none;
+    double candidate_age = 0.0;
+    bool committed = false;
+};
+
+// Update one weak ACTN2 molecule's selected motor pair.  Short gaps in strong
+// head support are allowed for head turnover, but an identity that has supplied
+// no support for dropout_time is forgotten and must earn a fresh commitment
+// interval.  A positive alternative may replace the current identity before
+// that timeout when it clears the switch hysteresis.
+inline MotorPairUpdate update_motor_pair_candidate(
+    MotorPairState& state, const MotorPairIdentity& best_identity,
+    double best_support, double current_support, std::uint64_t current_step,
+    double dt, double support_window, double commit_time,
+    double switch_ratio, double exchange_time, double dropout_time) {
+    MotorPairUpdate result;
+    best_support = std::max(0.0, best_support);
+    current_support = std::max(0.0, current_support);
+    if (state.locked) {
+        // The motor identity is locked, not its mechanical evidence.  Continue
+        // filtering the support carried by that exact pair so a reversible
+        // mature ACTN2 state can bridge brief head turnover yet eventually
+        // unlock after sustained unloading.
+        state.support_instantaneous = current_support;
+        state.support_ema = update_support_ema(
+            state.support_ema, current_support, dt, support_window);
+        if (current_support > 0.0) state.last_seen_step = current_step;
+        result.candidate_age = current_step >= state.since_step
+            ? (current_step - state.since_step) * std::max(0.0, dt) : 0.0;
+        result.committed = state.identity.valid();
+        return result;
+    }
+
+    const bool had_candidate = state.identity.valid();
+    const bool best_is_current = had_candidate &&
+        same_motor_pair(best_identity, state.identity);
+
+    // Do not let ordinary head-turnover gaps turn the ratio test into
+    // "anything beats zero".  During the dropout grace interval the incumbent
+    // identity remains the candidate and a transient alternative cannot steal
+    // it.  If the gap reaches dropout_time, forget the incumbent first; a new
+    // identity may be selected on the following update and must earn a fresh
+    // commitment interval.
+    if (had_candidate && !(current_support > 0.0)) {
+        state.support_instantaneous = 0.0;
+        state.challenger_identity = MotorPairIdentity{};
+        state.challenger_since_step = 0;
+        state.challenger_support_ema = 0.0;
+        const double unseen_time = current_step >= state.last_seen_step
+            ? (current_step - state.last_seen_step) * std::max(0.0, dt)
+            : 0.0;
+        if (unseen_time + 1e-15 >= std::max(0.0, dropout_time)) {
+            state = MotorPairState{};
+            result.event = MotorPairEvent::dropped;
+            return result;
+        }
+        state.support_ema = update_support_ema(
+            state.support_ema, 0.0, dt, support_window);
+        result.candidate_age = current_step >= state.since_step
+            ? (current_step - state.since_step) * std::max(0.0, dt) : 0.0;
+        result.committed = result.candidate_age + 1e-15 >=
+            std::max(0.0, commit_time);
+        return result;
+    }
+
+    const bool qualifying_alternative = had_candidate &&
+        best_identity.valid() && best_support > 0.0 && !best_is_current &&
+        replace_motor_pair(best_support, current_support, switch_ratio);
+    bool replace = !had_candidate && best_identity.valid() && best_support > 0.0;
+    if (qualifying_alternative) {
+        if (!same_motor_pair(state.challenger_identity, best_identity)) {
+            state.challenger_identity = best_identity;
+            state.challenger_since_step = current_step;
+            state.challenger_support_ema = 0.0;
+        }
+        state.challenger_support_ema = update_support_ema(
+            state.challenger_support_ema, best_support, dt, support_window);
+        const double challenger_age = current_step >= state.challenger_since_step
+            ? (current_step - state.challenger_since_step) *
+                  std::max(0.0, dt)
+            : 0.0;
+        replace = challenger_age + 1e-15 >= std::max(0.0, exchange_time);
+    } else {
+        state.challenger_identity = MotorPairIdentity{};
+        state.challenger_since_step = 0;
+        state.challenger_support_ema = 0.0;
+    }
+    if (replace) {
+        result.event = had_candidate ? MotorPairEvent::switched
+                                     : MotorPairEvent::selected;
+        state.identity = best_identity;
+        state.since_step = current_step;
+        state.last_seen_step = current_step;
+        state.support_ema = 0.0;
+        state.challenger_identity = MotorPairIdentity{};
+        state.challenger_since_step = 0;
+        state.challenger_support_ema = 0.0;
+        current_support = best_support;
+    }
+
+    if (state.identity.valid()) {
+        state.support_instantaneous = current_support;
+        if (current_support > 0.0) {
+            state.last_seen_step = current_step;
+        }
+        state.support_ema = update_support_ema(
+            state.support_ema, current_support, dt, support_window);
+    } else {
+        state.support_ema = 0.0;
+        state.support_instantaneous = 0.0;
+    }
+
+    result.candidate_age = state.identity.valid() &&
+            current_step >= state.since_step
+        ? (current_step - state.since_step) * std::max(0.0, dt) : 0.0;
+    result.committed = state.identity.valid() &&
+        result.candidate_age + 1e-15 >= std::max(0.0, commit_time);
+    return result;
 }
 
 inline double opposed_motor_drive(const std::array<double, 3>& first,
@@ -241,6 +506,23 @@ inline int classify_productive_register(
         1, direction_dot, registry_error, delta_on, delta_off);
     return registered &&
            productive_opposed_support > std::max(0.0, force_on) ? 2 : 1;
+}
+
+// Identity-resolved variant. Formation additionally requires that one motor
+// pair has persisted for the requested commitment time. Retention remains a
+// molecular/geometric state, so transient head turnover cannot unlock it.
+inline int classify_motor_transmitted_register(
+    int previous_status, double selected_pair_support, bool pair_committed,
+    double force_on, double direction_dot, double registry_error,
+    double delta_on, double delta_off) {
+    if (previous_status == 2) {
+        return registry_gate(
+            2, direction_dot, registry_error, delta_on, delta_off) ? 2 : 1;
+    }
+    return pair_committed &&
+           registry_gate(
+               1, direction_dot, registry_error, delta_on, delta_off) &&
+           selected_pair_support > std::max(0.0, force_on) ? 2 : 1;
 }
 
 // Diagnostics for overlap-based motor capacity. The overlap calculation itself

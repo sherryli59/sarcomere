@@ -1,0 +1,92 @@
+[
+  {
+    "mechanism": "baseline_turnover",
+    "mean_aa_um": -0.02958002096065172,
+    "mean_am_um": 0.6130221296152969,
+    "aa_initial_condition_spread_um": 0.42684458839226297,
+    "am_initial_condition_spread_um": 0.1399637351251961,
+    "max_abs_tail_velocity_um_s": 0.21978802076675938,
+    "stable_both_by_strict_test": false
+  },
+  {
+    "mechanism": "permanent_actn2",
+    "mean_aa_um": 0.09017872336681013,
+    "mean_am_um": 0.6443262628989823,
+    "aa_initial_condition_spread_um": 0.12013714202104622,
+    "am_initial_condition_spread_um": 0.0828502724414728,
+    "max_abs_tail_velocity_um_s": 0.11488420891376759,
+    "stable_both_by_strict_test": false
+  },
+  {
+    "mechanism": "johann_adhesion",
+    "mean_aa_um": 0.057814279136506184,
+    "mean_am_um": 0.6369040076455331,
+    "aa_initial_condition_spread_um": 0.16928961738235115,
+    "am_initial_condition_spread_um": 0.08208941345242149,
+    "max_abs_tail_velocity_um_s": 0.11953987198153664,
+    "stable_both_by_strict_test": false
+  },
+  {
+    "mechanism": "johann_entropic",
+    "mean_aa_um": 0.08709915186623458,
+    "mean_am_um": 0.6448778561107277,
+    "aa_initial_condition_spread_um": 0.027158199746958295,
+    "am_initial_condition_spread_um": 0.07716306088987634,
+    "max_abs_tail_velocity_um_s": 0.11792939669382578,
+    "stable_both_by_strict_test": false
+  },
+  {
+    "mechanism": "zdisc_register",
+    "mean_aa_um": 0.076405125858128,
+    "mean_am_um": 0.6432285728669667,
+    "aa_initial_condition_spread_um": 0.022472486035044384,
+    "am_initial_condition_spread_um": 0.08382593289868778,
+    "max_abs_tail_velocity_um_s": 0.11728315062756785,
+    "stable_both_by_strict_test": false
+  },
+  {
+    "mechanism": "titin",
+    "mean_aa_um": 0.09329858073593118,
+    "mean_am_um": 0.6498552690493199,
+    "aa_initial_condition_spread_um": 0.12202279339558955,
+    "am_initial_condition_spread_um": 0.0005507002779111536,
+    "max_abs_tail_velocity_um_s": 0.009988171702281369,
+    "stable_both_by_strict_test": false
+  },
+  {
+    "mechanism": "adhesion_plus_titin",
+    "mean_aa_um": 0.11507383807249098,
+    "mean_am_um": 0.6497796388759138,
+    "aa_initial_condition_spread_um": 0.048969478227384414,
+    "am_initial_condition_spread_um": 0.0008558270221293851,
+    "max_abs_tail_velocity_um_s": 0.0033009775535888207,
+    "stable_both_by_strict_test": false
+  },
+  {
+    "mechanism": "entropic_plus_titin",
+    "mean_aa_um": 0.15408186645240557,
+    "mean_am_um": 0.6476030622043403,
+    "aa_initial_condition_spread_um": 0.09514376286939752,
+    "am_initial_condition_spread_um": 0.0011868491916476875,
+    "max_abs_tail_velocity_um_s": 0.01848376568186127,
+    "stable_both_by_strict_test": false
+  },
+  {
+    "mechanism": "register_plus_titin",
+    "mean_aa_um": 0.09952566968033202,
+    "mean_am_um": 0.6497128206237285,
+    "aa_initial_condition_spread_um": 0.01533560406317086,
+    "am_initial_condition_spread_um": 0.001963652426795859,
+    "max_abs_tail_velocity_um_s": 0.006545098509312532,
+    "stable_both_by_strict_test": true
+  },
+  {
+    "mechanism": "fixed_mline_adhesion",
+    "mean_aa_um": 0.06017910132603814,
+    "mean_am_um": 0.6331715288614964,
+    "aa_initial_condition_spread_um": 0.16530868697415674,
+    "am_initial_condition_spread_um": 0.03399961529478568,
+    "max_abs_tail_velocity_um_s": 0.10008048706255314,
+    "stable_both_by_strict_test": false
+  }
+]

@@ -45,24 +45,52 @@ enum class DetachmentReason {
     none = 0,
     geometric_contour = 1,
     stochastic = 2,
+    am_overlap_occlusion = 3,
+    actn2_myosin_collision = 4,
 };
 
 struct DetachmentDecision {
     bool geometric = false;
     bool stochastic = false;
+    bool am_overlap_occluded = false;
+    bool actn2_myosin_collision = false;
     double probability = 0.0;
     // NaN means the geometric short circuit fired and no random number was
     // consumed. This distinction is important for exact trajectory replay.
     double draw = std::numeric_limits<double>::quiet_NaN();
 
-    bool detaches() const { return geometric || stochastic; }
+    bool detaches() const {
+        return geometric || stochastic || am_overlap_occluded ||
+               actn2_myosin_collision;
+    }
 
     DetachmentReason reason() const {
+        if (am_overlap_occluded) {
+            return DetachmentReason::am_overlap_occlusion;
+        }
+        if (actn2_myosin_collision) {
+            return DetachmentReason::actn2_myosin_collision;
+        }
         if (geometric) return DetachmentReason::geometric_contour;
         if (stochastic) return DetachmentReason::stochastic;
         return DetachmentReason::none;
     }
 };
+
+// Once AM overlap leaves no barbed-end contour available, an existing ACTN2
+// link is geometrically impossible.  This is an immediate rupture and must not
+// consume a stochastic draw: doing so would perturb every later counter-based
+// event merely because the diagnostic was added.
+inline DetachmentDecision decide_am_overlap_occlusion(
+    double crosslinkable_ratio_i, double crosslinkable_ratio_j,
+    double epsilon = 1e-12) {
+    DetachmentDecision result;
+    result.am_overlap_occluded =
+        crosslinkable_ratio_i <= epsilon ||
+        crosslinkable_ratio_j <= epsilon;
+    result.probability = result.am_overlap_occluded ? 1.0 : 0.0;
+    return result;
+}
 
 // Classify ACTN2 detachment without changing the existing RNG semantics:
 // connector overextension short-circuits before a stochastic draw is made.
