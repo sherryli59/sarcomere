@@ -8667,6 +8667,8 @@ void Sarcomere::new_file(){
         H5::Attribute attr = meta.createAttribute(name, type, scalar);
         attr.write(type, value);
     };
+    write_string_attr("cli_invocation", cli_invocation);
+    write_string_attr("cli_defaults", cli_defaults);
     write_double_attr("box_x", box.size() > 0 ? box[0] : 0.0);
     write_double_attr("box_y", box.size() > 1 ? box[1] : 0.0);
     write_double_attr("box_z", box.size() > 2 ? box[2] : 0.0);

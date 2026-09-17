@@ -240,6 +240,18 @@ public:
     // Initial Z-disc interdigitation used only by the minimal rigs; <=0
     // reproduces the perfectly registered start.
     double init_aa_overlap = -1.0;
+    // Complete record of the run configuration, written to /meta by new_file().
+    // cli_invocation is argv verbatim (every explicit override); cli_defaults is
+    // every option name with its compiled-in default.  The effective value of
+    // any option is its default overridden by the invocation.
+    //
+    // This exists because 84 of 259 options had no attribute of their own, 42 of
+    // them physics-relevant (am_cutoff, am_optimal, max_actin_displacement,
+    // max_actin_rotation, am_tether_force_max, sterics, k_on, k_off ...), and
+    // they cannot be written from here: new_file() sees only Sarcomere members,
+    // while those options are main.cpp locals or Langevin members.
+    std::string cli_invocation;
+    std::string cli_defaults;
     // Z-disc width: ACTN2 binds only within this distance of a filament's
     // barbed end. <=0 restores the old rule (bind anywhere in the mutual
     // overlap). Cardiac Z-discs are 100-140 nm, so ~0.1 um.

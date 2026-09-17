@@ -14,6 +14,10 @@
 #include <omp.h>
 
 int main(int argc, char* argv[]){
+    // Complete record of the run configuration, filled immediately after
+    // option parsing and handed to the model before the HDF5 file is created.
+    std::string cli_invocation_capture;
+    std::string cli_defaults_capture;
     int nsteps;
     int seed;
     double dt;
@@ -566,6 +570,23 @@ int main(int argc, char* argv[]){
             ("h, help", "Print usage");
 
         auto result = options.parse(argc, argv);
+
+        // Capture the full configuration here: `options` does not outlive this
+        // try block, and 84 of 259 options have no attribute of their own.
+        for (int i = 0; i < argc; ++i) {
+            if (i > 0) cli_invocation_capture += ' ';
+            cli_invocation_capture += argv[i];
+        }
+        for (const auto& group : options.groups()) {
+            for (const auto& option : options.group_help(group).options) {
+                if (option.l.empty()) continue;
+                cli_defaults_capture += option.l.front();
+                cli_defaults_capture += '=';
+                cli_defaults_capture += option.has_default
+                    ? option.default_value : std::string("<required>");
+                cli_defaults_capture += ';';
+            }
+        }
         beta_was_explicit = result.count("beta") > 0;
         if (!result.unmatched().empty()) {
             std::string message = "Unrecognized positional/option tokens:";
@@ -1250,6 +1271,10 @@ int main(int argc, char* argv[]){
         model.actin.update_endpoints();
         model.myosin.update_endpoints();
     }
+
+    // Captured above, while the cxxopts Options object was still in scope.
+    model.cli_invocation = cli_invocation_capture;
+    model.cli_defaults = cli_defaults_capture;
 
     Langevin sim(model, beta, dt, actin_diff_coeff_trans,actin_diff_coeff_rot, myosin_diff_coeff_trans, myosin_diff_coeff_rot, save_every, resume, is3D,
                     max_actin_displacement, max_myosin_displacement,
