@@ -259,6 +259,14 @@ if(BUILD_TESTING)
     target_link_libraries(neighborlist_two_cell_test PRIVATE my_library)
     add_test(NAME neighborlist_two_cell COMMAND neighborlist_two_cell_test)
 
+    add_executable(am_radial_sweep tests/am_radial_sweep.cpp)
+    target_link_libraries(am_radial_sweep PRIVATE my_library)
+
+    add_executable(am_radial_centerline_mode_test
+                   tests/am_radial_centerline_mode_test.cpp)
+    target_link_libraries(am_radial_centerline_mode_test PRIVATE my_library)
+    add_test(NAME am_radial_centerline_mode COMMAND am_radial_centerline_mode_test)
+
     add_executable(am_geometry_regression_test
                    tests/am_geometry_regression_test.cpp)
     target_link_libraries(am_geometry_regression_test PRIVATE my_library)

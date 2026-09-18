@@ -512,6 +512,7 @@ void Sarcomere::update_system() {
         am_activation_rise, am_activation_decay, am_activation_floor,
         am_activation_active_fraction);
     _process_actin_turnover();
+    _tb_setup();
     const double bundle_strength = _current_bundle_strength();
     auto& cumulative_chem_entropy = actin["cumulative_chem_entropy"];
     auto& cumulative_chem_input = actin["cumulative_chem_input"];
@@ -710,7 +711,8 @@ void Sarcomere::update_system() {
                 }
                 const double torque_cap = max_actin_torque;
                 if (std::isfinite(torque_cap) && torque_cap > 0.0) {
-                    double mag = actin.torque[i].norm();
+                    // Budget the rotating component, not the full gradient.
+                    double mag = _actin_rotational_torque_magnitude(i);
                     if (mag > torque_cap && mag > 0.0) {
                         actin.torque[i] *= (torque_cap / mag);
                         actin_torque_cap_events[i] += 1.0;
@@ -727,6 +729,8 @@ void Sarcomere::update_system() {
                     }
                 }
                 const double torque_cap = max_myosin_torque;
+                // FULL magnitude on purpose: myosin consumes its axial torque
+                // component as axial_roll, so both parts are dynamically live.
                 if (std::isfinite(torque_cap) && torque_cap > 0.0) {
                     double mag = myosin.torque[i].norm();
                     if (mag > torque_cap && mag > 0.0) {
@@ -765,6 +769,7 @@ void Sarcomere::update_system() {
     }
     system_parallel_seconds += std::chrono::duration<double>(
         ProfileClock::now() - parallel_start).count();
+    _tb_publish();
 
     const auto finalize_start = ProfileClock::now();
     _finalize_active_pair_lists();
@@ -846,7 +851,8 @@ void Sarcomere::update_system_sterics_only() {
         for (int i = 0; i < actin.n; ++i) {
             double cap = max_actin_torque;
             if (std::isfinite(cap) && cap > 0.0) {
-                double mag = actin.torque[i].norm();
+                // Same budget as update_system; see the helper's comment.
+                double mag = _actin_rotational_torque_magnitude(i);
                 if (mag > cap && mag > 0.0) {
                     actin.torque[i] *= (cap / mag);
                     actin_torque_cap_events[i] += 1.0;
@@ -1461,6 +1467,7 @@ void Sarcomere::_set_to_zero() {
             actin_chem_binding_delta_temp[t][i] = 0.0;
             actin_chem_unbinding_delta_temp[t][i] = 0.0;
         }
+        _tb_zero_thread(t);
         for (int i = 0; i < myosin.n; ++i) {
             myosin_forces_temp[t][i] = {0, 0, 0};
             myosin_velocities_temp[t][i] = {0, 0, 0};
@@ -2766,6 +2773,78 @@ double Sarcomere::_am_axial_coordinate(int actin_index, int myosin_index) const 
     return displacement.dot(actin.direction[actin_index]);
 }
 
+void Sarcomere::_tb_setup() {
+    if (!torque_breakdown) return;
+    if (!actin_tb_temp.empty()) {
+        // Already registered.  Turnover can change actin.n, so only grow the
+        // buffers -- re-registering features after the HDF5 file exists aborts.
+        for (auto& per_source : actin_tb_temp) {
+            for (auto& per_thread : per_source) {
+                if (static_cast<int>(per_thread.size()) < actin.n) {
+                    per_thread.resize(static_cast<size_t>(actin.n), {0.0, 0.0, 0.0});
+                }
+            }
+        }
+        return;
+    }
+    actin_tb_temp.assign(
+        static_cast<size_t>(kTorqueSourceCount),
+        std::vector<std::vector<vec>>(
+            static_cast<size_t>(omp_get_max_threads()),
+            std::vector<vec>(static_cast<size_t>(actin.n), {0.0, 0.0, 0.0})));
+    for (int s = 0; s < kTorqueSourceCount; ++s) {
+        const std::string base = std::string("tb_") + _tb_name(s) + "_";
+        actin.register_feature(base + "x");
+        actin.register_feature(base + "y");
+        actin.register_feature(base + "z");
+    }
+    // The stored actin/torque is POST-clamp (max_actin_torque is applied to it),
+    // so record the pre-clamp magnitude too.  tb_total_precap minus
+    // |actin/torque| is exactly what the clamp discarded, which is otherwise
+    // invisible -- and it is what made a 100 pN*um torque read as 42.4.
+    actin.register_feature("tb_total_precap");
+}
+
+void Sarcomere::_tb_zero_thread(int thread_id) {
+    if (!torque_breakdown) return;
+    for (int s = 0; s < kTorqueSourceCount; ++s) {
+        for (int i = 0; i < actin.n; ++i) {
+            actin_tb_temp[static_cast<size_t>(s)]
+                         [static_cast<size_t>(thread_id)]
+                         [static_cast<size_t>(i)] = {0.0, 0.0, 0.0};
+        }
+    }
+}
+
+void Sarcomere::_tb_publish() {
+    if (!torque_breakdown) return;
+    const int threads = static_cast<int>(actin_tb_temp[0].size());
+    std::vector<vec> total(static_cast<size_t>(actin.n), {0.0, 0.0, 0.0});
+    for (int s = 0; s < kTorqueSourceCount; ++s) {
+        const std::string base = std::string("tb_") + _tb_name(s) + "_";
+        auto& tx = actin[base + "x"];
+        auto& ty = actin[base + "y"];
+        auto& tz = actin[base + "z"];
+        for (int i = 0; i < actin.n; ++i) {
+            double sx = 0.0, sy = 0.0, sz = 0.0;
+            for (int t = 0; t < threads; ++t) {
+                const auto& v = actin_tb_temp[static_cast<size_t>(s)]
+                                             [static_cast<size_t>(t)]
+                                             [static_cast<size_t>(i)];
+                sx += v.x; sy += v.y; sz += v.z;
+            }
+            tx[i] = sx; ty[i] = sy; tz[i] = sz;
+            total[static_cast<size_t>(i)].x += sx;
+            total[static_cast<size_t>(i)].y += sy;
+            total[static_cast<size_t>(i)].z += sz;
+        }
+    }
+    auto& pre = actin["tb_total_precap"];
+    for (int i = 0; i < actin.n; ++i) {
+        pre[i] = total[static_cast<size_t>(i)].norm();
+    }
+}
+
 void Sarcomere::_initialize_am_head_pools() {
     am_heads_by_myosin.assign(
         static_cast<size_t>(myosin.n),
@@ -2776,7 +2855,11 @@ void Sarcomere::_initialize_am_head_pools() {
                                                [static_cast<size_t>(half_index)];
             heads.assign(static_cast<size_t>(am_heads_per_half), AMHeadState{});
             const int half_sign = half_index == 0 ? -1 : 1;
-            const int crown_count = std::max(1, (am_heads_per_half + 2) / 3);
+            // Ceiling division, so spokes_per_crown = 3 reproduces the
+            // previous hardwired (am_heads_per_half + 2) / 3 exactly.
+            const int spokes = std::max(1, am_spokes_per_crown);
+            const int crown_count =
+                std::max(1, (am_heads_per_half + spokes - 1) / spokes);
             for (int h = 0; h < am_heads_per_half; ++h) {
                 auto& head = heads[static_cast<size_t>(h)];
                 const bool initially_on = am_motor_kinetics::initially_on_head(
@@ -2785,8 +2868,8 @@ void Sarcomere::_initialize_am_head_pools() {
                     !am_thick_feedback_enabled || initially_on
                         ? am_motor_kinetics::State::detached
                         : am_motor_kinetics::State::off_srx);
-                const int crown = h / 3;
-                const int spoke = h % 3;
+                const int crown = h / spokes;
+                const int spoke = h % spokes;
                 const double fraction =
                     (static_cast<double>(crown) + 0.5) /
                     static_cast<double>(crown_count);
@@ -2796,8 +2879,12 @@ void Sarcomere::_initialize_am_head_pools() {
                 head.anchor_axial = static_cast<double>(half_sign) *
                     (bare_half + fraction *
                         geometry::am_head_bearing_fraction * myosin.length);
+                // Spokes divide the circle evenly; the 40 deg inter-crown
+                // twist is kept, so a one-spoke filament still tiles azimuth
+                // across its crowns rather than stacking them in a line.
                 head.anchor_azimuth =
-                    2.0 * M_PI * static_cast<double>(spoke) / 3.0 +
+                    2.0 * M_PI * static_cast<double>(spoke) /
+                        static_cast<double>(spokes) +
                     static_cast<double>(crown) * (40.0 * M_PI / 180.0);
                 head.binding_azimuth = head.anchor_azimuth;
                 head.stroke_progress = 0.0;
@@ -2835,7 +2922,7 @@ double Sarcomere::_nearest_free_am_site_coordinate(
         actin, myosin, actin_index, myosin_index, box,
         head.anchor_axial, 0.0,
         myosin.radius + actin_radius + am_surface_gap,
-        binding_azimuth, am_spatial_heads ? myosin.radius : 0.0,
+        binding_azimuth, _am_head_anchor_radius(),
         am_spatial_heads
             ? &myosin_material_e1[static_cast<size_t>(myosin_index)] : nullptr,
         am_spatial_heads
@@ -2877,12 +2964,12 @@ double Sarcomere::_nearest_free_am_site_coordinate(
         const auto geometry = compute_am_two_spring_head(
             actin, myosin, actin_index, myosin_index, box,
             coordinate, head.anchor_axial, binding_azimuth,
-            am_spatial_heads ? myosin.radius : 0.0,
+            _am_head_anchor_radius(),
             am_spatial_heads
                 ? &myosin_material_e1[static_cast<size_t>(myosin_index)] : nullptr,
             am_spatial_heads
                 ? &myosin_material_e2[static_cast<size_t>(myosin_index)] : nullptr,
-            actin_radius + am_surface_gap, 0.0, 0.0, 0.0,
+            _am_head_radial_rest(), 0.0, 0.0, 0.0,
             0.0, am_stall_force, false);
         if (geometry.head_reach_surface_distance > am_cutoff) continue;
         const double axial_error =
@@ -2949,7 +3036,7 @@ double Sarcomere::_claim_free_am_site_coordinate(
                 head.anchor_axial, 0.0,
                 myosin.radius + actin_radius + am_surface_gap,
                 binding_azimuth,
-                am_spatial_heads ? myosin.radius : 0.0,
+                _am_head_anchor_radius(),
                 am_spatial_heads
                     ? &myosin_material_e1[static_cast<size_t>(myosin_index)]
                     : nullptr,
@@ -2971,7 +3058,7 @@ double Sarcomere::_claim_free_am_site_coordinate(
                     const auto geometry = compute_am_two_spring_head(
                         actin, myosin, actin_index, myosin_index, box,
                         coordinate, head.anchor_axial, binding_azimuth,
-                        am_spatial_heads ? myosin.radius : 0.0,
+                        _am_head_anchor_radius(),
                         am_spatial_heads
                             ? &myosin_material_e1[static_cast<size_t>(
                                   myosin_index)]
@@ -2980,7 +3067,7 @@ double Sarcomere::_claim_free_am_site_coordinate(
                             ? &myosin_material_e2[static_cast<size_t>(
                                   myosin_index)]
                             : nullptr,
-                        actin_radius + am_surface_gap, 0.0, 0.0, 0.0,
+                        _am_head_radial_rest(), 0.0, 0.0, 0.0,
                         0.0, am_stall_force, false);
                     if (geometry.head_reach_surface_distance > am_cutoff) {
                         continue;
@@ -3198,7 +3285,7 @@ double Sarcomere::_am_head_association_gate(
         actin, myosin, actin_index, myosin_index, box,
         head.anchor_axial, 0.0,
         myosin.radius + actin_radius + am_surface_gap,
-        binding_azimuth, am_spatial_heads ? myosin.radius : 0.0,
+        binding_azimuth, _am_head_anchor_radius(),
         am_spatial_heads
             ? &myosin_material_e1[static_cast<size_t>(myosin_index)] : nullptr,
         am_spatial_heads
@@ -3214,12 +3301,12 @@ double Sarcomere::_am_head_association_gate(
     const auto site_geometry = compute_am_two_spring_head(
         actin, myosin, actin_index, myosin_index, box,
         site_coordinate, head.anchor_axial, binding_azimuth,
-        am_spatial_heads ? myosin.radius : 0.0,
+        _am_head_anchor_radius(),
         am_spatial_heads
             ? &myosin_material_e1[static_cast<size_t>(myosin_index)] : nullptr,
         am_spatial_heads
             ? &myosin_material_e2[static_cast<size_t>(myosin_index)] : nullptr,
-        actin_radius + am_surface_gap, 0.0, 0.0, 0.0,
+        _am_head_radial_rest(), 0.0, 0.0, 0.0,
         0.0, am_stall_force, false);
     const double capture_reach = am_cutoff;
     if (!(site_geometry.head_reach_surface_distance <= capture_reach)) {
@@ -3260,12 +3347,12 @@ bool Sarcomere::_am_head_retention_reachable(
     const auto geometry = compute_am_two_spring_head(
         actin, myosin, actin_index, myosin_index, box,
         head.target_axial, head.anchor_axial, head.binding_azimuth,
-        am_spatial_heads ? myosin.radius : 0.0,
+        _am_head_anchor_radius(),
         am_spatial_heads
             ? &myosin_material_e1[static_cast<size_t>(myosin_index)] : nullptr,
         am_spatial_heads
             ? &myosin_material_e2[static_cast<size_t>(myosin_index)] : nullptr,
-        actin_radius + am_surface_gap, 0.0, 0.0, 0.0,
+        _am_head_radial_rest(), 0.0, 0.0, 0.0,
         head.stroke_progress, am_stall_force, false);
     // Measure extension relative to the relaxed two-spring connector, not
     // absolute distance from the thick-filament anchor to the actin surface.
@@ -3310,20 +3397,21 @@ double Sarcomere::_am_head_strain_energy(
     // Pair-level centerline containment remains separate. This optional term
     // is the physical transverse compliance of the individual, material-point
     // head connector and therefore contributes to its stochastic off-rate.
-    const double radial_k = am_head_transverse_k;
+    const double radial_k = _am_head_radial_k();
     const bool strong = state == am_motor_kinetics::State::strong;
     const double axial_k = am_motor_k *
         (strong ? 1.0 : am_weak_stiffness_ratio);
     const auto mechanics = compute_am_two_spring_head(
         actin, myosin, actin_index, myosin_index, box,
         head->target_axial, head->anchor_axial, head->binding_azimuth,
-        am_spatial_heads ? myosin.radius : 0.0,
+        _am_head_anchor_radius(),
         am_spatial_heads
             ? &myosin_material_e1[static_cast<size_t>(myosin_index)] : nullptr,
         am_spatial_heads
             ? &myosin_material_e2[static_cast<size_t>(myosin_index)] : nullptr,
-        actin_radius + am_surface_gap, radial_k, am_tether_slack,
-        axial_k, head->stroke_progress, am_stall_force, strong);
+        _am_head_radial_rest(), radial_k, am_tether_slack,
+        axial_k, head->stroke_progress, am_stall_force, strong,
+        /*bidirectional_strong=*/false, _am_head_radial_cap());
     if (!strong) return mechanics.energy;
 
     // Productive strong-head strain is already catch-stabilized through force.
@@ -3351,12 +3439,12 @@ std::array<double, 2> Sarcomere::_am_head_detachment_energies(
     const auto mechanics = compute_am_two_spring_head(
         actin, myosin, actin_index, myosin_index, box,
         head->target_axial, head->anchor_axial, head->binding_azimuth,
-        am_spatial_heads ? myosin.radius : 0.0,
+        _am_head_anchor_radius(),
         am_spatial_heads
             ? &myosin_material_e1[static_cast<size_t>(myosin_index)] : nullptr,
         am_spatial_heads
             ? &myosin_material_e2[static_cast<size_t>(myosin_index)] : nullptr,
-        actin_radius + am_surface_gap, am_head_transverse_k,
+        _am_head_radial_rest(), am_head_transverse_k,
         am_tether_slack, axial_k, head->stroke_progress,
         am_stall_force, strong);
     // Weak binding is non-stereospecific in this coarse-grained model. Its
@@ -3424,12 +3512,12 @@ double Sarcomere::_am_productive_strain(
         const auto geometry = compute_am_two_spring_head(
             actin, myosin, actin_index, myosin_index, box,
             head->target_axial, head->anchor_axial, head->binding_azimuth,
-            am_spatial_heads ? myosin.radius : 0.0,
+            _am_head_anchor_radius(),
             am_spatial_heads
                 ? &myosin_material_e1[static_cast<size_t>(myosin_index)] : nullptr,
             am_spatial_heads
                 ? &myosin_material_e2[static_cast<size_t>(myosin_index)] : nullptr,
-            actin_radius + am_surface_gap, 0.0, 0.0, 0.0,
+            _am_head_radial_rest(), 0.0, 0.0, 0.0,
             head->stroke_progress, am_stall_force, true);
         return geometry.productive_strain;
     }
@@ -3559,12 +3647,12 @@ Sarcomere::AMRetentionDiagnostic Sarcomere::_am_retention_diagnostic(
         const auto head_geometry = compute_am_two_spring_head(
             actin, myosin, actin_index, myosin_index, box,
             head->target_axial, head->anchor_axial, head->binding_azimuth,
-            am_spatial_heads ? myosin.radius : 0.0,
+            _am_head_anchor_radius(),
             am_spatial_heads
                 ? &myosin_material_e1[static_cast<size_t>(myosin_index)] : nullptr,
             am_spatial_heads
                 ? &myosin_material_e2[static_cast<size_t>(myosin_index)] : nullptr,
-            actin_radius + am_surface_gap, 0.0, 0.0, 0.0,
+            _am_head_radial_rest(), 0.0, 0.0, 0.0,
             head->stroke_progress, am_stall_force, false);
         diagnostic.head_connector_distance =
             head_geometry.connector.norm();
@@ -4003,8 +4091,17 @@ void Sarcomere::_calc_am_force_velocity(int& i) {
             // passive transverse compliance, and reciprocal off-center torque.
             // The aggregate pair tether below remains a separate coarse-grained
             // centerline containment interaction in both comparison arms.
+            // In azimuth-OFF mode the aggregate pair tether below is skipped
+            // and its stiffness folded in here, once per bound head.  The
+            // occupancy ramp is LINEAR below saturation, so the aggregate was
+            // already worth am_tether_k/am_tether_saturation_heads per head and
+            // this preserves the total exactly up to saturation:
+            //   old  100n + 3000*min(1, n/6)  ==  new 600n   for n <= 6.
+            // Above saturation the new form keeps growing (n=7: 4200 vs 3700).
             const double per_head_tether_k =
-                interaction_ramp * am_head_transverse_k;
+                interaction_ramp * _am_head_radial_k();
+            const double per_head_radial_force_max =
+                interaction_ramp * _am_head_radial_cap();
             for (int half_index = 0; half_index < 2; ++half_index) {
                 const auto& heads =
                     am_heads_by_myosin[static_cast<size_t>(j)]
@@ -4023,16 +4120,17 @@ void Sarcomere::_calc_am_force_velocity(int& i) {
                         actin, myosin, i, j, box,
                         head.target_axial, head.anchor_axial,
                         head.binding_azimuth,
-                        am_spatial_heads ? myosin.radius : 0.0,
+                        _am_head_anchor_radius(),
                         am_spatial_heads
                             ? &myosin_material_e1[static_cast<size_t>(j)] : nullptr,
                         am_spatial_heads
                             ? &myosin_material_e2[static_cast<size_t>(j)] : nullptr,
-                        actin_radius + am_surface_gap,
+                        _am_head_radial_rest(),
                         per_head_tether_k, am_tether_slack,
                         axial_stiffness, head.stroke_progress,
                         am_stall_force, head_is_strong,
-                        am_bidirectional_crossbridge);
+                        am_bidirectional_crossbridge,
+                        per_head_radial_force_max);
                     // Legacy sliding throttle: the prescribed-velocity model slowed
                     // filament sliding as the engaged AM overlap saturated
                     //   f_load = (1-exp(-2r))/(1-exp(-2)),  v = (1-f_load)*v0
@@ -4105,6 +4203,7 @@ void Sarcomere::_calc_am_force_velocity(int& i) {
                             negative_feature[j] += 1.0;
                         }
                         local_actin_torques[i] += actin_orientation_drive;
+                        _tb_add(kTsAmHead, omp_get_thread_num(), i, actin_orientation_drive);
                         const vec axial_drive =
                             head_mechanics.physical_torque_on_myosin.dot(
                                 myosin_axis) *
@@ -4156,6 +4255,15 @@ void Sarcomere::_calc_am_force_velocity(int& i) {
                         std::min(1.0, am_tether_occupancy_floor));
                 }
             }
+            // Azimuth-OFF folds this into the per-head radial spring, so the
+            // pair-level term exists only in the legacy arm.  Keeping both puts
+            // two springs with different rest lengths on one pair, which is the
+            // conflict this mode removes: the head measures myosin SURFACE to
+            // actin axis against a 30 nm rest, the tether measures axis to axis
+            // against 80 nm, and they only agree when the anchor points straight
+            // at the actin.  Off-azimuth the head is stretched by geometry alone
+            // (+14.4 nm at 30 deg) and the pair equilibrates at 76.3 nm.
+            if (am_head_azimuth) {
             const auto radial_tether = compute_am_head_tether(
                 actin, myosin, i, j, box, 0.0,
                 interaction_ramp * am_tether_k * radial_occupancy,
@@ -4165,12 +4273,14 @@ void Sarcomere::_calc_am_force_velocity(int& i) {
             am_force_on_actin += radial_tether.force_on_actin;
             am_tether_force_feature[i] +=
                 radial_tether.force_on_actin.norm();
+            }  // am_head_azimuth
             const auto angular_tether =
                 compute_am_nematic_flat_bottom_tether(
                     actin.direction[i], myosin.direction[j],
                     interaction_ramp * am_alignment_k * angular_occupancy,
                     am_alignment_slack);
             local_actin_torques[i] += angular_tether.drive_on_actin;
+            _tb_add(kTsAmAlign, omp_get_thread_num(), i, angular_tether.drive_on_actin);
             local_myosin_torques[j] += angular_tether.drive_on_myosin;
         } else {
             force_vec = compute_am_force_and_energy(
@@ -4183,6 +4293,8 @@ void Sarcomere::_calc_am_force_velocity(int& i) {
             local_actin_torques[i].x += force_vec[3];
             local_actin_torques[i].y += force_vec[4];
             local_actin_torques[i].z += force_vec[5];
+            _tb_add(kTsAmLegacy, omp_get_thread_num(), i,
+                    vec{force_vec[3], force_vec[4], force_vec[5]});
             local_myosin_torques[j].x += force_vec[6];
             local_myosin_torques[j].y += force_vec[7];
             local_myosin_torques[j].z += force_vec[8];
@@ -4946,6 +5058,8 @@ void Sarcomere::_volume_exclusion(){
                         local_actin_forces[j] += lateral.force_on_second;
                         local_actin_torques[i] += lateral.torque_on_first;
                         local_actin_torques[j] += lateral.torque_on_second;
+                        _tb_add(kTsAaLateral, omp_get_thread_num(), i, lateral.torque_on_first);
+                        _tb_add(kTsAaLateral, omp_get_thread_num(), j, lateral.torque_on_second);
                     }
                 }
                 if (repulsion.applied) {
@@ -4953,6 +5067,8 @@ void Sarcomere::_volume_exclusion(){
                     local_actin_forces[j] += repulsion.force_on_second;
                     local_actin_torques[i] += repulsion.torque_on_first;
                     local_actin_torques[j] += repulsion.torque_on_second;
+                    _tb_add(kTsAaSteric, omp_get_thread_num(), i, repulsion.torque_on_first);
+                    _tb_add(kTsAaSteric, omp_get_thread_num(), j, repulsion.torque_on_second);
                     if (repulsion.contact_penetration > 0.0) {
                         #pragma omp atomic update
                         aa_double_overlap_contact_count += 1;
@@ -4995,6 +5111,7 @@ void Sarcomere::_volume_exclusion(){
                 local_actin_forces[i] += repulsion.force_on_first;
                 local_myosin_forces[j] += repulsion.force_on_second;
                 local_actin_torques[i] += repulsion.torque_on_first;
+                _tb_add(kTsAmSteric, omp_get_thread_num(), i, repulsion.torque_on_first);
                 local_myosin_torques[j] += repulsion.torque_on_second;
             }
         }
@@ -5648,6 +5765,11 @@ void Sarcomere::_set_cb(int& i, int& j, int status){
     local_actin_torques[j].x += force_vec[6];
     local_actin_torques[j].y += force_vec[7];
     local_actin_torques[j].z += force_vec[8];
+    // legacy (non-multilink) AA path; folded into the lever bucket
+    _tb_add(kTsActn2Lever, omp_get_thread_num(), i,
+            vec{force_vec[3], force_vec[4], force_vec[5]});
+    _tb_add(kTsActn2Lever, omp_get_thread_num(), j,
+            vec{force_vec[6], force_vec[7], force_vec[8]});
     actin_n_bonds[i] += 1;
     actin_n_bonds[j] += 1;
     if (status == 2){
@@ -5793,6 +5915,7 @@ void Sarcomere::_apply_cb_alignment_bias(double& k_theta_bias)
             u.normalize();
             vec tau = _alignment_torque(u, k_theta_bias * actin.cb_status[i]);
             actin_torques_temp[omp_get_thread_num()][i] += tau;
+            _tb_add(kTsCbBias, omp_get_thread_num(), i, tau);
         }
 }
 

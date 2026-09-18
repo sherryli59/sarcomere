@@ -110,13 +110,31 @@ def build_run(path, stride=1, box_override=None, label=None):
         La = float(attrs["actin_length"]); Lm = float(attrs["myosin_length"])
         Rm = float(attrs.get("myosin_radius", 0.05))
         hph = int(attrs["am_heads_per_half"])
-        rho_rest = float(attrs["actin_radius"] + attrs["am_surface_gap"])
+        # Radial-channel mode.  Absent => an old file, which is legacy by
+        # definition (surface anchor, 30 nm rest, unbounded linear spring).
+        azimuth_on = bool(int(float(attrs.get("am_head_azimuth", 1))))
+        # am_head_radial_force_max records the CONFIGURED cap, which the code
+        # ignores in azimuth-ON mode (it passes 0 there).  Using the attribute
+        # unconditionally applied a saturating energy to a linear legacy run and
+        # broke the cross-check by 28.5%.
+        radial_cap = (0.0 if azimuth_on
+                      else float(attrs.get("am_head_radial_force_max", 0.0)))
+        if azimuth_on:
+            rho_rest = float(attrs["actin_radius"] + attrs["am_surface_gap"])
+        else:
+            rho_rest = float(attrs["am_preferred_centerline"])
         slack = float(attrs.get("am_tether_slack", 0.0))
         # Older campaigns (2026-07) predate these attrs, so the strain-energy
         # cross-check cannot run there.  Skip it explicitly and record the fact
         # in the artifact rather than silently trusting the reconstruction.
         can_validate = ("am_head_transverse_k" in attrs and "am_motor_k" in attrs)
         k_rho = float(attrs.get("am_head_transverse_k", 0.0))
+        if not azimuth_on:
+            # The aggregate pair tether is folded into each head at
+            # am_tether_k / am_tether_saturation_heads.
+            k_rho += float(attrs.get("am_tether_k", 0.0)) / max(
+                1.0, float(attrs.get("am_tether_saturation_heads", 1)))
+            Rm = 0.0          # anchor sits on the myosin axis
         k_ax_weak = float(attrs.get("am_motor_k", 0.0)) * 0.1
 
         sl = slice(0, frames, max(1, int(stride)))
@@ -176,7 +194,17 @@ def build_run(path, stride=1, box_override=None, label=None):
 
     # ---- validate the reconstruction against the C++ energy --------------
     loaded = soft_threshold(rho - rho_rest, slack)
-    radial_e = 0.5 * k_rho * loaded ** 2
+    if radial_cap > 0.0 and k_rho > 0.0:
+        # saturating_radial: energy = f_max*scale*logcosh(ext/scale),
+        # scale = f_max/k.  log cosh is evaluated in its stable form, the same
+        # way stable_log_cosh does it in interaction.cpp.
+        scale = radial_cap / k_rho
+        xx = np.abs(loaded / scale)
+        logcosh = np.where(xx > 20.0, xx - np.log(2.0),
+                           np.log(np.cosh(np.minimum(xx, 20.0))))
+        radial_e = radial_cap * scale * logcosh
+    else:
+        radial_e = 0.5 * k_rho * loaded ** 2
     is_weak = hs[fi, mi, hi] == WEAK
     mine = np.where(is_weak,
                     radial_e + 0.5 * k_ax_weak * z ** 2,

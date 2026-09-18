@@ -206,6 +206,17 @@ std::vector<double> compute_aa_force_and_energy(Filament& actin,
                                                 const double antiparallel_overlap = 0.0);
 
 struct LocalAALinkResult {
+    // Per-term torque split, populated unconditionally (a few adds on a path
+    // that already forms these products).  Each pair sums to torque_on_*, which
+    // the torque-breakdown verification asserts.
+    vec torque_first_lever {0.0, 0.0, 0.0};
+    vec torque_first_perp {0.0, 0.0, 0.0};
+    vec torque_first_align {0.0, 0.0, 0.0};
+    vec torque_first_axial {0.0, 0.0, 0.0};
+    vec torque_second_lever {0.0, 0.0, 0.0};
+    vec torque_second_perp {0.0, 0.0, 0.0};
+    vec torque_second_align {0.0, 0.0, 0.0};
+    vec torque_second_axial {0.0, 0.0, 0.0};
     vec force_on_first {0.0, 0.0, 0.0};
     vec torque_on_first {0.0, 0.0, 0.0};
     vec torque_on_second {0.0, 0.0, 0.0};
@@ -430,7 +441,8 @@ AMTwoSpringHeadResult compute_am_two_spring_head(
     const vec* material_e1, const vec* material_e2,
     double radial_preferred, double radial_stiffness, double radial_slack,
     double axial_stiffness, double stroke_progress, double stall_force,
-    bool strong, bool bidirectional_strong = false);
+    bool strong, bool bidirectional_strong = false,
+    double radial_force_max = 0.0);
 
 // Choose the closest azimuth reachable from a fixed crown anchor. The result
 // is clamped to crown_azimuth +/- max_swing and returned in radians.

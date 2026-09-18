@@ -240,6 +240,15 @@ public:
     // Initial Z-disc interdigitation used only by the minimal rigs; <=0
     // reproduces the perfectly registered start.
     double init_aa_overlap = -1.0;
+    // Initial thin-filament misalignment for the minimal_catch_* rigs (deg).
+    // Applied as a RIGID rotation of each prebound ACTN2 pair about the
+    // midpoint of its two barbed ends, so no crosslink is pre-stretched.
+    double minimal_catch_tilt_deg = 0.0;
+    // Initial THICK-filament misalignment (deg), about the actin-myosin offset
+    // direction through the filament centre, which preserves the capture
+    // separation exactly.  Prefer this one: tilting the thin filaments moves
+    // them out of motor reach.
+    double minimal_catch_myosin_tilt_deg = 0.0;
     // Complete record of the run configuration, written to /meta by new_file().
     // cli_invocation is argv verbatim (every explicit override); cli_defaults is
     // every option name with its compiled-in default.  The effective value of
@@ -611,6 +620,116 @@ enum ProfileSection {
     bool am_spatial_heads = true;
     bool sterics_enabled = true;
     int am_heads_per_half = 1;
+    // Head sites sharing one axial crown.  3 is the physiological thick-filament
+    // layout and the default.  1 puts every head on its own axial station,
+    // tripling the crown count at fixed am_heads_per_half.  Measured inert for
+    // both alignment and Z-disc survival: kappa is already 2000-3400 kT against
+    // a ~1 kT threshold, so more axial span changes nothing.
+    int am_spokes_per_crown = 3;
+    // Radial channel mode.  false (default) = azimuth OFF: the head anchor sits
+    // on the myosin AXIS and the radial spring is measured against
+    // am_preferred_centerline, so the azimuth cannot strain a head by geometry
+    // alone and the aggregate pair tether is folded per-head.  true restores
+    // the legacy surface-anchored behaviour with the separate pair tether.
+    bool am_head_azimuth = false;
+    // Per-source actin torque breakdown.  Off by default and bitwise inert.
+    enum TorqueSource {
+        kTsActn2Lever = 0, kTsActn2Perp, kTsActn2Align, kTsActn2Axial,
+        kTsActn2Contact, kTsAmHead, kTsAmAlign, kTsAmLegacy, kTsAmSteric,
+        kTsAaLateral, kTsAaSteric, kTsCbBias, kTorqueSourceCount
+    };
+    bool torque_breakdown = false;
+
+    // Restores the pre-2026-09-18 actin torque clamp, which budgeted the FULL
+    // gradient magnitude instead of the part that can rotate the filament.
+    // Kept only so prior runs can be reproduced bit-for-bit; it is a known
+    // defect, not an alternative model.
+    bool legacy_actin_torque_cap = false;
+
+    // Magnitude of the actin torque that the integrator can actually turn into
+    // rotation.  Tumbling is driven by project_perpendicular(torque, axis) and
+    // actin has no roll channel, so torque.dot(axis) is inert.  Myosin DOES
+    // consume its axial component (axial_roll), which is why the myosin clamp
+    // still budgets the full vector -- do not "fix" that one to match.
+    //
+    // In 2D the integrator additionally zeroes delta_u.z, so |perp| can exceed
+    // the drive it builds; the projected budget is therefore conservative in
+    // 2D (it may fire slightly early) but never permissive.
+    double _actin_rotational_torque_magnitude(int i) {
+        const vec tau = static_cast<vec>(actin.torque[i]);
+        if (legacy_actin_torque_cap || !physical_rod_mobility) {
+            return tau.norm();
+        }
+        vec axis = static_cast<vec>(actin.direction[i]);
+        const double axis_norm = axis.norm();
+        if (!(axis_norm > 1e-12)) {
+            return tau.norm();
+        }
+        axis = (1.0 / axis_norm) * axis;
+        return (tau - tau.dot(axis) * axis).norm();
+    }
+    std::vector<std::vector<std::vector<vec>>> actin_tb_temp;  // [src][thread][actin]
+    void _tb_setup();
+    void _tb_zero_thread(int thread_id);
+    void _tb_publish();
+    inline void _tb_add(int src, int thread_id, int actin_index, const vec& t) {
+        if (!torque_breakdown) return;
+        auto& slot = actin_tb_temp[static_cast<size_t>(src)]
+                                  [static_cast<size_t>(thread_id)]
+                                  [static_cast<size_t>(actin_index)];
+        slot.x += t.x; slot.y += t.y; slot.z += t.z;
+    }
+    static const char* _tb_name(int src) {
+        switch (src) {
+            case kTsActn2Lever:   return "actn2_lever";
+            case kTsActn2Perp:    return "actn2_perp";
+            case kTsActn2Align:   return "actn2_align";
+            case kTsActn2Axial:   return "actn2_axial";
+            case kTsActn2Contact: return "actn2_contact";
+            case kTsAmHead:       return "am_head";
+            case kTsAmAlign:      return "am_align";
+            case kTsAmLegacy:     return "am_legacy";
+            case kTsAmSteric:     return "am_steric";
+            case kTsAaLateral:    return "aa_lateral";
+            case kTsAaSteric:     return "aa_steric";
+            case kTsCbBias:       return "cb_bias";
+            default:              return "unknown";
+        }
+    }
+    // Saturating cap on the per-head radial force (pN).  <=0 keeps the
+    // unbounded linear spring, which reaches 243 pN at 140 nm separation.
+    double am_head_radial_force_max = 12.0;
+
+    double _am_head_anchor_radius() const {
+        return (am_head_azimuth && am_spatial_heads) ? myosin.radius : 0.0;
+    }
+    double _am_head_radial_rest() const {
+        if (am_head_azimuth) {
+            return actin_radius + am_surface_gap;
+        }
+        // am_preferred_centerline is assigned by set_aa_spacing_geometry(),
+        // which can run AFTER a structure initializer has already seeded AM
+        // heads.  Reading it raw gave a rest length of 0 at seeding time, so
+        // every head looked maximally strained and the association gate
+        // rejected all of them (measured: 0 seeded vs 6 expected).  Fall back
+        // to the geometric definition of the same quantity, which is what
+        // set_aa_spacing_geometry will store anyway.
+        if (am_preferred_centerline > 0.0) {
+            return am_preferred_centerline;
+        }
+        return myosin.radius + actin_radius + am_surface_gap;
+    }
+    // Single definitions, used by BOTH the force path and the recorded strain
+    // energy.  They were duplicated once and drifted by a factor of 6.
+    double _am_head_radial_k() const {
+        return am_head_azimuth
+            ? am_head_transverse_k
+            : am_head_transverse_k + am_tether_k /
+                  static_cast<double>(std::max(1, am_tether_saturation_heads));
+    }
+    double _am_head_radial_cap() const {
+        return am_head_azimuth ? 0.0 : am_head_radial_force_max;
+    }
     // Maximum weak+strong heads that one fully overlapping actin may occupy
     // on one myosin half. Cardiac thick filaments have about six surrounding
     // thin-filament neighbors, so 24 shares the default 141-head pool without
@@ -944,6 +1063,8 @@ enum ProfileSection {
     void cb();
     void minimal_catch();
     void minimal_catch_variant(const std::string& variant);
+    void _apply_minimal_catch_tilt();
+    void _apply_minimal_catch_myosin_tilt();
     void aa_bundle_common();
     void aa_bundle_opposed();
     void bad_cb();

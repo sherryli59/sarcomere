@@ -21,10 +21,23 @@ int main() {
         0.025, 0.015, 0.015);
     require(near(am, 0.055), "incorrect AM centerline");
 
+    // Pin the constant explicitly, so an accidental edit is still caught.
+    // 0.9875 = 79/80: the ACTN2 rest length must agree with
+    // aa_barbed_lateral_range, a one-sided wall at 1.00 * am_preferred_
+    // centerline and 6x stiffer than ACTN2.  The old 0.92 lost that contest
+    // and left every link ~5.4 nm strained.
+    require(near(lattice_spacing::physiological_aa_am_ratio, 0.9875),
+            "physiological AA/AM ratio changed unexpectedly");
+
+    // The round-trip assertions below derive from the constant rather than
+    // duplicating its value -- duplicating it is what silently broke this
+    // test when the ratio moved.
     const double aa_default = lattice_spacing::aa_preferred_centerline(
         am, lattice_spacing::physiological_aa_am_ratio);
-    require(near(aa_default, 0.0506), "incorrect default AA centerline");
-    require(near(lattice_spacing::effective_ratio(aa_default, am), 0.92),
+    require(near(aa_default, am * lattice_spacing::physiological_aa_am_ratio),
+            "incorrect default AA centerline");
+    require(near(lattice_spacing::effective_ratio(aa_default, am),
+                 lattice_spacing::physiological_aa_am_ratio),
             "incorrect default spacing ratio");
 
     for (double rho : std::array<double, 3>{0.8, 0.9, 1.0}) {

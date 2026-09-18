@@ -2275,6 +2275,10 @@ void Sarcomere::_update_local_aa_links() {
             local_torques[link.actin_i] += contact.torque_on_actin_i;
             local_torques[link.actin_j] += contact.torque_on_actin_j;
             local_myosin_torques[best.myosin_index] += contact.torque_on_myosin;
+            _tb_add(kTsActn2Contact, thread_id, link.actin_i,
+                    contact.torque_on_actin_i);
+            _tb_add(kTsActn2Contact, thread_id, link.actin_j,
+                    contact.torque_on_actin_j);
             aa_zdisc_tip_force_feature[link.actin_i] += 0.5 * contact.force;
             aa_zdisc_tip_force_feature[link.actin_j] += 0.5 * contact.force;
             aa_zdisc_tip_contact_count_feature[link.actin_i] += 1.0;
@@ -2304,6 +2308,16 @@ void Sarcomere::_update_local_aa_links() {
         local_forces[link.actin_j] -= mech.force_on_first;
         local_torques[link.actin_i] += mech.torque_on_first;
         local_torques[link.actin_j] += mech.torque_on_second;
+        // Split by which ACTN2 stiffness supplies it.  The four terms sum to
+        // torque_on_*, which the closure check asserts.
+        _tb_add(kTsActn2Lever, thread_id, link.actin_i, mech.torque_first_lever);
+        _tb_add(kTsActn2Perp,  thread_id, link.actin_i, mech.torque_first_perp);
+        _tb_add(kTsActn2Align, thread_id, link.actin_i, mech.torque_first_align);
+        _tb_add(kTsActn2Axial, thread_id, link.actin_i, mech.torque_first_axial);
+        _tb_add(kTsActn2Lever, thread_id, link.actin_j, mech.torque_second_lever);
+        _tb_add(kTsActn2Perp,  thread_id, link.actin_j, mech.torque_second_perp);
+        _tb_add(kTsActn2Align, thread_id, link.actin_j, mech.torque_second_align);
+        _tb_add(kTsActn2Axial, thread_id, link.actin_j, mech.torque_second_axial);
         if ((aa_myosin_contact_epsilon > 0.0 ||
              (aa_myosin_contact_shell_width > 0.0 &&
               aa_myosin_contact_shell_energy > 0.0)) &&
@@ -2317,6 +2331,10 @@ void Sarcomere::_update_local_aa_links() {
                 local_torques[link.actin_i] += contact.torque_on_actin_i;
                 local_torques[link.actin_j] += contact.torque_on_actin_j;
                 local_myosin_torques[myosin_index] += contact.torque_on_myosin;
+                _tb_add(kTsActn2Contact, thread_id, link.actin_i,
+                        contact.torque_on_actin_i);
+                _tb_add(kTsActn2Contact, thread_id, link.actin_j,
+                        contact.torque_on_actin_j);
             };
             if (slot < contact_evaluated.size() &&
                 contact_evaluated[slot]) {

@@ -109,6 +109,8 @@ int main(int argc, char* argv[]){
     double aa_capture_margin;
     double aa_antiparallel_overlap;
     double init_aa_overlap;
+    double minimal_catch_tilt_deg;
+    double minimal_catch_myosin_tilt_deg;
     double aa_barbed_zone;
     double aa_axial_register_force_max;
     double aa_radial_force_max;
@@ -205,6 +207,11 @@ int main(int argc, char* argv[]){
     bool am_spatial_heads;
     bool sterics_enabled;
     int am_heads_per_half;
+    int am_spokes_per_crown;
+    bool am_head_azimuth;
+    bool torque_breakdown;
+    bool legacy_actin_torque_cap;
+    double am_head_radial_force_max;
     int am_max_heads_per_actin_half;
     int am_sites_per_actin;
     int am_max_heads_per_actin;
@@ -343,7 +350,7 @@ int main(int argc, char* argv[]){
             ("aa_status2_force_on", "Load required for status 1->2", cxxopts::value<double>(aa_status2_force_on)->default_value("1.0"))
             ("aa_status2_force_off", "Load below which status 2->1", cxxopts::value<double>(aa_status2_force_off)->default_value("0.5"))
             ("k_aa", "k_aa", cxxopts::value<double>(k_aa)->default_value("10"))
-            ("kappa_aa", "kappa_aa", cxxopts::value<double>(kappa_aa)->default_value("100"))
+            ("kappa_aa", "ACTN2 angular stiffness (pN*um) in U = 0.5*kappa_aa*(1-cos^2 theta); divided by aa_stiffness_reference_links for the per-link value. Default lowered 100 -> 3 on 2026-09-18: 100 pN*um = 23,364 kT/rad^2 froze the Z-pair at 0.53 deg rms and a 33x cut costs zero delivered rotational drive", cxxopts::value<double>(kappa_aa)->default_value("3"))
             ("k_am", "k_am", cxxopts::value<double>(k_am)->default_value("10"))
             ("k_mm", "Effective axial stiffness (pN/um) of one occupied sparse coarse-grained myomesin module; 0 disables all modules", cxxopts::value<double>(k_mm)->default_value("0"))
             ("myomesin_sites_per_filament", "Finite local-module edge valency of each thick filament", cxxopts::value<int>(myomesin_sites_per_filament)->default_value("2"))
@@ -362,6 +369,11 @@ int main(int argc, char* argv[]){
             ("am_offcenter_torque", "Apply explicit AM forces at head locations to rotate filaments", cxxopts::value<bool>(am_offcenter_torque)->default_value("true")->implicit_value("true"))
             ("am_spatial_heads", "Use azimuthally resolved thick-filament head anchors", cxxopts::value<bool>(am_spatial_heads)->default_value("true")->implicit_value("true"))
             ("sterics", "Enable filament steric repulsion", cxxopts::value<bool>(sterics_enabled)->default_value("true")->implicit_value("true"))
+            ("am_spokes_per_crown", "Head sites per axial crown; 3 is the physiological layout (default), 1 gives one head per axial station and so 3x the crowns at fixed am_heads_per_half", cxxopts::value<int>(am_spokes_per_crown)->default_value("3"))
+            ("legacy_actin_torque_cap", "Restore the pre-2026-09-18 actin torque clamp, which budgeted the FULL gradient magnitude rather than the component that can rotate the filament. Actin has no roll channel, so the axial component is inert; budgeting it made the clamp fire on 98.8% of entries in the canonical wrap rig and discard 50.2% of the real rotational drive while the effective torque sat 4.7x below the cap. Set this ONLY to reproduce runs made before the fix", cxxopts::value<bool>(legacy_actin_torque_cap)->default_value("false")->implicit_value("true"))
+            ("torque_breakdown", "Record per-source ACTIN TORQUE contributions as tb_<source>_{x,y,z} plus tb_total_precap. Off by default and bitwise inert. The ACTN2 link torque is split by which stiffness supplies it: lever, aa_perpendicular_k, kappa_aa (align) and the axial register", cxxopts::value<bool>(torque_breakdown)->default_value("false")->implicit_value("true"))
+            ("am_head_azimuth", "Radial channel mode. false (default) anchors the head on the myosin AXIS and measures its radial spring against am_preferred_centerline, so the azimuth cannot strain a head by geometry alone and the aggregate pair tether is folded per-head. true restores the legacy surface-anchored behaviour with the separate pair tether", cxxopts::value<bool>(am_head_azimuth)->default_value("false"))
+            ("am_head_radial_force_max", "Saturating cap on the per-head radial force (pN). Negative (default) DERIVES it from the integrator displacement clamp as max_actin_displacement/(mu_perp*dt*am_tether_saturation_heads), so a full complement of heads exactly reaches the clamp and the cap tracks dt. 0 keeps the unbounded linear spring; >0 is taken literally", cxxopts::value<double>(am_head_radial_force_max)->default_value("-1"))
             ("am_heads_per_half", "Conserved myosin head slots on each thick-filament half (three sites per crown; 141 gives ~14.3-nm crown spacing at the default length)", cxxopts::value<int>(am_heads_per_half)->default_value("141"))
             ("am_max_heads_per_actin_half", "Full-overlap weak+strong attachment capacity for one actin on one myosin half; scales with productive overlap, strong heads have priority, 0 disables", cxxopts::value<int>(am_max_heads_per_actin_half)->default_value("24"))
             ("am_sites_per_actin", "Material actin binding-site lattice shared by all neighboring myosins (~5.5-nm spacing at 182 sites/um)", cxxopts::value<int>(am_sites_per_actin)->default_value("182"))
@@ -447,11 +459,13 @@ int main(int argc, char* argv[]){
             ("aa_double_overlap_contact_diameter", "Decorated pointed-end contact diameter (um)", cxxopts::value<double>(aa_double_overlap_contact_diameter)->default_value("0.012"))
             ("aa_double_overlap_contact_epsilon", "Pointed-end WCA energy scale (pN um)", cxxopts::value<double>(aa_double_overlap_contact_epsilon)->default_value("0.00428"))
             ("aa_double_overlap_contact_force_cap", "Optional pointed-end compression/load-sharing force ceiling (pN; <=0 uncapped)", cxxopts::value<double>(aa_double_overlap_contact_force_cap)->default_value("0"))
-            ("aa_spacing_ratio", "Preferred AA/AM centerline-spacing ratio", cxxopts::value<double>(aa_spacing_ratio)->default_value("0.92"))
-            ("aa_preferred_centerline", "Direct AA centerline target; <=0 derives it from aa_spacing_ratio", cxxopts::value<double>(aa_preferred_centerline)->default_value("-1"))
+            ("aa_spacing_ratio", "Preferred AA/AM centerline-spacing ratio, used only when aa_preferred_centerline <= 0. Default 0.92 -> 0.9875 (= 79/80) on 2026-09-18 so the derived path agrees with the direct default rather than restoring the 73.6 nm inconsistency", cxxopts::value<double>(aa_spacing_ratio)->default_value("0.9875"))
+            ("aa_preferred_centerline", "Direct AA centerline target (um); <=0 derives it from aa_spacing_ratio. Default changed -1 (which derived 0.92*80 = 73.6 nm) -> 0.079 on 2026-09-18: aa_barbed_lateral_range is a one-sided wall at 80 nm whose 2000 pN/um is 6x the ACTN2 per-link 333 pN/um, so it parks the pair at 79 nm and a 73.6 nm rest leaves every link 5.4 nm strained", cxxopts::value<double>(aa_preferred_centerline)->default_value("0.079"))
             ("aa_capture_margin", "AA capture distance beyond its preferred centerline", cxxopts::value<double>(aa_capture_margin)->default_value("0.02"))
             ("aa_antiparallel_overlap", "Preferred axial overlap of antiparallel actin barbed-end regions", cxxopts::value<double>(aa_antiparallel_overlap)->default_value("0.1"))
             ("init_aa_overlap", "[UNUSED 2026-09-17: not set by any of 177 sbatch files] Initial Z-disc interdigitation for two_sarcomere_unit; <=0 starts perfectly registered at aa_antiparallel_overlap", cxxopts::value<double>(init_aa_overlap)->default_value("-1"))
+            ("minimal_catch_tilt_deg", "Initial thin-filament misalignment for minimal_catch_* rigs (degrees), applied as a rigid rotation of each prebound ACTN2 pair about its barbed-end midpoint. Moves the thin filaments out of motor reach; prefer --minimal_catch_myosin_tilt_deg", cxxopts::value<double>(minimal_catch_tilt_deg)->default_value("0"))
+            ("minimal_catch_myosin_tilt_deg", "Initial THICK-filament misalignment for minimal_catch_* rigs (degrees), about the actin-myosin offset direction through the filament centre, which preserves the capture separation exactly and never touches the Z-disc", cxxopts::value<double>(minimal_catch_myosin_tilt_deg)->default_value("0"))
             ("aa_barbed_zone", "Z-disc width: ACTN2 binds only within this distance (um) of a barbed end; <=0 binds anywhere in the mutual overlap", cxxopts::value<double>(aa_barbed_zone)->default_value("-1"))
             ("aa_axial_register_force_max", "Ceiling (pN) for a saturating status-2 axial register force that does not decay far from the target; <=0 keeps the Gaussian-attenuated form", cxxopts::value<double>(aa_axial_register_force_max)->default_value("36"))
             ("aa_radial_force_max", "[UNUSED 2026-09-17: not set by any of 177 sbatch files] Saturating cap on the ACTN2 radial force (pN); <=0 keeps the unbounded quadratic. Small-displacement stiffness is unchanged; bounding the force is what permits a larger dt without a displacement clamp", cxxopts::value<double>(aa_radial_force_max)->default_value("0"))
@@ -847,6 +861,11 @@ int main(int argc, char* argv[]){
     }
     if (three_membered_transverse_jitter < 0.0 ||
         three_membered_axial_jitter < 0.0 ||
+        !std::isfinite(minimal_catch_tilt_deg) ||
+        std::abs(minimal_catch_tilt_deg) > 90.0 ||
+        !std::isfinite(minimal_catch_myosin_tilt_deg) ||
+        std::abs(minimal_catch_myosin_tilt_deg) > 90.0 ||
+        !std::isfinite(am_head_radial_force_max) ||
         three_membered_tilt_jitter < 0.0 ||
         !std::isfinite(three_membered_transverse_jitter) ||
         !std::isfinite(three_membered_axial_jitter) ||
@@ -1215,6 +1234,41 @@ int main(int argc, char* argv[]){
     model.aa_link_rupture_length = aa_link_rupture_length;
     model.set_interaction_ramp(0, static_cast<size_t>(interaction_ramp_steps));
     model.isometric_actin_axial = isometric_actin_axial;
+    if (am_spokes_per_crown < 1 || am_spokes_per_crown > 16) {
+        std::cerr << "am_spokes_per_crown must be between 1 and 16" << std::endl;
+        gsl_rng_free(rng);
+        return 1;
+    }
+    // Must precede set_am_head_count: that call builds the head pools.
+    model.am_spokes_per_crown = am_spokes_per_crown;
+    model.am_head_azimuth = am_head_azimuth;
+    // Derive the radial cap from the displacement clamp unless given explicitly.
+    // mu_perp = beta * D_perp is the mobility the clamp actually acts through,
+    // so F_clamp = max_actin_displacement/(mu_perp*dt) is the largest force the
+    // integrator can express on one actin.  Divide by the occupancy scale so a
+    // full complement of bound heads reaches that ceiling and no more.
+    if (am_head_radial_force_max < 0.0) {
+        const double d_perp = physical_mobility
+            ? actin_mobility.perpendicular : actin_diff_coeff_trans;
+        const double mu_perp = beta * d_perp;
+        const int n_sat = std::max(1, am_tether_saturation_heads);
+        if (mu_perp > 0.0 && dt > 0.0 && max_actin_displacement > 0.0) {
+            am_head_radial_force_max = max_actin_displacement /
+                (mu_perp * dt * static_cast<double>(n_sat));
+            std::cout << "am_head_radial_force_max derived from the "
+                         "displacement clamp: " << am_head_radial_force_max
+                      << " pN per head (clamp "
+                      << max_actin_displacement / (mu_perp * dt)
+                      << " pN total, / " << n_sat << " heads)" << std::endl;
+        } else {
+            am_head_radial_force_max = 0.0;
+            std::cout << "am_head_radial_force_max: cannot derive a clamp-based "
+                         "cap (mobility, dt or max_actin_displacement is zero); "
+                         "falling back to the unbounded linear spring"
+                      << std::endl;
+        }
+    }
+    model.am_head_radial_force_max = am_head_radial_force_max;
     model.set_am_head_count(am_heads_per_half);
     model.set_am_neighbor_head_cap(am_max_heads_per_actin_half);
     model.set_am_site_count(am_sites_per_actin);
@@ -1283,6 +1337,20 @@ int main(int argc, char* argv[]){
                   << " s and effectively never releases, so it will pin the "
                      "thin filament after the Z-disc dies." << std::endl;
     }
+    if (max_actin_rotation > 0.005 && !legacy_actin_torque_cap) {
+        std::cerr << "WARNING: --max_actin_rotation = " << max_actin_rotation
+                  << " exceeds the production 0.005.  Values near 0.020 were "
+                     "adopted to dodge actin torque-clamp saturation, which "
+                     "was a BUG: the clamp budgeted the full torque gradient "
+                     "while the integrator uses only the component "
+                     "perpendicular to the filament axis, and actin has no "
+                     "roll channel.  That is fixed (torque cap events went "
+                     "3,996,032 -> 0 per seed; measured torq_sat is 0.0000 at "
+                     "0.005), so the inflated cap buys nothing and only "
+                     "loosens the integrator.  Use 0.005 unless you have a "
+                     "reason unrelated to clamp saturation."
+                  << std::endl;
+    }
     if (am_tether_k > 0.0 && !(am_tether_force_max > 0.0)) {
         std::cerr << "WARNING: --am_tether_force_max <= 0 selects the unbounded "
                      "linear branch of the AM tether; its force grows without "
@@ -1324,6 +1392,19 @@ int main(int argc, char* argv[]){
     model.cli_invocation = cli_invocation_capture;
     model.cli_defaults = cli_defaults_capture;
 
+    // Must be set BEFORE the Langevin constructor: it calls model.new_file(),
+    // which writes every meta attribute.  Setting these only in the
+    // initial_structure dispatch below persisted 0.0 for every tilt, leaving the
+    // runs correct but unreproducible from their own metadata.  Langevin holds
+    // Sarcomere by reference, so this is the same object.
+    model.minimal_catch_tilt_deg = minimal_catch_tilt_deg;
+    model.minimal_catch_myosin_tilt_deg = minimal_catch_myosin_tilt_deg;
+    // Features must be registered BEFORE the Langevin constructor creates the
+    // HDF5 file, or the run aborts on a missing dataset.
+    model.torque_breakdown = torque_breakdown;
+    model.legacy_actin_torque_cap = legacy_actin_torque_cap;
+    model._tb_setup();
+
     Langevin sim(model, beta, dt, actin_diff_coeff_trans,actin_diff_coeff_rot, myosin_diff_coeff_trans, myosin_diff_coeff_rot, save_every, resume, is3D,
                     max_actin_displacement, max_myosin_displacement,
                     max_actin_rotation, max_myosin_rotation, resume_frame);
@@ -1345,6 +1426,9 @@ int main(int argc, char* argv[]){
         }
         else if (init_struc.rfind("minimal_catch_", 0) == 0) {
             sim.model.init_aa_overlap = init_aa_overlap;
+            sim.model.minimal_catch_tilt_deg = minimal_catch_tilt_deg;
+            sim.model.minimal_catch_myosin_tilt_deg =
+                minimal_catch_myosin_tilt_deg;
             sim.model.minimal_catch_variant(
                 init_struc.substr(std::string("minimal_catch_").size()));
         }

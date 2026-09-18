@@ -344,6 +344,20 @@ LocalAALinkResult compute_local_aa_link(
         axial_grad_dir_second;
     result.torque_on_first = -gradient_direction_first;
     result.torque_on_second = -gradient_direction_second;
+    // The same four products, kept separately so a run can say WHICH ACTN2
+    // stiffness supplies the torque.  Signs match the negation above.
+    result.torque_first_lever = s_first * connector_gradient;
+    result.torque_first_perp =
+        -(perpendicular_k * projection_first) * result.connector;
+    result.torque_first_align =
+        (alignment_k * direction_dot) * direction_second;
+    result.torque_first_axial = -1.0 * axial_grad_dir_first;
+    result.torque_second_lever = -s_second * connector_gradient;
+    result.torque_second_perp =
+        -(perpendicular_k * projection_second) * result.connector;
+    result.torque_second_align =
+        (alignment_k * direction_dot) * direction_first;
+    result.torque_second_axial = -1.0 * axial_grad_dir_second;
     return result;
 }
 
@@ -560,7 +574,8 @@ AMTwoSpringHeadResult compute_am_two_spring_head(
     const vec* material_e1, const vec* material_e2,
     double radial_preferred, double radial_stiffness, double radial_slack,
     double axial_stiffness, double stroke_progress, double stall_force,
-    bool strong, bool bidirectional_strong) {
+    bool strong, bool bidirectional_strong,
+    double radial_force_max) {
     AMTwoSpringHeadResult result;
     vec axis_a = actin.direction[actin_index];
     vec axis_m = myosin.direction[myosin_index];
@@ -623,13 +638,20 @@ AMTwoSpringHeadResult compute_am_two_spring_head(
     }
     if (radial_stiffness > 0.0 && rho > 1e-12 &&
         loaded_radial_extension != 0.0) {
-        const double dU_drho = radial_stiffness * loaded_radial_extension;
+        // Saturating when radial_force_max > 0: f_max*tanh(ext/scale) with
+        // scale = f_max/k.  The force is bounded while log cosh grows LINEARLY,
+        // so the well still confines and there is no finite-energy escape.
+        // radial_force_max <= 0 keeps the unbounded linear spring, which is what
+        // the legacy azimuth-ON arm uses.
+        double dU_drho = 0.0;
+        double radial_energy_term = 0.0;
+        saturating_radial(radial_stiffness, radial_force_max,
+                          loaded_radial_extension, dU_drho, radial_energy_term);
         gradient_h += (dU_drho / rho) * transverse;
         // rho^2 = h.h - (h.u)^2.  This explicit orientation derivative is
         // required in addition to the material-point lever arm.
         explicit_gradient_axis += -(dU_drho * z / rho) * result.connector;
-        result.radial_energy = 0.5 * radial_stiffness *
-                               loaded_radial_extension * loaded_radial_extension;
+        result.radial_energy = radial_energy_term;
         result.energy += result.radial_energy;
     }
 

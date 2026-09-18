@@ -271,6 +271,24 @@ void Sarcomere::new_file(){
     write_double_attr("probe_tilt_deg", probe_tilt_deg);
     write_double_attr("probe_confine_k", probe_confine_k);
     write_double_attr("am_tether_slack", am_tether_slack);
+    write_double_attr("minimal_catch_tilt_deg", minimal_catch_tilt_deg);
+    write_double_attr("minimal_catch_myosin_tilt_deg",
+                      minimal_catch_myosin_tilt_deg);
+    write_double_attr("am_spokes_per_crown",
+                      static_cast<double>(am_spokes_per_crown));
+    write_int_attr("am_head_azimuth", am_head_azimuth ? 1 : 0);
+    write_int_attr("legacy_actin_torque_cap", legacy_actin_torque_cap ? 1 : 0);
+    // The rotation caps set the torque ceiling
+    // (max_actin_torque = max_rotation / (beta * D_rot * dt)) and were not
+    // recorded, so analyses had to back-derive them.  Record them.
+    // The rotation caps themselves live in Langevin, but the ceilings they
+    // derive are what analysis needs: max_rotation = torque * beta*D_rot*dt.
+    write_double_attr("max_actin_torque", max_actin_torque);
+    write_double_attr("max_myosin_torque", max_myosin_torque);
+    write_double_attr("max_actin_force", max_actin_force);
+    write_double_attr("max_myosin_force", max_myosin_force);
+    write_int_attr("torque_breakdown", torque_breakdown ? 1 : 0);
+    write_double_attr("am_head_radial_force_max", am_head_radial_force_max);
     write_double_attr("am_head_transverse_k", am_head_transverse_k);
     write_double_attr("am_alignment_k", am_alignment_k);
     write_double_attr("am_alignment_slack_rad", am_alignment_slack);

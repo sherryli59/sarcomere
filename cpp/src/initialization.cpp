@@ -1,4 +1,6 @@
 #include "initialization.h"
+#include <utility>
+#include <algorithm>
 #include <vector>
 #include <cmath>
 #include <cstdio>
@@ -1283,6 +1285,129 @@ void Sarcomere::minimal_catch() {
     }
 }
 
+void Sarcomere::_apply_minimal_catch_tilt() {
+    // Misalign the thin filaments from the thick-filament axis by
+    // minimal_catch_tilt_deg WITHOUT straining the Z-disc.
+    //
+    // Each prebound ACTN2 pair rotates as a RIGID UNIT about a common pivot
+    // (the min-imaged midpoint of its two barbed ends), so every internal
+    // distance -- including every crosslink connector -- is preserved exactly.
+    // Rotating each filament about its own barbed end instead splays the
+    // partners apart and pre-stretches the links by 12.6 / 34.7 / 52.5 nm at
+    // 10 / 30 / 60 deg, the last past the 120 nm rupture length, so the 60 deg
+    // Z-disc was broken before the run started.  Re-prebinding does not help:
+    // the stretch is geometric.
+    //
+    // NOTE: this moves the thin filaments OUT OF MOTOR REACH -- at 10 deg one
+    // actin sat 179.5 nm from its myosin against a ~130 nm capture reach, and
+    // only 3 of 12 heads could seed.  Prefer minimal_catch_myosin_tilt_deg.
+    const double tilt = minimal_catch_tilt_deg * M_PI / 180.0;
+    if (!std::isfinite(tilt) || std::abs(tilt) < 1e-12) return;
+    if (actin.n < 1) return;
+
+    auto wrap_position = [&](vec v) {
+        for (int k = 0; k < 3; ++k) {
+            double& c = (k == 0) ? v.x : (k == 1) ? v.y : v.z;
+            if (is_periodic[static_cast<size_t>(k)] && box[k] > 0.0) {
+                c -= box[k] * std::round(c / box[k]);
+            }
+        }
+        return v;
+    };
+    auto rotate = [](const vec& v, const vec& axis, double angle) {
+        const double c = std::cos(angle), s2 = std::sin(angle);
+        return c * v + s2 * axis.cross(v) + (1.0 - c) * axis.dot(v) * axis;
+    };
+
+    std::vector<std::vector<int>> groups;
+    std::vector<bool> assigned(static_cast<size_t>(actin.n), false);
+    for (const auto& link : aa_links) {
+        if (!link.active) continue;
+        const int i = link.actin_i, j = link.actin_j;
+        if (i < 0 || j < 0 || i >= actin.n || j >= actin.n) continue;
+        if (assigned[static_cast<size_t>(i)] ||
+            assigned[static_cast<size_t>(j)]) continue;
+        groups.push_back({i, j});
+        assigned[static_cast<size_t>(i)] = true;
+        assigned[static_cast<size_t>(j)] = true;
+    }
+    for (int i = 0; i < actin.n; ++i) {
+        if (!assigned[static_cast<size_t>(i)]) groups.push_back({i});
+    }
+
+    const int n_groups = static_cast<int>(groups.size());
+    for (int g = 0; g < n_groups; ++g) {
+        const auto& members = groups[static_cast<size_t>(g)];
+        vec first_barbed{0.0, 0.0, 0.0};
+        vec pivot{0.0, 0.0, 0.0};
+        for (size_t k = 0; k < members.size(); ++k) {
+            const int i = members[k];
+            vec d = actin.direction[i];
+            d.normalize();
+            const vec barbed = static_cast<vec>(actin.center[i]) -
+                               (0.5 * actin.length) * d;
+            if (k == 0) {
+                first_barbed = barbed;
+                pivot = barbed;
+            } else {
+                vec offset = barbed - first_barbed;
+                offset.pbc_wrap(box, is_periodic);
+                pivot = first_barbed + (1.0 / static_cast<double>(
+                    members.size())) * offset;
+            }
+        }
+        const double phi = M_PI * static_cast<double>(g) /
+                           static_cast<double>(std::max(1, n_groups));
+        vec axis{0.0, std::cos(phi), std::sin(phi)};
+        axis.normalize();
+        for (const int i : members) {
+            vec d = actin.direction[i];
+            d.normalize();
+            vec rel = static_cast<vec>(actin.center[i]) - pivot;
+            rel.pbc_wrap(box, is_periodic);
+            vec d_new = rotate(d, axis, tilt);
+            d_new.normalize();
+            actin.direction[i] = d_new;
+            actin.center[i] = wrap_position(pivot + rotate(rel, axis, tilt));
+        }
+    }
+    actin.update_endpoints();
+}
+
+void Sarcomere::_apply_minimal_catch_myosin_tilt() {
+    // Misalign each thick filament by minimal_catch_myosin_tilt_deg without
+    // losing motor capture and without touching the Z-disc at all.
+    //
+    // The rotation axis must be the actin-myosin offset direction (z here).
+    // For two skew lines the separation is |(p_m - p_a).w| with
+    // w = (u x v)/|u x v|; rotating about z keeps w along z, so the separation
+    // stays exactly am_spacing at any angle.  Rotating about y instead sends w
+    // into the x-y plane and the separation to ZERO -- the filaments
+    // interpenetrate (measured: one actin 21.9 nm from a myosin, inside the
+    // 80 nm spacing, with only 3 of 12 heads able to seed at 10 deg).
+    //
+    // The pivot is the filament centre, which puts the projected crossing
+    // inside the body.  Verified at frame 0: 80.0 / 86.6 / 103.7 nm separation
+    // with 6/6/6/6, 6/6/6/6 and 3/3/3/3 heads seeded at 0 / 5 / 10 deg, and the
+    // Z-disc exactly relaxed (6 links, 0.00 nm extension) throughout.  Binding
+    // dies between 10 and 15 deg because contact happens at the thin-filament
+    // tip ~0.38 um off the pivot (the BARE ZONE half-gap), so the separation
+    // grows as sqrt(am_spacing^2 + (lever*sin t)^2).  Raise the A-M overlap
+    // (shorter sarcomere repeat) to lift that ceiling, not am_cutoff.
+    const double tilt = minimal_catch_myosin_tilt_deg * M_PI / 180.0;
+    if (!std::isfinite(tilt) || std::abs(tilt) < 1e-12) return;
+    if (myosin.n < 1) return;
+    for (int i = 0; i < myosin.n; ++i) {
+        vec d = myosin.direction[i];
+        d.normalize();
+        const double c = std::cos(tilt), s2 = std::sin(tilt);
+        vec rotated{c * d.x - s2 * d.y, s2 * d.x + c * d.y, d.z};
+        rotated.normalize();
+        myosin.direction[i] = rotated;
+    }
+    myosin.update_endpoints();
+}
+
 void Sarcomere::minimal_catch_variant(const std::string& variant) {
     minimal_catch();
     if (actin.n < 2 || myosin.n < 2 || variant == "perfect") return;
@@ -1402,6 +1527,12 @@ void Sarcomere::minimal_catch_variant(const std::string& variant) {
         reset_myosin_material_frames();
         prebind_local_aa_pair(0, 1, aa_prebundle_links_per_pair);
         prebind_local_aa_pair(2, 3, aa_prebundle_links_per_pair);
+
+        // The tilts land here: after the balanced geometry is final, but
+        // before the heads below are seeded, so seeding sees the tilted pose
+        // and the association gate rejects heads that genuinely cannot reach.
+        _apply_minimal_catch_tilt();
+        _apply_minimal_catch_myosin_tilt();
 
         // minimal_catch() seeded the central pair before the balanced geometry
         // was complete. Clear only those occupied chemical states, preserve

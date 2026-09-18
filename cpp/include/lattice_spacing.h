@@ -4,7 +4,10 @@
 
 namespace lattice_spacing {
 
-constexpr double physiological_aa_am_ratio = 0.92;
+// 79/80.  Was 0.92, which disagreed with aa_barbed_lateral_range -- a
+// one-sided wall at 1.00 * am_preferred_centerline and 6x stiffer -- so ACTN2
+// sat permanently 5.4 nm strained.  See the 2026-09-18 prestress probe.
+constexpr double physiological_aa_am_ratio = 0.9875;
 
 inline double am_preferred_centerline(double myosin_radius,
                                       double actin_radius,
