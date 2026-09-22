@@ -78,6 +78,8 @@ int main(int argc, char* argv[]){
     double actin_direction_noise;
     double myosin_direction_noise;
     double myosin_direction_tilt_deg;
+    double actin_direction_polar_fraction;
+    double myosin_direction_polar_fraction;
     double am_cutoff;
     double am_optimal;
     double actin_radius;
@@ -442,6 +444,8 @@ int main(int argc, char* argv[]){
             ("myosin_radius", "Myosin radius", cxxopts::value<double>(myosin_radius)->default_value("0.025"))
             ("actin_direction_noise", "Std dev for aligning actin directions to +x; negative leaves isotropic initialization", cxxopts::value<double>(actin_direction_noise)->default_value("-1"))
             ("myosin_direction_noise", "Std dev for aligning myosin directions to +x during initialization", cxxopts::value<double>(myosin_direction_noise)->default_value("1"))
+            ("actin_direction_polar_fraction", "Fraction of actins seeded along +x rather than -x when actin_direction_noise >= 0. 1 (default) is the historical POLAR start and is bitwise identical to it. Nematic order S is sign-blind, so 0.5 gives the SAME order with mixed polarity -- which is what ACTN2 needs, since it only links pairs with direction_dot <= aa_association_max_direction_dot. A fully polar start has ~0 antiparallel pairs and cannot build a Z-disc", cxxopts::value<double>(actin_direction_polar_fraction)->default_value("1"))
+            ("myosin_direction_polar_fraction", "Same, for myosin", cxxopts::value<double>(myosin_direction_polar_fraction)->default_value("1"))
             ("myosin_direction_tilt_deg", "Mean in-plane tilt of initialized myosin directions from +x", cxxopts::value<double>(myosin_direction_tilt_deg)->default_value("0"))
             ("am_cutoff", "cutoff for am interaction range", cxxopts::value<double>(am_cutoff)->default_value("0.05"))
             ("am_optimal", "optimal distance for am interaction", cxxopts::value<double>(am_optimal)->default_value("0.03"))
@@ -1351,11 +1355,20 @@ int main(int argc, char* argv[]){
                      "reason unrelated to clamp saturation."
                   << std::endl;
     }
-    if (am_tether_k > 0.0 && !(am_tether_force_max > 0.0)) {
+    // Only meaningful in the legacy arm: azimuth-OFF folds the pair tether
+    // into the per-head radial spring and skips the aggregate block entirely
+    // (sarcomere.cpp, guarded by `if (am_head_azimuth)`), so the recorded
+    // am_tether_force is identically 0 there.  Warning unconditionally pointed
+    // at a dead code path and implied production ran an uncapped AM force when
+    // it is in fact capped by am_head_radial_force_max.
+    if (am_head_azimuth && am_tether_k > 0.0 && !(am_tether_force_max > 0.0)) {
         std::cerr << "WARNING: --am_tether_force_max <= 0 selects the unbounded "
                      "linear branch of the AM tether; its force grows without "
                      "limit and is bounded only by the integrator displacement "
-                     "clamp." << std::endl;
+                     "clamp.  (Legacy arm only: with --am_head_azimuth=false "
+                     "the aggregate tether is not evaluated and the per-head "
+                     "radial force saturates at am_head_radial_force_max.)"
+                  << std::endl;
     }
     if (am_head_transverse_k > 0.0 &&
         !(am_transverse_strain_detachment_theta > 0.0)) {
@@ -1403,6 +1416,8 @@ int main(int argc, char* argv[]){
     // HDF5 file, or the run aborts on a missing dataset.
     model.torque_breakdown = torque_breakdown;
     model.legacy_actin_torque_cap = legacy_actin_torque_cap;
+    model.actin_direction_polar_fraction = actin_direction_polar_fraction;
+    model.myosin_direction_polar_fraction = myosin_direction_polar_fraction;
     model._tb_setup();
 
     Langevin sim(model, beta, dt, actin_diff_coeff_trans,actin_diff_coeff_rot, myosin_diff_coeff_trans, myosin_diff_coeff_rot, save_every, resume, is3D,
@@ -1487,10 +1502,12 @@ int main(int argc, char* argv[]){
         }
         else if (init_struc == "myosin_x_noise"){
             if (actin_direction_noise >= 0.0) {
-                sim.model.set_actin_direction_x_noise(actin_direction_noise);
+                sim.model.set_actin_direction_x_noise(
+                    actin_direction_noise, actin_direction_polar_fraction);
             }
             sim.model.set_myosin_direction_x_noise(
-                myosin_direction_noise, myosin_direction_tilt_deg);
+                myosin_direction_noise, myosin_direction_polar_fraction,
+                myosin_direction_tilt_deg);
             sim.volume_exclusion(pre_phase_steps, rng, n_fixed_myosins, false);
             if (prebundle_assembly) sim.model.prebind_assembly_actin_links();
             sim.model.current_step = 0;

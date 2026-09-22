@@ -645,6 +645,9 @@ enum ProfileSection {
     // Kept only so prior runs can be reproduced bit-for-bit; it is a known
     // defect, not an alternative model.
     bool legacy_actin_torque_cap = false;
+    // Recorded only, so a trajectory states the polarity it began with.
+    double actin_direction_polar_fraction = 1.0;
+    double myosin_direction_polar_fraction = 1.0;
 
     // Magnitude of the actin torque that the integrator can actually turn into
     // rotation.  Tumbling is driven by project_perpendicular(torque, axis) and
@@ -1070,8 +1073,10 @@ enum ProfileSection {
     void bad_cb();
     void cb_off_angle();
     void am_off_angle();
-    void set_actin_direction_x_noise(double noise_std);
+    void set_actin_direction_x_noise(double noise_std,
+                                     double polar_fraction = 1.0);
     void set_myosin_direction_x_noise(double noise_std,
+                                      double polar_fraction,
                                        double tilt_deg = 0.0);
     void single_am();
     void single_am_tilted();

@@ -278,6 +278,10 @@ void Sarcomere::new_file(){
                       static_cast<double>(am_spokes_per_crown));
     write_int_attr("am_head_azimuth", am_head_azimuth ? 1 : 0);
     write_int_attr("legacy_actin_torque_cap", legacy_actin_torque_cap ? 1 : 0);
+    write_double_attr("actin_direction_polar_fraction",
+                      actin_direction_polar_fraction);
+    write_double_attr("myosin_direction_polar_fraction",
+                      myosin_direction_polar_fraction);
     // The rotation caps set the torque ceiling
     // (max_actin_torque = max_rotation / (beta * D_rot * dt)) and were not
     // recorded, so analyses had to back-derive them.  Record them.

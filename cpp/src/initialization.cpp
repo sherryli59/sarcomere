@@ -1662,11 +1662,18 @@ void Sarcomere::aa_bundle_opposed() {
 namespace {
 
 void set_direction_axis_noise(Filament& filament, gsl_rng* rng,
-                              double noise_std, double tilt_deg) {
+                              double noise_std, double tilt_deg,
+                              double polar_fraction) {
     const double sigma = (noise_std > 0.0) ? noise_std : 0.0;
     const double angle = tilt_deg * M_PI / 180.0;
     const double base_x = std::cos(angle);
     const double base_y = std::sin(angle);
+    // polar_fraction is the share pointing along +axis; the rest are flipped
+    // to -axis.  Nematic order is identical either way (S is sign-blind), but
+    // only a mixed-polarity population supplies the antiparallel pairs ACTN2
+    // needs.  1.0 is the historical behaviour and is bitwise identical to it,
+    // because the flip branch is then never taken and consumes no RNG draws.
+    const double pf = std::min(1.0, std::max(0.0, polar_fraction));
     for (int i = 0; i < filament.n; ++i) {
         double dx = base_x;
         double dy = base_y;
@@ -1683,6 +1690,19 @@ void set_direction_axis_noise(Filament& filament, gsl_rng* rng,
         } else {
             dir = dir / norm;
         }
+        // Deterministic alternation rather than an RNG draw: it hits the
+        // requested fraction exactly at any n, and it keeps pf = 1 from
+        // perturbing the random stream, so the default stays bit-identical.
+        if (pf < 1.0) {
+            // Bresenham-style: flip exactly when the next flip is due, which
+            // gives round(n*(1-pf)) flips evenly spread for ANY n.  A modulo
+            // scheme only tiles correctly when n divides the modulus.
+            const double q = 1.0 - pf;
+            const bool flip = std::floor((i + 1) * q) > std::floor(i * q);
+            if (flip) {
+                dir = -1.0 * dir;
+            }
+        }
         filament.direction[i] = dir;
     }
     filament.update_endpoints();
@@ -1690,13 +1710,16 @@ void set_direction_axis_noise(Filament& filament, gsl_rng* rng,
 
 }  // namespace
 
-void Sarcomere::set_actin_direction_x_noise(double noise_std){
-    set_direction_axis_noise(actin, rng, noise_std, 0.0);
+void Sarcomere::set_actin_direction_x_noise(double noise_std,
+                                            double polar_fraction){
+    set_direction_axis_noise(actin, rng, noise_std, 0.0, polar_fraction);
 }
 
 void Sarcomere::set_myosin_direction_x_noise(double noise_std,
+                                              double polar_fraction,
                                               double tilt_deg){
-    set_direction_axis_noise(myosin, rng, noise_std, tilt_deg);
+    set_direction_axis_noise(myosin, rng, noise_std, tilt_deg,
+                             polar_fraction);
 }
 
 void Sarcomere::cb_off_angle(){
@@ -1918,13 +1941,15 @@ void cb(Sarcomere& s) {
     }
 }
 
-void set_actin_direction_x_noise(Sarcomere& s, double noise_std) {
-    set_direction_axis_noise(s.actin, s.rng, noise_std, 0.0);
+void set_actin_direction_x_noise(Sarcomere& s, double noise_std,
+                                 double polar_fraction) {
+    set_direction_axis_noise(s.actin, s.rng, noise_std, 0.0, polar_fraction);
 }
 
 void set_myosin_direction_x_noise(Sarcomere& s, double noise_std,
-                                   double tilt_deg) {
-    set_direction_axis_noise(s.myosin, s.rng, noise_std, tilt_deg);
+                                   double polar_fraction, double tilt_deg) {
+    set_direction_axis_noise(s.myosin, s.rng, noise_std, tilt_deg,
+                             polar_fraction);
 }
 
 void cb_off_angle(Sarcomere& s) {
