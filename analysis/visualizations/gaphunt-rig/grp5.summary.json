@@ -1,0 +1,41 @@
+[
+ {
+  "group": "Dwell sweep, FREE myosins",
+  "arm": "lf_ks40",
+  "seed": 20260805,
+  "label": "k_strong_off 40 (25 ms dwell)",
+  "tilt_x": 7.229462807563849,
+  "tilt_m": 3.1666036665540305,
+  "heads": 23.730134932533733,
+  "links": 0.0,
+  "spread": 4.321469907113997,
+  "perp_nm": 78.7761376015924,
+  "nflags": 12
+ },
+ {
+  "group": "Dwell sweep, FREE myosins",
+  "arm": "lf_ks160",
+  "seed": 20260805,
+  "label": "k_strong_off 160 (6.25 ms, production)",
+  "tilt_x": 8.311386671634336,
+  "tilt_m": 2.7233131521388323,
+  "heads": 23.128435782108944,
+  "links": 0.0,
+  "spread": 5.637969741441729,
+  "perp_nm": 77.83328873317994,
+  "nflags": 11
+ },
+ {
+  "group": "Dwell sweep, FREE myosins",
+  "arm": "lf_ks640",
+  "seed": 20260805,
+  "label": "k_strong_off 640 (1.6 ms)",
+  "tilt_x": 7.065333768227683,
+  "tilt_m": 1.921750697244383,
+  "heads": 22.49975012493753,
+  "links": 0.0,
+  "spread": 3.516595991287589,
+  "perp_nm": 83.46957837251573,
+  "nflags": 12
+ }
+]

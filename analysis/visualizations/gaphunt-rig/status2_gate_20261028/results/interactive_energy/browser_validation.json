@@ -1,0 +1,8 @@
+{
+  "rendering_checked": false,
+  "passed": null,
+  "reason": "Chromium 141 cannot launch on the compute node: its executable requires GLIBC_2.18 and GLIBC_2.25, which are absent. No system changes were attempted.",
+  "attempt_jobs": ["50032762", "50032996"],
+  "numerical_and_control_smoke_checks": "Passed separately; see validation.json and js_validation.json. Those checks do not certify WebGL rendering.",
+  "app_browser_open": "Remote file URLs cannot be opened directly in the local app browser; use the downloadable standalone HTML. The file was also sent to the app file panel."
+}

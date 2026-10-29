@@ -1,0 +1,212 @@
+{
+ "tp0_20260805": {
+  "last_bound_ms": 1000.0,
+  "bound_at_end": true,
+  "run_ms": 1000.0
+ },
+ "tp0_20260815": {
+  "last_bound_ms": 1000.0,
+  "bound_at_end": true,
+  "run_ms": 1000.0
+ },
+ "tp0_20260825": {
+  "last_bound_ms": 1000.0,
+  "bound_at_end": true,
+  "run_ms": 1000.0
+ },
+ "tp15_20260805": {
+  "last_bound_ms": 1000.0,
+  "bound_at_end": true,
+  "run_ms": 1000.0
+ },
+ "tp15_20260815": {
+  "last_bound_ms": 1000.0,
+  "bound_at_end": true,
+  "run_ms": 1000.0
+ },
+ "tp15_20260825": {
+  "last_bound_ms": 1000.0,
+  "bound_at_end": true,
+  "run_ms": 1000.0
+ },
+ "tp30_20260805": {
+  "last_bound_ms": 1000.0,
+  "bound_at_end": true,
+  "run_ms": 1000.0
+ },
+ "tp30_20260815": {
+  "last_bound_ms": 1000.0,
+  "bound_at_end": true,
+  "run_ms": 1000.0
+ },
+ "tp30_20260825": {
+  "last_bound_ms": 1000.0,
+  "bound_at_end": true,
+  "run_ms": 1000.0
+ },
+ "tp45_20260805": {
+  "last_bound_ms": 1000.0,
+  "bound_at_end": true,
+  "run_ms": 1000.0
+ },
+ "tp45_20260815": {
+  "last_bound_ms": 1000.0,
+  "bound_at_end": true,
+  "run_ms": 1000.0
+ },
+ "tp45_20260825": {
+  "last_bound_ms": 1000.0,
+  "bound_at_end": true,
+  "run_ms": 1000.0
+ },
+ "tp60_20260805": {
+  "last_bound_ms": 1000.0,
+  "bound_at_end": true,
+  "run_ms": 1000.0
+ },
+ "tp60_20260815": {
+  "last_bound_ms": 1000.0,
+  "bound_at_end": true,
+  "run_ms": 1000.0
+ },
+ "tp60_20260825": {
+  "last_bound_ms": 1000.0,
+  "bound_at_end": true,
+  "run_ms": 1000.0
+ },
+ "tp75_20260805": {
+  "last_bound_ms": 1000.0,
+  "bound_at_end": true,
+  "run_ms": 1000.0
+ },
+ "tp75_20260815": {
+  "last_bound_ms": 1000.0,
+  "bound_at_end": true,
+  "run_ms": 1000.0
+ },
+ "tp75_20260825": {
+  "last_bound_ms": 1000.0,
+  "bound_at_end": true,
+  "run_ms": 1000.0
+ },
+ "tp85_20260805": {
+  "last_bound_ms": 57.0,
+  "bound_at_end": false,
+  "run_ms": 1000.0
+ },
+ "tp85_20260815": {
+  "last_bound_ms": 105.5,
+  "bound_at_end": false,
+  "run_ms": 1000.0
+ },
+ "tp85_20260825": {
+  "last_bound_ms": 879.5,
+  "bound_at_end": false,
+  "run_ms": 1000.0
+ },
+ "tq0_20260805": {
+  "last_bound_ms": 651.0,
+  "bound_at_end": false,
+  "run_ms": 1000.0
+ },
+ "tq0_20260815": {
+  "last_bound_ms": 631.0,
+  "bound_at_end": false,
+  "run_ms": 1000.0
+ },
+ "tq0_20260825": {
+  "last_bound_ms": 492.5,
+  "bound_at_end": false,
+  "run_ms": 1000.0
+ },
+ "tq15_20260805": {
+  "last_bound_ms": 652.0,
+  "bound_at_end": false,
+  "run_ms": 1000.0
+ },
+ "tq15_20260815": {
+  "last_bound_ms": 599.5,
+  "bound_at_end": false,
+  "run_ms": 1000.0
+ },
+ "tq15_20260825": {
+  "last_bound_ms": 557.5,
+  "bound_at_end": false,
+  "run_ms": 1000.0
+ },
+ "tq30_20260805": {
+  "last_bound_ms": 653.0,
+  "bound_at_end": false,
+  "run_ms": 1000.0
+ },
+ "tq30_20260815": {
+  "last_bound_ms": 618.5,
+  "bound_at_end": false,
+  "run_ms": 1000.0
+ },
+ "tq30_20260825": {
+  "last_bound_ms": 484.0,
+  "bound_at_end": false,
+  "run_ms": 1000.0
+ },
+ "tq45_20260805": {
+  "last_bound_ms": 513.5,
+  "bound_at_end": false,
+  "run_ms": 1000.0
+ },
+ "tq45_20260815": {
+  "last_bound_ms": 901.0,
+  "bound_at_end": false,
+  "run_ms": 1000.0
+ },
+ "tq45_20260825": {
+  "last_bound_ms": 516.5,
+  "bound_at_end": false,
+  "run_ms": 1000.0
+ },
+ "tq60_20260805": {
+  "last_bound_ms": 652.0,
+  "bound_at_end": false,
+  "run_ms": 1000.0
+ },
+ "tq60_20260815": {
+  "last_bound_ms": 513.0,
+  "bound_at_end": false,
+  "run_ms": 1000.0
+ },
+ "tq60_20260825": {
+  "last_bound_ms": 476.0,
+  "bound_at_end": false,
+  "run_ms": 1000.0
+ },
+ "tq75_20260805": {
+  "last_bound_ms": 666.0,
+  "bound_at_end": false,
+  "run_ms": 1000.0
+ },
+ "tq75_20260815": {
+  "last_bound_ms": 906.5,
+  "bound_at_end": false,
+  "run_ms": 1000.0
+ },
+ "tq75_20260825": {
+  "last_bound_ms": 996.5,
+  "bound_at_end": false,
+  "run_ms": 1000.0
+ },
+ "tq85_20260805": {
+  "last_bound_ms": 108.5,
+  "bound_at_end": false,
+  "run_ms": 1000.0
+ },
+ "tq85_20260815": {
+  "last_bound_ms": 127.0,
+  "bound_at_end": false,
+  "run_ms": 1000.0
+ },
+ "tq85_20260825": {
+  "last_bound_ms": 177.5,
+  "bound_at_end": false,
+  "run_ms": 1000.0
+ }
+}

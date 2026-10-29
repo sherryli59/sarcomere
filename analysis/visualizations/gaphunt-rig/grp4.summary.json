@@ -1,0 +1,80 @@
+[
+ {
+  "group": "Idealisation ladder at sigma = 0",
+  "arm": "id_A",
+  "seed": 20260805,
+  "label": "A: frozen + no translation",
+  "tilt_x": 0.328886096967063,
+  "tilt_m": 0.328886096967063,
+  "heads": 23.56359102244389,
+  "links": 0.0,
+  "spread": 0.0,
+  "perp_nm": 76.59344530001349,
+  "nflags": 11
+ },
+ {
+  "group": "Idealisation ladder at sigma = 0",
+  "arm": "id_B",
+  "seed": 20260805,
+  "label": "B: translation free",
+  "tilt_x": 0.4269681257597304,
+  "tilt_m": 0.4269681257597304,
+  "heads": 23.5785536159601,
+  "links": 0.0,
+  "spread": 0.0,
+  "perp_nm": 77.16034141718971,
+  "nflags": 9
+ },
+ {
+  "group": "Idealisation ladder at sigma = 0",
+  "arm": "id_C",
+  "seed": 20260805,
+  "label": "C: myosins FREE",
+  "tilt_x": 8.30883408175312,
+  "tilt_m": 2.7199059057174026,
+  "heads": 23.18703241895262,
+  "links": 0.0,
+  "spread": 5.637969741441729,
+  "perp_nm": 77.83328873317994,
+  "nflags": 11
+ },
+ {
+  "group": "Idealisation ladder at sigma = 0",
+  "arm": "id_D",
+  "seed": 20260805,
+  "label": "D: myosins + translation free",
+  "tilt_x": 10.035666609481446,
+  "tilt_m": 2.352382843747968,
+  "heads": 22.51620947630923,
+  "links": 0.0,
+  "spread": 11.360019244441553,
+  "perp_nm": 76.57262650294525,
+  "nflags": 9
+ },
+ {
+  "group": "Idealisation ladder at sigma = 0",
+  "arm": "id_E",
+  "seed": 20260805,
+  "label": "E: free + 2 actins",
+  "tilt_x": 18.192854637520963,
+  "tilt_m": 3.0742355504140377,
+  "heads": 32.46134663341646,
+  "links": 0.0,
+  "spread": 9.86809098418563,
+  "perp_nm": 80.74380867703445,
+  "nflags": 9
+ },
+ {
+  "group": "Idealisation ladder at sigma = 0",
+  "arm": "id_F",
+  "seed": 20260805,
+  "label": "F: frozen + 2 actins",
+  "tilt_x": 0.6375072190433775,
+  "tilt_m": 0.6375072190433775,
+  "heads": 46.957605985037404,
+  "links": 0.0,
+  "spread": 0.0,
+  "perp_nm": 75.21390088736862,
+  "nflags": 11
+ }
+]

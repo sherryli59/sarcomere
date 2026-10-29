@@ -1,0 +1,1399 @@
+{
+  "model": {
+    "alpha": 3.0,
+    "k": 1000.0,
+    "slope": 30.0,
+    "epsilon": 0.005,
+    "radius": 0.13,
+    "half": 0.75,
+    "approach": 0.05,
+    "core_radius": 0.055,
+    "barbed_zone": 0.2,
+    "filament_length": 1.0,
+    "temperature": 310.0
+  },
+  "seed": 20261028,
+  "python": "3.14.2",
+  "numpy": "2.4.1",
+  "scipy": "1.17.0",
+  "matplotlib": "3.10.8",
+  "slurm_job_id": "50081778",
+  "source_sha256": "b3526ecb8f12491db2cfe8e6019bffed915af4a14cd7be17ac7d5effcd83844f",
+  "fixtures": [
+    {
+      "label": "outside end",
+      "p0_nm": [
+        840.0,
+        80.0,
+        0.0
+      ],
+      "p1_nm": [
+        840.0,
+        120.0,
+        0.0
+      ],
+      "maturation_allowed": true,
+      "physical_core_free": true,
+      "weak_association_factor": 1.0,
+      "energy_pNnm": 0.0,
+      "net_force_pN": [
+        0.0,
+        0.0,
+        0.0
+      ]
+    },
+    {
+      "label": "midpoint misses connector",
+      "p0_nm": [
+        700.0,
+        115.0,
+        0.0
+      ],
+      "p1_nm": [
+        700.0,
+        175.0,
+        0.0
+      ],
+      "maturation_allowed": false,
+      "physical_core_free": true,
+      "weak_association_factor": 9.06511779003724e-09,
+      "energy_pNnm": 79.2586647674495,
+      "net_force_pN": [
+        0.006413650204055016,
+        14.779050044192436,
+        0.0
+      ]
+    },
+    {
+      "label": "radial and axial at different points",
+      "p0_nm": [
+        700.0,
+        200.0,
+        0.0
+      ],
+      "p1_nm": [
+        800.0,
+        100.0,
+        0.0
+      ],
+      "maturation_allowed": true,
+      "physical_core_free": true,
+      "weak_association_factor": 0.00438635061791642,
+      "energy_pNnm": 23.246255154148646,
+      "net_force_pN": [
+        2.428540398195472,
+        2.433423416416175,
+        0.0
+      ]
+    },
+    {
+      "label": "outside radial boundary",
+      "p0_nm": [
+        700.0,
+        140.0,
+        0.0
+      ],
+      "p1_nm": [
+        700.0,
+        180.0,
+        0.0
+      ],
+      "maturation_allowed": true,
+      "physical_core_free": true,
+      "weak_association_factor": 1.0,
+      "energy_pNnm": 0.0,
+      "net_force_pN": [
+        0.0,
+        0.0,
+        0.0
+      ]
+    },
+    {
+      "label": "within approach, outside physical end",
+      "p0_nm": [
+        780.0,
+        80.0,
+        0.0
+      ],
+      "p1_nm": [
+        780.0,
+        100.0,
+        0.0
+      ],
+      "maturation_allowed": true,
+      "physical_core_free": true,
+      "weak_association_factor": 7.403244145635661e-21,
+      "energy_pNnm": 198.38868941807303,
+      "net_force_pN": [
+        19.90509613684441,
+        0.04122760979199433,
+        0.0
+      ]
+    },
+    {
+      "label": "crosses physical core",
+      "p0_nm": [
+        0.0,
+        -80.0,
+        0.0
+      ],
+      "p1_nm": [
+        0.0,
+        80.0,
+        0.0
+      ],
+      "maturation_allowed": false,
+      "physical_core_free": false,
+      "weak_association_factor": 0.0,
+      "energy_pNnm": 7593.863101066534,
+      "net_force_pN": [
+        0.0,
+        -1.7763568394002505e-14,
+        0.0
+      ]
+    },
+    {
+      "label": "exact physical end plane",
+      "p0_nm": [
+        750.0,
+        80.0,
+        0.0
+      ],
+      "p1_nm": [
+        750.0,
+        120.0,
+        0.0
+      ],
+      "maturation_allowed": false,
+      "physical_core_free": true,
+      "weak_association_factor": 6.504988916844864e-101,
+      "energy_pNnm": 987.3496363079839,
+      "net_force_pN": [
+        24.860560996736112,
+        15.397547363637646,
+        0.0
+      ]
+    },
+    {
+      "label": "radial tangency point",
+      "p0_nm": [
+        700.0,
+        130.0,
+        0.0
+      ],
+      "p1_nm": [
+        700.0,
+        130.0,
+        0.0
+      ],
+      "maturation_allowed": false,
+      "physical_core_free": true,
+      "weak_association_factor": 1.0,
+      "energy_pNnm": 0.0,
+      "net_force_pN": [
+        0.0,
+        0.0,
+        0.0
+      ]
+    },
+    {
+      "label": "cylinder corner point",
+      "p0_nm": [
+        750.0,
+        130.0,
+        0.0
+      ],
+      "p1_nm": [
+        750.0,
+        130.0,
+        0.0
+      ],
+      "maturation_allowed": false,
+      "physical_core_free": true,
+      "weak_association_factor": 1.0,
+      "energy_pNnm": 0.0,
+      "net_force_pN": [
+        0.0,
+        0.0,
+        0.0
+      ]
+    }
+  ],
+  "checks": {
+    "gradients": {
+      "endpoint_max_error_pN": 1.0751183054935609e-08,
+      "myosin_max_error_pN": 5.279783721334752e-09,
+      "orientation_max_error_pNum": 6.159230281355121e-08,
+      "torque_balance_max_pNum": 3.552713678800501e-14
+    },
+    "zero_length_connector": "point energy and equal endpoint force shares passed",
+    "force_bounds": "passed for 10,000 points at alpha=1 and alpha=3",
+    "formation_geometry": "1,200 random segments agree with 3,001-point independent reference",
+    "pair_budget": "redundant-link invariance; distinct-pair additivity; incremental birth penalty passed",
+    "closed_loop_work_pNnm": {
+      "128": -0.12128757782914334,
+      "512": -0.007512424657907246,
+      "2048": -6.806456731567323e-06
+    },
+    "force_direction_probes": [
+      {
+        "alpha": 1.0,
+        "length_nm": 0.0,
+        "burial_nm": 20.0,
+        "energy_pNnm": 1036.1459776815427,
+        "force_pN": [
+          0.4419618154416738,
+          29.500465878401045,
+          0.0
+        ]
+      },
+      {
+        "alpha": 1.0,
+        "length_nm": 40.0,
+        "burial_nm": 20.0,
+        "energy_pNnm": 475.5901889145748,
+        "force_pN": [
+          0.14015228743113717,
+          24.705053086784563,
+          0.0
+        ]
+      },
+      {
+        "alpha": 1.0,
+        "length_nm": 80.0,
+        "burial_nm": 20.0,
+        "energy_pNnm": 239.75591032222445,
+        "force_pN": [
+          0.07101122451775153,
+          12.951959473017839,
+          0.0
+        ]
+      },
+      {
+        "alpha": 3.0,
+        "length_nm": 0.0,
+        "burial_nm": 20.0,
+        "energy_pNnm": 1647.1315879518606,
+        "force_pN": [
+          29.96975438904303,
+          0.08845529984669442,
+          0.0
+        ]
+      },
+      {
+        "alpha": 3.0,
+        "length_nm": 40.0,
+        "burial_nm": 20.0,
+        "energy_pNnm": 1435.0032545136473,
+        "force_pN": [
+          19.89679045917751,
+          30.275714264978333,
+          0.0
+        ]
+      },
+      {
+        "alpha": 3.0,
+        "length_nm": 80.0,
+        "burial_nm": 20.0,
+        "energy_pNnm": 735.4557243683157,
+        "force_pN": [
+          9.953136886847915,
+          20.588763871159493,
+          0.0
+        ]
+      }
+    ],
+    "absorbing_first_passage": {
+      "observed_survival": 0.6832,
+      "analytic_survival": 0.6826894921370859,
+      "binomial_standard_error": 0.003291083024345433,
+      "replicates": 20000
+    },
+    "far_endpoint_first_passage": {
+      "observed_survival": 0.67845,
+      "analytic_survival": 0.6826894921370859,
+      "binomial_standard_error": 0.003291083024345433,
+      "replicates": 20000
+    },
+    "failure_clamps": {
+      "replicates_per_load": 20000,
+      "traction_pN": [
+        0.0,
+        5.0,
+        15.0,
+        30.0
+      ],
+      "rates_per_s": [
+        2.0,
+        87.91409142295227,
+        956.2768461593834,
+        20123.439674636757
+      ],
+      "contact_first_fraction": [
+        0.0,
+        0.9761,
+        0.9982,
+        0.99995
+      ],
+      "max_survival_error": 0.0068570281249249465
+    },
+    "competing_channels": {
+      "expected": [
+        0.36787944117144233,
+        0.06321205588285576,
+        0.1896361676485673,
+        0.3792723352971346
+      ],
+      "observed": [
+        0.36694,
+        0.06245,
+        0.1894,
+        0.38121
+      ],
+      "realizations": 100000,
+      "zero_rate_and_zero_contact_checks": true
+    },
+    "weak_birth_sampling": {
+      "x_nm": [
+        780.0,
+        785.0,
+        790.0,
+        795.0,
+        800.0,
+        805.0,
+        810.0,
+        820.0
+      ],
+      "predicted_factor": [
+        1.0177773319730595e-20,
+        6.056678692872e-12,
+        1.1087012148750236e-05,
+        0.06102326313329229,
+        1.0,
+        1.0,
+        1.0,
+        1.0
+      ],
+      "observed_fraction": [
+        0.0,
+        0.0,
+        0.0,
+        0.06145,
+        1.0,
+        1.0,
+        1.0,
+        1.0
+      ],
+      "replicates_per_point": 20000
+    },
+    "numerical_convergence": {
+      "myosin_center_dt_plus_quadrature_change_nm": 0.3885335651674926,
+      "myosin_center_quadrature_only_change_nm": 0.36532989436680735,
+      "free_relaxation_energy_monotone": true,
+      "dt_s": 1e-07,
+      "refined_dt_s": 5e-08,
+      "fixed_Gauss_nodes": 16,
+      "refined_nodes": 32,
+      "trajectory_scope": "maximum center difference over all 201 common saved times",
+      "scope": "deterministic supported 20 pN rig; does not certify stochastic production integration"
+    },
+    "controlled_behavior": {
+      "weighted_supported_rig_recovers": true,
+      "unweighted_rig_does_not_recover": true,
+      "above_capacity_drive_passes": true,
+      "barbed_absorption_releases": true,
+      "soft_edge_does_not_reflect": true,
+      "molecular_contact_deaths": true
+    }
+  },
+  "rigs": {
+    "alpha1": {
+      "alpha": 1.0,
+      "drive_pN": 20.0,
+      "dt_s": 1e-07,
+      "duration_s": 0.0006,
+      "replicates": 1,
+      "chemical_failure": false,
+      "anchor_pN_per_um": 1000.0,
+      "endpoint_mobility_um_per_pNs": 70.0,
+      "myosin_mobility_um_per_pNs": 19.0,
+      "final_penetration_nm": [
+        252.5548159702189
+      ],
+      "penetration_reference": "myosin +tip relative to the original scaffold plane X=750 nm",
+      "final_connector_axial_overlap_nm": [
+        [
+          252.55428379863852,
+          252.55428379863852,
+          252.55428379863852,
+          252.55428379863852
+        ]
+      ],
+      "final_alive_links": [
+        4
+      ],
+      "final_myosin_lateral_shift_nm": [
+        9.811753002461093e-15
+      ],
+      "passed_with_live_connectors": 1,
+      "final_max_radial_shift_nm": [
+        8.66257387634986
+      ],
+      "any_death_fraction": 0.0,
+      "all_dead_fraction": 0.0,
+      "final_overshoot_fraction": 1.0,
+      "death_counts": {
+        "1": 0,
+        "2": 0,
+        "3": 0
+      },
+      "death_channels": {
+        "1": "baseline",
+        "2": "contact",
+        "3": "contour"
+      },
+      "work_balance_residual_pNnm": 2.182122083727478,
+      "wall_seconds": 1.0348183268215507
+    },
+    "alpha3": {
+      "alpha": 3.0,
+      "drive_pN": 20.0,
+      "dt_s": 1e-07,
+      "duration_s": 0.0006,
+      "replicates": 1,
+      "chemical_failure": false,
+      "anchor_pN_per_um": 1000.0,
+      "endpoint_mobility_um_per_pNs": 70.0,
+      "myosin_mobility_um_per_pNs": 19.0,
+      "final_penetration_nm": [
+        -42.3833800899559
+      ],
+      "penetration_reference": "myosin +tip relative to the original scaffold plane X=750 nm",
+      "final_connector_axial_overlap_nm": [
+        [
+          -44.87037649325776,
+          -44.87037649325776,
+          -44.87037649325776,
+          -44.87037649325776
+        ]
+      ],
+      "final_alive_links": [
+        4
+      ],
+      "final_myosin_lateral_shift_nm": [
+        5.675407924128355e-15
+      ],
+      "passed_with_live_connectors": 0,
+      "final_max_radial_shift_nm": [
+        0.015225046636604955
+      ],
+      "any_death_fraction": 0.0,
+      "all_dead_fraction": 0.0,
+      "final_overshoot_fraction": 0.0,
+      "death_counts": {
+        "1": 0,
+        "2": 0,
+        "3": 0
+      },
+      "death_channels": {
+        "1": "baseline",
+        "2": "contact",
+        "3": "contour"
+      },
+      "work_balance_residual_pNnm": 8.448698811720057,
+      "wall_seconds": 1.0360163268633187
+    },
+    "overdrive": {
+      "alpha": 3.0,
+      "drive_pN": 150.0,
+      "dt_s": 1e-07,
+      "duration_s": 0.0006,
+      "replicates": 1,
+      "chemical_failure": false,
+      "anchor_pN_per_um": 1000.0,
+      "endpoint_mobility_um_per_pNs": 70.0,
+      "myosin_mobility_um_per_pNs": 19.0,
+      "final_penetration_nm": [
+        1735.1505224976113
+      ],
+      "penetration_reference": "myosin +tip relative to the original scaffold plane X=750 nm",
+      "final_connector_axial_overlap_nm": [
+        [
+          1735.1921416867724,
+          1735.1921416867724,
+          1735.1921416867724,
+          1735.1921416867724
+        ]
+      ],
+      "final_alive_links": [
+        4
+      ],
+      "final_myosin_lateral_shift_nm": [
+        1.9624447173640415e-14
+      ],
+      "passed_with_live_connectors": 1,
+      "final_max_radial_shift_nm": [
+        0.10762701008498743
+      ],
+      "any_death_fraction": 0.0,
+      "all_dead_fraction": 0.0,
+      "final_overshoot_fraction": 1.0,
+      "death_counts": {
+        "1": 0,
+        "2": 0,
+        "3": 0
+      },
+      "death_channels": {
+        "1": "baseline",
+        "2": "contact",
+        "3": "contour"
+      },
+      "work_balance_residual_pNnm": -0.8514839909707916,
+      "wall_seconds": 1.031494618859142
+    },
+    "loaded_control": {
+      "alpha": 3.0,
+      "drive_pN": 40.0,
+      "dt_s": 1e-07,
+      "duration_s": 0.002,
+      "replicates": 1,
+      "chemical_failure": false,
+      "anchor_pN_per_um": 1000.0,
+      "endpoint_mobility_um_per_pNs": 70.0,
+      "myosin_mobility_um_per_pNs": 19.0,
+      "final_penetration_nm": [
+        -34.85915228680814
+      ],
+      "penetration_reference": "myosin +tip relative to the original scaffold plane X=750 nm",
+      "final_connector_axial_overlap_nm": [
+        [
+          -39.84014743278364,
+          -39.84014743278364,
+          -39.84014743278364,
+          -39.84014743278364
+        ]
+      ],
+      "final_alive_links": [
+        4
+      ],
+      "final_myosin_lateral_shift_nm": [
+        6.108705123512396e-14
+      ],
+      "passed_with_live_connectors": 0,
+      "final_max_radial_shift_nm": [
+        0.04026774057441784
+      ],
+      "any_death_fraction": 0.0,
+      "all_dead_fraction": 0.0,
+      "final_overshoot_fraction": 0.0,
+      "death_counts": {
+        "1": 0,
+        "2": 0,
+        "3": 0
+      },
+      "death_channels": {
+        "1": "baseline",
+        "2": "contact",
+        "3": "contour"
+      },
+      "work_balance_residual_pNnm": 7.609886819043066,
+      "wall_seconds": 3.415735056856647
+    },
+    "failure": {
+      "alpha": 3.0,
+      "drive_pN": 40.0,
+      "dt_s": 1e-07,
+      "duration_s": 0.002,
+      "replicates": 64,
+      "chemical_failure": true,
+      "anchor_pN_per_um": 1000.0,
+      "endpoint_mobility_um_per_pNs": 70.0,
+      "myosin_mobility_um_per_pNs": 19.0,
+      "final_penetration_nm": [
+        1537.123198243628,
+        1067.4868566114187,
+        -34.85915228680814,
+        1519.310340740061,
+        -34.85915228680814,
+        1526.8259100136966,
+        -29.831444419403773,
+        121.91111252546594,
+        1516.4537756925452,
+        -34.85915228680814,
+        1470.6599991728654,
+        629.2846745553271,
+        1530.8792931008002,
+        1529.4246119940867,
+        1033.7897036637119,
+        1501.3173170547777,
+        1525.688192469274,
+        1521.76024523619,
+        1467.922526349164,
+        -34.85915228680814,
+        -34.85915228680814,
+        -34.85915228680814,
+        -34.85915228680814,
+        -30.5222747301801,
+        1516.1877273820342,
+        1455.6492984968527,
+        1521.6345555783253,
+        787.5648083850186,
+        1454.4287738537212,
+        1538.8542931992752,
+        1517.3612754978594,
+        1533.1602762378839,
+        1522.604272131296,
+        -21.62030827894379,
+        1528.946746842997,
+        1500.5222661644443,
+        -34.85915228680814,
+        -34.85915228680814,
+        -34.85915228680814,
+        1524.7453277556247,
+        1525.5880871772015,
+        1481.9753833485256,
+        1529.4304439370806,
+        1536.9131203110155,
+        548.4478181509038,
+        1511.5773120261738,
+        1532.0508490745021,
+        1378.3192791632346,
+        1482.5184023338304,
+        1476.003637934281,
+        -34.85915228680814,
+        1528.385604993435,
+        1484.2568858768486,
+        -34.85915228680814,
+        1521.7291304993878,
+        1528.2295376412617,
+        1529.8778002719237,
+        1434.8222115600756,
+        -34.85915228680814,
+        1529.747869537505,
+        1532.3819088786106,
+        1497.4449709742696,
+        1512.405238138412,
+        1528.0846272948788
+      ],
+      "penetration_reference": "myosin +tip relative to the original scaffold plane X=750 nm",
+      "final_connector_axial_overlap_nm": [
+        [
+          1537.123198243636,
+          1537.12319824362,
+          1537.12319824362,
+          1537.1231982436377
+        ],
+        [
+          1067.4868566114108,
+          1067.48685668336,
+          1067.4868566114264,
+          1067.48685668336
+        ],
+        [
+          -39.84014743278364,
+          -39.84014743278364,
+          -39.84014743278364,
+          -39.84014743278364
+        ],
+        [
+          1519.310340740053,
+          1519.310340740053,
+          1519.310340740069,
+          1519.310342004435
+        ],
+        [
+          -39.84014743278364,
+          -39.84014743278364,
+          -39.84014743278364,
+          -39.84014743278364
+        ],
+        [
+          1526.8259100136886,
+          1526.8259100137045,
+          1526.8259107280007,
+          1526.8259100136886
+        ],
+        [
+          -36.47404581837199,
+          -36.465314192243085,
+          -36.47404581837199,
+          -29.83144441948027
+        ],
+        [
+          121.91111252594722,
+          121.91113249231,
+          121.91111252545805,
+          121.91113249231
+        ],
+        [
+          1516.453775692553,
+          1516.453775692553,
+          1516.4537756925372,
+          1516.4537779228087
+        ],
+        [
+          -39.84014743278364,
+          -39.84014743278364,
+          -39.84014743278364,
+          -39.84014743278364
+        ],
+        [
+          1470.6600006186443,
+          1470.6599991728572,
+          1470.6599991728572,
+          1470.6599991728733
+        ],
+        [
+          629.2846745553193,
+          629.2846745553193,
+          629.2846745553193,
+          629.2846745541019
+        ],
+        [
+          1530.8792931007922,
+          1530.8792931008002,
+          1530.8792931007922,
+          1530.8792935406905
+        ],
+        [
+          1529.4246119940785,
+          1529.4246123986663,
+          1529.4246119940947,
+          1529.4246119940785
+        ],
+        [
+          1033.7897036637198,
+          1033.789703663704,
+          1033.789703663704,
+          1033.7897038041235
+        ],
+        [
+          1501.3173170547698,
+          1501.3173194614749,
+          1501.3173170547698,
+          1501.3173170547857
+        ],
+        [
+          1525.688192469266,
+          1525.688192469266,
+          1525.688192469266,
+          1525.6881931419405
+        ],
+        [
+          1521.7602463228193,
+          1521.760245236198,
+          1521.760245236182,
+          1521.760245236182
+        ],
+        [
+          1467.922527681699,
+          1467.922526349156,
+          1467.922526349156,
+          1467.922526349172
+        ],
+        [
+          -39.84014743278364,
+          -39.84014743278364,
+          -39.84014743278364,
+          -39.84014743278364
+        ],
+        [
+          -39.84014743278364,
+          -39.84014743278364,
+          -39.84014743278364,
+          -39.84014743278364
+        ],
+        [
+          -39.84014743278364,
+          -39.84014743278364,
+          -39.84014743278364,
+          -39.84014743278364
+        ],
+        [
+          -39.84014743278364,
+          -39.84014743278364,
+          -39.84014743278364,
+          -39.84014743278364
+        ],
+        [
+          -36.8442305702481,
+          -36.84511032353621,
+          -30.581056298299213,
+          -36.84511032353621
+        ],
+        [
+          1516.187727382042,
+          1516.1877296413277,
+          1516.1877273820262,
+          1516.187727382042
+        ],
+        [
+          1455.649299504187,
+          1455.6492984968447,
+          1455.6492984968447,
+          1455.6492984968447
+        ],
+        [
+          1521.6345555783173,
+          1521.6345555783173,
+          1521.6345555783173,
+          1521.634557105348
+        ],
+        [
+          787.5648083850108,
+          787.5648084551124,
+          787.5648083850265,
+          787.5648084551124
+        ],
+        [
+          1454.428774996322,
+          1454.4287738537132,
+          1454.4287738537132,
+          1454.4287738537291
+        ],
+        [
+          1538.8542931992672,
+          1538.8542934593415,
+          1538.8542931992672,
+          1538.8542931992672
+        ],
+        [
+          1517.3612754978515,
+          1517.3612754978674,
+          1517.3612760411843,
+          1517.3612754978674
+        ],
+        [
+          1533.1602762378757,
+          1533.1602762378757,
+          1533.1602762378757,
+          1533.1602767092463
+        ],
+        [
+          1522.6042729618987,
+          1522.604272131288,
+          1522.604272131288,
+          1522.604272131288
+        ],
+        [
+          -30.785838468583847,
+          -21.620308278951672,
+          -30.785838468583847,
+          -21.653132467703617
+        ],
+        [
+          1528.946746843005,
+          1528.9467468429891,
+          1528.9467468429891,
+          1528.9467474230464
+        ],
+        [
+          1500.5222661644364,
+          1500.5222683840739,
+          1500.5222661644364,
+          1500.5222661644364
+        ],
+        [
+          -39.84014743278364,
+          -39.84014743278364,
+          -39.84014743278364,
+          -39.84014743278364
+        ],
+        [
+          -39.84014743278364,
+          -39.84014743278364,
+          -39.84014743278364,
+          -39.84014743278364
+        ],
+        [
+          -39.84014743278364,
+          -39.84014743278364,
+          -39.84014743278364,
+          -39.84014743278364
+        ],
+        [
+          1524.7453277556326,
+          1524.7453277556326,
+          1524.7453288962638,
+          1524.7453277556167
+        ],
+        [
+          1525.5880879187926,
+          1525.5880871771933,
+          1525.5880871771933,
+          1525.5880871772094
+        ],
+        [
+          1481.9753850587786,
+          1481.9753833485177,
+          1481.9753833485177,
+          1481.9753833485336
+        ],
+        [
+          1529.4304439370726,
+          1529.4304445570704,
+          1529.4304439370885,
+          1529.4304439370726
+        ],
+        [
+          1536.9131203110076,
+          1536.9131203187676,
+          1536.9131203110235,
+          1536.9131203110076
+        ],
+        [
+          548.4478181485775,
+          548.447818150896,
+          548.447818150896,
+          548.4478181509118
+        ],
+        [
+          1511.5773120261817,
+          1511.5773120261658,
+          1511.5773120261658,
+          1511.5773142880037
+        ],
+        [
+          1532.050849891557,
+          1532.0508490745021,
+          1532.05084907451,
+          1532.0508490744942
+        ],
+        [
+          1378.3192791632266,
+          1378.3192796223127,
+          1378.3192791632425,
+          1378.3192791632425
+        ],
+        [
+          1482.5184023338225,
+          1482.5184023338384,
+          1482.5184037835334,
+          1482.5184023338225
+        ],
+        [
+          1476.003637934273,
+          1476.0036393696964,
+          1476.003637934273,
+          1476.003637934273
+        ],
+        [
+          -39.84014743278364,
+          -39.84014743278364,
+          -39.84014743278364,
+          -39.84014743278364
+        ],
+        [
+          1528.385605605016,
+          1528.385604993427,
+          1528.385604993427,
+          1528.385604993443
+        ],
+        [
+          1484.2568858768407,
+          1484.2568858768566,
+          1484.2568858768407,
+          1484.2568858768407
+        ],
+        [
+          -39.84014743278364,
+          -39.84014743278364,
+          -39.84014743278364,
+          -39.84014743278364
+        ],
+        [
+          1521.7291304993798,
+          1521.7291317514507,
+          1521.7291304993958,
+          1521.7291304993798
+        ],
+        [
+          1528.2295376412699,
+          1528.2295383108328,
+          1528.2295376412537,
+          1528.2295376412537
+        ],
+        [
+          1529.8778002719157,
+          1529.8778002719157,
+          1529.8778008620202,
+          1529.8778002719318
+        ],
+        [
+          1434.8222115600677,
+          1434.8222115600677,
+          1434.8222115600677,
+          1434.8222123389319
+        ],
+        [
+          -39.84014743278364,
+          -39.84014743278364,
+          -39.84014743278364,
+          -39.84014743278364
+        ],
+        [
+          1529.747869537497,
+          1529.747870301343,
+          1529.747869537497,
+          1529.747869537497
+        ],
+        [
+          1532.3819088786026,
+          1532.3819088786026,
+          1532.3819095331266,
+          1532.3819088786026
+        ],
+        [
+          1497.4449709742617,
+          1497.4449725733602,
+          1497.4449709742617,
+          1497.4449709742617
+        ],
+        [
+          1512.4052381384038,
+          1512.4052381384038,
+          1512.4052405679986,
+          1512.4052381384038
+        ],
+        [
+          1528.0846272948709,
+          1528.084627294887,
+          1528.084627294887,
+          1528.0846281270892
+        ]
+      ],
+      "final_alive_links": [
+        2,
+        3,
+        4,
+        2,
+        4,
+        2,
+        3,
+        3,
+        2,
+        4,
+        2,
+        2,
+        1,
+        1,
+        2,
+        1,
+        1,
+        2,
+        2,
+        4,
+        4,
+        4,
+        4,
+        3,
+        2,
+        2,
+        1,
+        3,
+        1,
+        1,
+        1,
+        1,
+        1,
+        2,
+        2,
+        1,
+        4,
+        4,
+        4,
+        2,
+        2,
+        2,
+        2,
+        2,
+        2,
+        2,
+        1,
+        1,
+        1,
+        1,
+        4,
+        2,
+        0,
+        4,
+        2,
+        2,
+        2,
+        1,
+        4,
+        1,
+        1,
+        2,
+        1,
+        2
+      ],
+      "final_myosin_lateral_shift_nm": [
+        60.13357181400703,
+        102.08204258210002,
+        6.108705123512396e-14,
+        61.46173012756788,
+        6.108705123512396e-14,
+        62.066885480336055,
+        0.7933449608864406,
+        95.51245258446376,
+        73.42296272183373,
+        6.108705123512396e-14,
+        66.52505033862366,
+        60.01228365714583,
+        49.75076417864692,
+        50.25456693063904,
+        88.64662803917035,
+        63.59221924738072,
+        49.65016378324926,
+        61.80151107518501,
+        63.005991685969654,
+        6.108705123512396e-14,
+        6.108705123512396e-14,
+        6.108705123512396e-14,
+        6.108705123512396e-14,
+        0.1141389148878139,
+        72.34934730890365,
+        60.886471288114414,
+        56.37936464065072,
+        101.93122998710281,
+        60.65140404376288,
+        51.11029760058564,
+        50.069676927343565,
+        51.562481337031045,
+        49.66313326177101,
+        9.149949002810075,
+        61.967901313991455,
+        53.871489723904226,
+        6.108705123512396e-14,
+        6.108705123512396e-14,
+        6.108705123512396e-14,
+        74.91983657791128,
+        61.63290773488438,
+        65.28506128257843,
+        62.89676237635477,
+        60.17686005871649,
+        62.35799949098807,
+        63.403696350747715,
+        50.00675934678957,
+        91.62601987866056,
+        49.81744686452524,
+        49.80272741532391,
+        6.108705123512396e-14,
+        61.980110922665276,
+        10.030025248856292,
+        6.108705123512396e-14,
+        62.89119939603782,
+        62.56833347650624,
+        62.802222348149776,
+        49.62588856712192,
+        6.108705123512396e-14,
+        54.02627206806708,
+        49.62163557543936,
+        60.576124170975795,
+        55.539104986522574,
+        67.0799877841968
+      ],
+      "passed_with_live_connectors": 47,
+      "final_max_radial_shift_nm": [
+        3.199149278820812e-08,
+        0.001769055979400358,
+        0.04026774057441784,
+        0.0005707287470541056,
+        0.04026774057441784,
+        0.00033576051840233934,
+        0.07967295636172878,
+        0.5771062883726946,
+        0.0007773467376182008,
+        0.04026774057441784,
+        0.0017304461784189984,
+        0.01715477433675283,
+        0.00023142368647810496,
+        0.00022385846730477166,
+        0.004703506942857483,
+        0.0013241582731277068,
+        0.00035274682640140664,
+        0.0004969222724277023,
+        0.0017352657937508287,
+        0.04026774057441784,
+        0.04026774057441784,
+        0.04026774057441784,
+        0.04026774057441784,
+        0.06259088351041886,
+        0.0007955757829469778,
+        0.0017053832924995849,
+        0.0006449093957056062,
+        0.004645616638834782,
+        0.001976205488224414,
+        0.00013000329660006749,
+        0.00035196634996792486,
+        0.0002295498811172303,
+        0.0004351355416265523,
+        0.1634451759549016,
+        0.00027620790810090057,
+        0.0013341275204303837,
+        0.04026774057441784,
+        0.04026774057441784,
+        0.04026774057441784,
+        0.0004425931415530382,
+        0.0003546458263170571,
+        0.0015865906703577126,
+        0.0002852971651701175,
+        8.396116982223312e-06,
+        0.025931693973857417,
+        0.0009454133848701973,
+        0.00035445924592703015,
+        0.0017778315256761212,
+        0.0014635691856640376,
+        0.0016858476676179235,
+        0.04026774057441784,
+        0.00029052750419311657,
+        9.853229343548264e-13,
+        0.04026774057441784,
+        0.0005431438949571321,
+        0.0003101975779296051,
+        0.00027270476464502647,
+        0.00201030409435754,
+        0.04026774057441784,
+        0.00034772415327677386,
+        0.0003000879389980504,
+        0.0010392421098820437,
+        0.0010278013116010731,
+        0.0003529863163154179
+      ],
+      "any_death_fraction": 0.796875,
+      "all_dead_fraction": 0.015625,
+      "final_overshoot_fraction": 0.75,
+      "death_counts": {
+        "1": 0,
+        "2": 118,
+        "3": 0
+      },
+      "death_channels": {
+        "1": "baseline",
+        "2": "contact",
+        "3": "contour"
+      },
+      "wall_seconds": 23.318204894894734
+    },
+    "free": {
+      "alpha": 3.0,
+      "drive_pN": 0.0,
+      "dt_s": 1e-07,
+      "duration_s": 0.0002,
+      "replicates": 1,
+      "chemical_failure": false,
+      "anchor_pN_per_um": 0.0,
+      "endpoint_mobility_um_per_pNs": 70.0,
+      "myosin_mobility_um_per_pNs": 19.0,
+      "final_penetration_nm": [
+        -23.827026372554073
+      ],
+      "penetration_reference": "myosin +tip relative to the original scaffold plane X=750 nm",
+      "final_connector_axial_overlap_nm": [
+        [
+          -36.63249565220783,
+          -36.63249565220783,
+          -36.63249565220783,
+          -36.63249565220783
+        ]
+      ],
+      "final_alive_links": [
+        4
+      ],
+      "final_myosin_lateral_shift_nm": [
+        4.268658800626501e-15
+      ],
+      "passed_with_live_connectors": 0,
+      "final_max_radial_shift_nm": [
+        27.83987220907677
+      ],
+      "any_death_fraction": 0.0,
+      "all_dead_fraction": 0.0,
+      "final_overshoot_fraction": 0.0,
+      "death_counts": {
+        "1": 0,
+        "2": 0,
+        "3": 0
+      },
+      "death_channels": {
+        "1": "baseline",
+        "2": "contact",
+        "3": "contour"
+      },
+      "work_balance_residual_pNnm": 9.650817591938754,
+      "wall_seconds": 0.3473735151346773
+    }
+  },
+  "weak_sites": [
+    {
+      "kind": "barbed",
+      "reflecting_reference": true,
+      "replicates": 1024,
+      "dt_s": 1e-05,
+      "alive_fraction": 0.8994140625,
+      "endpoint_loss": 0,
+      "baseline_loss": 103,
+      "soft_edge_loss": 0,
+      "surviving_outside_zone": 0,
+      "final_mean_alive_b_nm": [
+        0.9926657145589374,
+        158.53880253117325
+      ]
+    },
+    {
+      "kind": "barbed",
+      "reflecting_reference": false,
+      "replicates": 1024,
+      "dt_s": 1e-05,
+      "alive_fraction": 0.0,
+      "endpoint_loss": 1019,
+      "baseline_loss": 5,
+      "soft_edge_loss": 0,
+      "surviving_outside_zone": 0,
+      "final_mean_alive_b_nm": null
+    },
+    {
+      "kind": "inner",
+      "reflecting_reference": true,
+      "replicates": 1024,
+      "dt_s": 1e-05,
+      "alive_fraction": 0.8994140625,
+      "endpoint_loss": 0,
+      "baseline_loss": 103,
+      "soft_edge_loss": 0,
+      "surviving_outside_zone": 0,
+      "final_mean_alive_b_nm": [
+        43.53388831708659,
+        198.88925606533024
+      ]
+    },
+    {
+      "kind": "inner",
+      "reflecting_reference": false,
+      "replicates": 1024,
+      "dt_s": 1e-05,
+      "alive_fraction": 0.2822265625,
+      "endpoint_loss": 0,
+      "baseline_loss": 71,
+      "soft_edge_loss": 664,
+      "surviving_outside_zone": 289,
+      "final_mean_alive_b_nm": [
+        63.95651438460083,
+        222.1686065118277
+      ]
+    }
+  ],
+  "findings": [
+    "Formation: full-connector maturation rejects a connector whose midpoint lies outside 130 nm; radial and axial conditions at different points do not cause a false rejection. Weak birth and maturation use distinct rules.",
+    "With an explicit elastic scaffold and 20 pN drive, alpha=1 finishes at 252.6 nm penetration; alpha=3 finishes at -42.4 nm. Positive means the physical tip is past the original scaffold plane. This result is conditional on the scaffold.",
+    "Alpha=3 does not eliminate sideways loading: at 20 nm burial the 40 nm outward connector carries approximately 19.9 pN axial and 30.3 pN radial. A point at its inner endpoint is almost purely axial.",
+    "A 150 pN drive exceeds the four-pair axial capacity (at most 120 pN) and passes, ending at 1735.2 nm penetration. This is a bounded soft resistance, not an impenetrable wall.",
+    "In 64 coupled 40 pN failure realizations, 79.7% lose at least one link and 1.6% lose all four by 2 ms. No connector is killed merely for entering the buffered region.",
+    "75.0% of the failure ensemble pass the original scaffold plane; 47 realizations do so with live connectors. Asymmetric loss permits lateral myosin escape, shown in lateral_escape.png.",
+    "Weak sites detach at the barbed endpoint or cross the 200 nm structural edge and incur a higher hazard; the reflecting reference instead confines surviving sites. Failure and edge parameters are illustrative."
+  ],
+  "production_model_changed": false,
+  "calibrated": false,
+  "wall_seconds": 51.694954024860635
+}

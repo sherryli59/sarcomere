@@ -1,0 +1,32 @@
+{
+  "python": "3.14.2",
+  "numpy": "2.4.1",
+  "checks": {
+    "point": {
+      "max_gradient_error_pN": 2.2521096298294165e-08,
+      "max_64_vs_128_energy_error_pNnm": 0.0,
+      "max_64_vs_128_force_error_pN": 0.0
+    },
+    "radial": {
+      "max_gradient_error_pN": 1.9363454839549377e-08,
+      "max_64_vs_128_energy_error_pNnm": 0.0001919544796204209,
+      "max_64_vs_128_force_error_pN": 0.0016578194855830378
+    },
+    "axial": {
+      "max_gradient_error_pN": 1.5768073069466482e-08,
+      "max_64_vs_128_energy_error_pNnm": 0.00018631209584840658,
+      "max_64_vs_128_force_error_pN": 0.0006386419442705396
+    },
+    "diagonal": {
+      "max_gradient_error_pN": 1.5787989582349837e-08,
+      "max_64_vs_128_energy_error_pNnm": 9.875537431563997e-05,
+      "max_64_vs_128_force_error_pN": 0.001277741549363318
+    }
+  },
+  "implemented": false,
+  "calibrated": false,
+  "field_quadrature": 32,
+  "probe_quadrature": 64,
+  "soft_contact_only": true,
+  "mesh_note": "Nonuniform X grid, 7.5 nm transverse spacing; interpolated iso-surfaces."
+}

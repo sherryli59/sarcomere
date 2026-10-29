@@ -1,0 +1,22 @@
+{
+  "stiffness_pN_per_um": 1000.0,
+  "half_length_nm": 750.0,
+  "approach_nm": 50.0,
+  "radial_flat_nm": 100.0,
+  "radial_cutoff_nm": 130.0,
+  "example_connector_length_nm": 40.0,
+  "soft_contact_only": true,
+  "calibrated": false,
+  "implemented": false,
+  "arrow_normalization": "direction only; equal arrow lengths",
+  "examples": {
+    "point_tip_r115_energy_pN_nm": 625.0000000000001,
+    "point_tip_r115_axial_radial_force_pN": [
+      25.0,
+      62.500000000000014
+    ],
+    "radial_connector_tip_midpoint140_energy_pN_nm": 28.93518518518523
+  },
+  "validation": "Analytic W integral and finite-difference force checks passed",
+  "job": "50023349"
+}

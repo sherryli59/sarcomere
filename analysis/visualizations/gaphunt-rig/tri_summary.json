@@ -1,0 +1,170 @@
+[
+ {
+  "rig": "tri",
+  "tilt": 0,
+  "nM": 3,
+  "start": 0.0,
+  "min_am": 0.0,
+  "half_ms": null,
+  "am_end": 17.271741973222188,
+  "spread_max": 27.615057094928233,
+  "spread_end": 27.615057094928233,
+  "heads_release": 24,
+  "heads_mid": 24.0,
+  "per_myosin_mid": [
+   9,
+   7,
+   8
+  ],
+  "attached_until": 454.5,
+  "run_ms": 1000.0,
+  "pointed0": 0.27,
+  "pointed_100": -0.23357590731396544
+ },
+ {
+  "rig": "tri",
+  "tilt": 15,
+  "nM": 3,
+  "start": 14.999999999999995,
+  "min_am": 0.34390122531270445,
+  "half_ms": 11.0,
+  "am_end": 18.29210144356597,
+  "spread_max": 34.862348241274866,
+  "spread_end": 22.440374183122042,
+  "heads_release": 24,
+  "heads_mid": 23.0,
+  "per_myosin_mid": [
+   9,
+   9,
+   5
+  ],
+  "attached_until": 449.5,
+  "run_ms": 1000.0,
+  "pointed0": 0.28703708685546586,
+  "pointed_100": -0.17322233228013956
+ },
+ {
+  "rig": "tri",
+  "tilt": 30,
+  "nM": 3,
+  "start": 29.99999999999999,
+  "min_am": 0.3149506512306246,
+  "half_ms": 15.0,
+  "am_end": 17.776926966574308,
+  "spread_max": 33.16839998196417,
+  "spread_end": 21.298418239763937,
+  "heads_release": 24,
+  "heads_mid": 24.0,
+  "per_myosin_mid": [
+   8,
+   9,
+   7
+  ],
+  "attached_until": 657.0,
+  "run_ms": 1000.0,
+  "pointed0": 0.33698729810778066,
+  "pointed_100": -0.15724540312948104
+ },
+ {
+  "rig": "tri",
+  "tilt": 45,
+  "nM": 3,
+  "start": 45.0,
+  "min_am": 0.5320088612139807,
+  "half_ms": 30.5,
+  "am_end": 17.20127987135985,
+  "spread_max": 34.26299458884237,
+  "spread_end": 22.806749855445087,
+  "heads_release": 14,
+  "heads_mid": 24.0,
+  "per_myosin_mid": [
+   8,
+   9,
+   7
+  ],
+  "attached_until": 619.5,
+  "run_ms": 1000.0,
+  "pointed0": 0.41644660940672623,
+  "pointed_100": -0.17268217350820741
+ },
+ {
+  "rig": "mono",
+  "tilt": 0,
+  "nM": 1,
+  "start": 0.0,
+  "min_am": 0.0,
+  "half_ms": null,
+  "am_end": 18.819585850143664,
+  "spread_max": 0.0,
+  "spread_end": 0.0,
+  "heads_release": 17,
+  "heads_mid": 10.0,
+  "per_myosin_mid": [
+   10
+  ],
+  "attached_until": 617.0,
+  "run_ms": 1000.0,
+  "pointed0": 0.27,
+  "pointed_100": -0.24950592407460848
+ },
+ {
+  "rig": "mono",
+  "tilt": 15,
+  "nM": 1,
+  "start": 14.999999999999996,
+  "min_am": 0.06404883391175713,
+  "half_ms": 13.5,
+  "am_end": 17.75781794986363,
+  "spread_max": 0.0,
+  "spread_end": 0.0,
+  "heads_release": 14,
+  "heads_mid": 10.0,
+  "per_myosin_mid": [
+   10
+  ],
+  "attached_until": 653.0,
+  "run_ms": 1000.0,
+  "pointed0": 0.28703708685546586,
+  "pointed_100": -0.2874351664130696
+ },
+ {
+  "rig": "mono",
+  "tilt": 30,
+  "nM": 1,
+  "start": 29.999999999999993,
+  "min_am": 0.050374291859418704,
+  "half_ms": 41.5,
+  "am_end": 15.897840279181363,
+  "spread_max": 0.0,
+  "spread_end": 0.0,
+  "heads_release": 5,
+  "heads_mid": 18.0,
+  "per_myosin_mid": [
+   18
+  ],
+  "attached_until": 669.5,
+  "run_ms": 1000.0,
+  "pointed0": 0.33698729810778066,
+  "pointed_100": -0.26899453630823067
+ },
+ {
+  "rig": "mono",
+  "tilt": 45,
+  "nM": 1,
+  "start": 45.0,
+  "min_am": 0.026788739863586132,
+  "half_ms": 74.5,
+  "am_end": 12.243206266643398,
+  "spread_max": 0.0,
+  "spread_end": 0.0,
+  "heads_release": 5,
+  "heads_mid": 13.0,
+  "per_myosin_mid": [
+   13
+  ],
+  "attached_until": 651.0,
+  "run_ms": 1000.0,
+  "pointed0": 0.41644660940672623,
+  "pointed_100": -0.2758986593352501
+ }
+]

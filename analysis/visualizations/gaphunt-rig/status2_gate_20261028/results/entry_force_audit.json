@@ -1,0 +1,1759 @@
+{
+  "input": "/scratch/users/xsli/sarcomere/gaphunt_20261023/data/r27zt0npg130_seed20260805.h5",
+  "cases": [
+    {
+      "case": {
+        "lid": 168764,
+        "m": 32,
+        "entry": 422,
+        "first": 419,
+        "kind": "axial",
+        "clear_frames": 3,
+        "mature_frames_after": 19,
+        "blocked_streak": 19,
+        "deepest_frame": 426,
+        "max_depth_nm": 66.37067206217162,
+        "min_radius_nm": 90.72587522220962,
+        "score": 306.3706720621716,
+        "case": 1,
+        "start": 418,
+        "end": 436,
+        "mature_step": 209057,
+        "birth_step": 208820,
+        "death": null,
+        "actins": [
+          1337,
+          1084
+        ],
+        "end_sign": -1,
+        "poster_frame": 426
+      },
+      "rows": [
+        {
+          "frame": 418,
+          "step": 209000,
+          "age_ms": -0.5700000000000001,
+          "status": 1,
+          "connector_excluded": false,
+          "connector_min_radius_nm": null,
+          "midpoint_radius_nm": 89.57339700092379,
+          "midpoint_gap_nm": 63.39087392150657,
+          "eligible_half": true,
+          "radial_gate": 1.0,
+          "candidate_patch_force_pN": 0.0,
+          "recorded_selected_tip_force_pN": 0.1556955990405366,
+          "recorded_opposite_tip_force_pN": 15.02580959895819,
+          "two_tip_force_on_myosin_outward_pN": 14.870113999917654,
+          "recorded_selected_gap_nm": 41.743055209463755,
+          "recorded_selected_radius_nm": 127.48435345096587,
+          "gap_difference_from_selected_nm": 21.647818712042813,
+          "radius_difference_from_selected_nm": -37.910956450042086,
+          "myosin_net_force_mag_pN": 7.821040882720944,
+          "myosin_net_force_outward_pN": 4.295402219489578,
+          "actins": [
+            {
+              "id": 1337,
+              "patch_force_total_pN": 0.0778477995202683,
+              "force_mag_pN": 26.37285193438361,
+              "force_outward_pN": 17.68724761426585,
+              "cap_fraction_since_last_frame": 1.0,
+              "barbed_endstop_force_pN": 0.0
+            },
+            {
+              "id": 1084,
+              "patch_force_total_pN": 0.0,
+              "force_mag_pN": 26.37285193438362,
+              "force_outward_pN": 2.0143722219643214,
+              "cap_fraction_since_last_frame": 0.94,
+              "barbed_endstop_force_pN": 19.667529566984854
+            }
+          ]
+        },
+        {
+          "frame": 419,
+          "step": 209500,
+          "age_ms": 4.43,
+          "status": 2,
+          "connector_excluded": false,
+          "connector_min_radius_nm": null,
+          "midpoint_radius_nm": 91.26168110268766,
+          "midpoint_gap_nm": 68.37566607847614,
+          "eligible_half": true,
+          "radial_gate": 1.0,
+          "candidate_patch_force_pN": 0.0,
+          "recorded_selected_tip_force_pN": 0.0,
+          "recorded_opposite_tip_force_pN": 15.15034989002311,
+          "two_tip_force_on_myosin_outward_pN": 15.15034989002311,
+          "recorded_selected_gap_nm": NaN,
+          "recorded_selected_radius_nm": NaN,
+          "gap_difference_from_selected_nm": NaN,
+          "radius_difference_from_selected_nm": NaN,
+          "myosin_net_force_mag_pN": 26.37285193438361,
+          "myosin_net_force_outward_pN": -1.91254271223046,
+          "actins": [
+            {
+              "id": 1337,
+              "patch_force_total_pN": 0.6163291804121162,
+              "force_mag_pN": 26.37285193438361,
+              "force_outward_pN": -13.783433368326929,
+              "cap_fraction_since_last_frame": 1.0,
+              "barbed_endstop_force_pN": 0.0
+            },
+            {
+              "id": 1084,
+              "patch_force_total_pN": 0.0,
+              "force_mag_pN": 26.37285193438361,
+              "force_outward_pN": 17.201297894786823,
+              "cap_fraction_since_last_frame": 1.0,
+              "barbed_endstop_force_pN": 19.78767004660846
+            }
+          ]
+        },
+        {
+          "frame": 420,
+          "step": 210000,
+          "age_ms": 9.43,
+          "status": 2,
+          "connector_excluded": false,
+          "connector_min_radius_nm": null,
+          "midpoint_radius_nm": 83.86178947297486,
+          "midpoint_gap_nm": 55.978084526997606,
+          "eligible_half": true,
+          "radial_gate": 1.0,
+          "candidate_patch_force_pN": 0.0,
+          "recorded_selected_tip_force_pN": 0.7612069909488506,
+          "recorded_opposite_tip_force_pN": 13.434103624644127,
+          "two_tip_force_on_myosin_outward_pN": 12.672896633695277,
+          "recorded_selected_gap_nm": 49.02170312195317,
+          "recorded_selected_radius_nm": 109.12534908875851,
+          "gap_difference_from_selected_nm": 6.956381405044426,
+          "radius_difference_from_selected_nm": -25.263559615783652,
+          "myosin_net_force_mag_pN": 15.494972148834453,
+          "myosin_net_force_outward_pN": 4.217739098536407,
+          "actins": [
+            {
+              "id": 1337,
+              "patch_force_total_pN": 3.5663066965451837,
+              "force_mag_pN": 26.37285193438361,
+              "force_outward_pN": -10.084763384631936,
+              "cap_fraction_since_last_frame": 1.0,
+              "barbed_endstop_force_pN": 0.0
+            },
+            {
+              "id": 1084,
+              "patch_force_total_pN": 0.0,
+              "force_mag_pN": 26.372851934383615,
+              "force_outward_pN": 11.06110499924867,
+              "cap_fraction_since_last_frame": 1.0,
+              "barbed_endstop_force_pN": 19.94357871898211
+            }
+          ]
+        },
+        {
+          "frame": 421,
+          "step": 210500,
+          "age_ms": 14.43,
+          "status": 2,
+          "connector_excluded": false,
+          "connector_min_radius_nm": null,
+          "midpoint_radius_nm": 114.71489423056308,
+          "midpoint_gap_nm": 34.32130564314843,
+          "eligible_half": true,
+          "radial_gate": 0.5142535718119993,
+          "candidate_patch_force_pN": 6.736303544851966,
+          "recorded_selected_tip_force_pN": 7.101433499241567,
+          "recorded_opposite_tip_force_pN": 9.782054043279029,
+          "two_tip_force_on_myosin_outward_pN": 2.6806205440374615,
+          "recorded_selected_gap_nm": 34.84772362082801,
+          "recorded_selected_radius_nm": 113.8962817960436,
+          "gap_difference_from_selected_nm": -0.5264179776795843,
+          "radius_difference_from_selected_nm": 0.8186124345194862,
+          "myosin_net_force_mag_pN": 21.308994476125243,
+          "myosin_net_force_outward_pN": 0.55791657303467,
+          "actins": [
+            {
+              "id": 1337,
+              "patch_force_total_pN": 7.935162589594471,
+              "force_mag_pN": 26.37285193438361,
+              "force_outward_pN": 23.643306034493733,
+              "cap_fraction_since_last_frame": 0.984,
+              "barbed_endstop_force_pN": 0.0
+            },
+            {
+              "id": 1084,
+              "patch_force_total_pN": 3.5507167496207837,
+              "force_mag_pN": 26.37285193438361,
+              "force_outward_pN": -24.747877834523788,
+              "cap_fraction_since_last_frame": 0.92,
+              "barbed_endstop_force_pN": 18.877263575014595
+            }
+          ]
+        },
+        {
+          "frame": 422,
+          "step": 211000,
+          "age_ms": 19.43,
+          "status": 2,
+          "connector_excluded": true,
+          "connector_min_radius_nm": 129.80103598364116,
+          "midpoint_radius_nm": 131.99496449317198,
+          "midpoint_gap_nm": 1.9585064037054454,
+          "eligible_half": true,
+          "radial_gate": 0.0,
+          "candidate_patch_force_pN": 0.0,
+          "recorded_selected_tip_force_pN": 13.888004475284433,
+          "recorded_opposite_tip_force_pN": 6.9032563308590715,
+          "two_tip_force_on_myosin_outward_pN": -6.984748144425361,
+          "recorded_selected_gap_nm": 32.772311947088525,
+          "recorded_selected_radius_nm": 101.06444123828969,
+          "gap_difference_from_selected_nm": -30.81380554338308,
+          "radius_difference_from_selected_nm": 30.930523254882285,
+          "myosin_net_force_mag_pN": 23.035432756987856,
+          "myosin_net_force_outward_pN": 2.944564143331614,
+          "actins": [
+            {
+              "id": 1337,
+              "patch_force_total_pN": 10.318370567691481,
+              "force_mag_pN": 26.372851934383615,
+              "force_outward_pN": 18.900424073677545,
+              "cap_fraction_since_last_frame": 0.994,
+              "barbed_endstop_force_pN": 0.0
+            },
+            {
+              "id": 1084,
+              "patch_force_total_pN": 6.944002237642216,
+              "force_mag_pN": 26.37285193438361,
+              "force_outward_pN": -22.90733354329723,
+              "cap_fraction_since_last_frame": 0.952,
+              "barbed_endstop_force_pN": 0.0
+            }
+          ]
+        },
+        {
+          "frame": 423,
+          "step": 211500,
+          "age_ms": 24.43,
+          "status": 2,
+          "connector_excluded": true,
+          "connector_min_radius_nm": 107.93377628481372,
+          "midpoint_radius_nm": 116.68692437358834,
+          "midpoint_gap_nm": -0.9370706732949792,
+          "eligible_half": true,
+          "radial_gate": 0.4160093742124852,
+          "candidate_patch_force_pN": 8.218717433247484,
+          "recorded_selected_tip_force_pN": 16.915228072358115,
+          "recorded_opposite_tip_force_pN": 19.304683680539256,
+          "two_tip_force_on_myosin_outward_pN": 2.389455608181141,
+          "recorded_selected_gap_nm": 25.17853574369609,
+          "recorded_selected_radius_nm": 80.67404418513387,
+          "gap_difference_from_selected_nm": -26.115606416991074,
+          "radius_difference_from_selected_nm": 36.012880188454474,
+          "myosin_net_force_mag_pN": 20.824999369514266,
+          "myosin_net_force_outward_pN": 0.9864581806866872,
+          "actins": [
+            {
+              "id": 1337,
+              "patch_force_total_pN": 2.6512803900167365,
+              "force_mag_pN": 26.37285193438362,
+              "force_outward_pN": -20.316811858564446,
+              "cap_fraction_since_last_frame": 1.0,
+              "barbed_endstop_force_pN": 0.0
+            },
+            {
+              "id": 1084,
+              "patch_force_total_pN": 8.457614036179057,
+              "force_mag_pN": 26.372851934383608,
+              "force_outward_pN": 16.45339908476332,
+              "cap_fraction_since_last_frame": 0.964,
+              "barbed_endstop_force_pN": 19.99192122809071
+            }
+          ]
+        },
+        {
+          "frame": 424,
+          "step": 212000,
+          "age_ms": 29.43,
+          "status": 2,
+          "connector_excluded": true,
+          "connector_min_radius_nm": 107.55076222036739,
+          "midpoint_radius_nm": 116.20312567516504,
+          "midpoint_gap_nm": 0.4549873347838535,
+          "eligible_half": true,
+          "radial_gate": 0.4399727190653552,
+          "candidate_patch_force_pN": 8.676222960151684,
+          "recorded_selected_tip_force_pN": 16.331802549075228,
+          "recorded_opposite_tip_force_pN": 18.805265288734056,
+          "two_tip_force_on_myosin_outward_pN": 2.473462739658828,
+          "recorded_selected_gap_nm": 27.070069226261776,
+          "recorded_selected_radius_nm": 82.25083573716574,
+          "gap_difference_from_selected_nm": -26.61508189147792,
+          "radius_difference_from_selected_nm": 33.952289937999296,
+          "myosin_net_force_mag_pN": 9.899698901734432,
+          "myosin_net_force_outward_pN": -2.057180022733393,
+          "actins": [
+            {
+              "id": 1337,
+              "patch_force_total_pN": 3.0615854055228304,
+              "force_mag_pN": 26.372851934383608,
+              "force_outward_pN": -14.85487207993285,
+              "cap_fraction_since_last_frame": 1.0,
+              "barbed_endstop_force_pN": 0.0
+            },
+            {
+              "id": 1084,
+              "patch_force_total_pN": 8.165901274537614,
+              "force_mag_pN": 26.372851934383608,
+              "force_outward_pN": 18.98704785880309,
+              "cap_fraction_since_last_frame": 1.0,
+              "barbed_endstop_force_pN": 19.984440359533075
+            }
+          ]
+        },
+        {
+          "frame": 425,
+          "step": 212500,
+          "age_ms": 34.43,
+          "status": 2,
+          "connector_excluded": true,
+          "connector_min_radius_nm": 116.37232009994186,
+          "midpoint_radius_nm": 129.01417451264143,
+          "midpoint_gap_nm": -32.02627701316243,
+          "eligible_half": true,
+          "radial_gate": 0.0031685376854855285,
+          "candidate_patch_force_pN": 0.0633360445604383,
+          "recorded_selected_tip_force_pN": 19.793416535395405,
+          "recorded_opposite_tip_force_pN": 16.734303430288293,
+          "two_tip_force_on_myosin_outward_pN": -3.0591131051071123,
+          "recorded_selected_gap_nm": -4.078432912637411,
+          "recorded_selected_radius_nm": 100.65732879445741,
+          "gap_difference_from_selected_nm": -27.947844100525018,
+          "radius_difference_from_selected_nm": 28.356845718184033,
+          "myosin_net_force_mag_pN": 17.90808214029121,
+          "myosin_net_force_outward_pN": -0.17071104273315374,
+          "actins": [
+            {
+              "id": 1337,
+              "patch_force_total_pN": 11.027977437120553,
+              "force_mag_pN": 26.37285193438361,
+              "force_outward_pN": -16.706637792768273,
+              "cap_fraction_since_last_frame": 1.0,
+              "barbed_endstop_force_pN": 0.0
+            },
+            {
+              "id": 1084,
+              "patch_force_total_pN": 9.896708267697703,
+              "force_mag_pN": 26.37285193438361,
+              "force_outward_pN": 17.167009211953285,
+              "cap_fraction_since_last_frame": 1.0,
+              "barbed_endstop_force_pN": 0.0
+            }
+          ]
+        },
+        {
+          "frame": 426,
+          "step": 213000,
+          "age_ms": 39.43,
+          "status": 2,
+          "connector_excluded": true,
+          "connector_min_radius_nm": 119.13130178484123,
+          "midpoint_radius_nm": 131.92626732068308,
+          "midpoint_gap_nm": -34.72598279328249,
+          "eligible_half": true,
+          "radial_gate": 0.0,
+          "candidate_patch_force_pN": 0.0,
+          "recorded_selected_tip_force_pN": 19.746917067453218,
+          "recorded_opposite_tip_force_pN": 13.878405895221665,
+          "two_tip_force_on_myosin_outward_pN": -5.868511172231553,
+          "recorded_selected_gap_nm": -0.5657032738166893,
+          "recorded_selected_radius_nm": 99.36516514323911,
+          "gap_difference_from_selected_nm": -34.160279519465796,
+          "radius_difference_from_selected_nm": 32.56110217744397,
+          "myosin_net_force_mag_pN": 16.65614024084307,
+          "myosin_net_force_outward_pN": -2.0439804139347624,
+          "actins": [
+            {
+              "id": 1337,
+              "patch_force_total_pN": 0.0,
+              "force_mag_pN": 26.37285193438361,
+              "force_outward_pN": -19.509465006564326,
+              "cap_fraction_since_last_frame": 1.0,
+              "barbed_endstop_force_pN": 0.0
+            },
+            {
+              "id": 1084,
+              "patch_force_total_pN": 9.873458533726609,
+              "force_mag_pN": 26.37285193438361,
+              "force_outward_pN": 15.371881623911214,
+              "cap_fraction_since_last_frame": 0.974,
+              "barbed_endstop_force_pN": 0.0
+            }
+          ]
+        },
+        {
+          "frame": 427,
+          "step": 213500,
+          "age_ms": 44.43,
+          "status": 2,
+          "connector_excluded": true,
+          "connector_min_radius_nm": 109.434412306315,
+          "midpoint_radius_nm": 118.57510512412881,
+          "midpoint_gap_nm": -20.174770598783272,
+          "eligible_half": true,
+          "radial_gate": 0.32462954121205856,
+          "candidate_patch_force_pN": 6.48096543573202,
+          "recorded_selected_tip_force_pN": 19.265976605651925,
+          "recorded_opposite_tip_force_pN": 17.61674889557492,
+          "two_tip_force_on_myosin_outward_pN": -1.6492277100770067,
+          "recorded_selected_gap_nm": 10.204272128483838,
+          "recorded_selected_radius_nm": 91.95434199851775,
+          "gap_difference_from_selected_nm": -30.37904272726711,
+          "radius_difference_from_selected_nm": 26.620763125611056,
+          "myosin_net_force_mag_pN": 16.048679524841532,
+          "myosin_net_force_outward_pN": 0.6643914750058442,
+          "actins": [
+            {
+              "id": 1337,
+              "patch_force_total_pN": 10.18495581205627,
+              "force_mag_pN": 26.37285193438361,
+              "force_outward_pN": -12.76161810297776,
+              "cap_fraction_since_last_frame": 1.0,
+              "barbed_endstop_force_pN": 0.0
+            },
+            {
+              "id": 1084,
+              "patch_force_total_pN": 9.632988302825963,
+              "force_mag_pN": 26.372851934383608,
+              "force_outward_pN": 18.102500105926357,
+              "cap_fraction_since_last_frame": 0.952,
+              "barbed_endstop_force_pN": 19.977139402292178
+            }
+          ]
+        },
+        {
+          "frame": 428,
+          "step": 214000,
+          "age_ms": 49.43,
+          "status": 2,
+          "connector_excluded": true,
+          "connector_min_radius_nm": 100.35994882144747,
+          "midpoint_radius_nm": 104.98785324492412,
+          "midpoint_gap_nm": -21.607525050043023,
+          "eligible_half": true,
+          "radial_gate": 0.9262630077815934,
+          "candidate_patch_force_pN": 18.496513857441098,
+          "recorded_selected_tip_force_pN": 19.248353294411785,
+          "recorded_opposite_tip_force_pN": 17.89868199191433,
+          "two_tip_force_on_myosin_outward_pN": -1.3496713024974554,
+          "recorded_selected_gap_nm": 10.446016391096418,
+          "recorded_selected_radius_nm": 78.40726506166395,
+          "gap_difference_from_selected_nm": -32.053541441139444,
+          "radius_difference_from_selected_nm": 26.580588183260172,
+          "myosin_net_force_mag_pN": 10.068872676882412,
+          "myosin_net_force_outward_pN": 8.221639978164239,
+          "actins": [
+            {
+              "id": 1337,
+              "patch_force_total_pN": 11.762285479185124,
+              "force_mag_pN": 26.372851934383615,
+              "force_outward_pN": -13.488260023259777,
+              "cap_fraction_since_last_frame": 1.0,
+              "barbed_endstop_force_pN": 0.0
+            },
+            {
+              "id": 1084,
+              "patch_force_total_pN": 9.624176647205893,
+              "force_mag_pN": 26.372851934383615,
+              "force_outward_pN": 17.8750111928973,
+              "cap_fraction_since_last_frame": 1.0,
+              "barbed_endstop_force_pN": 19.99708555527309
+            }
+          ]
+        },
+        {
+          "frame": 429,
+          "step": 214500,
+          "age_ms": 54.43,
+          "status": 2,
+          "connector_excluded": true,
+          "connector_min_radius_nm": 105.32989164841132,
+          "midpoint_radius_nm": 107.90351770750404,
+          "midpoint_gap_nm": -19.640527783068208,
+          "eligible_half": true,
+          "radial_gate": 0.8283515753194279,
+          "candidate_patch_force_pN": 16.535740849953164,
+          "recorded_selected_tip_force_pN": 19.06748730471979,
+          "recorded_opposite_tip_force_pN": 18.180394041329965,
+          "two_tip_force_on_myosin_outward_pN": -0.8870932633898256,
+          "recorded_selected_gap_nm": 12.648368923369823,
+          "recorded_selected_radius_nm": 80.05642259551628,
+          "gap_difference_from_selected_nm": -32.28889670643803,
+          "radius_difference_from_selected_nm": 27.847095111987755,
+          "myosin_net_force_mag_pN": 10.349252907172602,
+          "myosin_net_force_outward_pN": 9.778249668093999,
+          "actins": [
+            {
+              "id": 1337,
+              "patch_force_total_pN": 9.533743652359895,
+              "force_mag_pN": 26.37285193438361,
+              "force_outward_pN": -14.198507250316856,
+              "cap_fraction_since_last_frame": 1.0,
+              "barbed_endstop_force_pN": 0.0
+            },
+            {
+              "id": 1084,
+              "patch_force_total_pN": 9.533743652359895,
+              "force_mag_pN": 26.37285193438361,
+              "force_outward_pN": 20.983391323343987,
+              "cap_fraction_since_last_frame": 1.0,
+              "barbed_endstop_force_pN": 19.98196893402332
+            }
+          ]
+        },
+        {
+          "frame": 430,
+          "step": 215000,
+          "age_ms": 59.43,
+          "status": 2,
+          "connector_excluded": true,
+          "connector_min_radius_nm": 108.36674136772615,
+          "midpoint_radius_nm": 112.8821326766978,
+          "midpoint_gap_nm": -16.330584344472868,
+          "eligible_half": true,
+          "radial_gate": 0.6051897067865107,
+          "candidate_patch_force_pN": 12.071975640644018,
+          "recorded_selected_tip_force_pN": 18.86592439563212,
+          "recorded_opposite_tip_force_pN": 18.18064608900344,
+          "two_tip_force_on_myosin_outward_pN": -0.6852783066286818,
+          "recorded_selected_gap_nm": 14.656999864182115,
+          "recorded_selected_radius_nm": 83.24421410126615,
+          "gap_difference_from_selected_nm": -30.987584208654983,
+          "radius_difference_from_selected_nm": 29.637918575431645,
+          "myosin_net_force_mag_pN": 25.43928394785263,
+          "myosin_net_force_outward_pN": 7.809711077073875,
+          "actins": [
+            {
+              "id": 1337,
+              "patch_force_total_pN": 12.692786690543766,
+              "force_mag_pN": 26.37285193438361,
+              "force_outward_pN": -11.39591777508267,
+              "cap_fraction_since_last_frame": 1.0,
+              "barbed_endstop_force_pN": 0.0
+            },
+            {
+              "id": 1084,
+              "patch_force_total_pN": 9.43296219781606,
+              "force_mag_pN": 26.37285193438361,
+              "force_outward_pN": 15.729467324677945,
+              "cap_fraction_since_last_frame": 0.998,
+              "barbed_endstop_force_pN": 19.986172800059055
+            }
+          ]
+        },
+        {
+          "frame": 431,
+          "step": 215500,
+          "age_ms": 64.43,
+          "status": 2,
+          "connector_excluded": true,
+          "connector_min_radius_nm": 108.21370508911141,
+          "midpoint_radius_nm": 115.38192895078274,
+          "midpoint_gap_nm": -10.528732267862177,
+          "eligible_half": true,
+          "radial_gate": 0.48090767926608,
+          "candidate_patch_force_pN": 9.573033242441197,
+          "recorded_selected_tip_force_pN": 17.55921168597821,
+          "recorded_opposite_tip_force_pN": 18.292915770727607,
+          "two_tip_force_on_myosin_outward_pN": 0.7337040847493981,
+          "recorded_selected_gap_nm": 22.66402400649726,
+          "recorded_selected_radius_nm": 86.08400093018345,
+          "gap_difference_from_selected_nm": -33.19275627435944,
+          "radius_difference_from_selected_nm": 29.297928020599286,
+          "myosin_net_force_mag_pN": 24.385284941626796,
+          "myosin_net_force_outward_pN": 4.616618902681918,
+          "actins": [
+            {
+              "id": 1337,
+              "patch_force_total_pN": 8.779605842989104,
+              "force_mag_pN": 26.37285193438361,
+              "force_outward_pN": -18.153095889349014,
+              "cap_fraction_since_last_frame": 1.0,
+              "barbed_endstop_force_pN": 17.419263447541695
+            },
+            {
+              "id": 1084,
+              "patch_force_total_pN": 8.779605842989104,
+              "force_mag_pN": 26.37285193438361,
+              "force_outward_pN": 20.730936330723274,
+              "cap_fraction_since_last_frame": 1.0,
+              "barbed_endstop_force_pN": 19.981166267826026
+            }
+          ]
+        },
+        {
+          "frame": 432,
+          "step": 216000,
+          "age_ms": 69.43,
+          "status": 2,
+          "connector_excluded": true,
+          "connector_min_radius_nm": 105.95114907941779,
+          "midpoint_radius_nm": 111.06498623971767,
+          "midpoint_gap_nm": -7.266624359993124,
+          "eligible_half": true,
+          "radial_gate": 0.6922372758230682,
+          "candidate_patch_force_pN": 13.754827964423608,
+          "recorded_selected_tip_force_pN": 16.268826598537963,
+          "recorded_opposite_tip_force_pN": 18.740163106693856,
+          "two_tip_force_on_myosin_outward_pN": 2.4713365081558933,
+          "recorded_selected_gap_nm": 27.257641681013887,
+          "recorded_selected_radius_nm": 81.56004712038896,
+          "gap_difference_from_selected_nm": -34.52426604100701,
+          "radius_difference_from_selected_nm": 29.504939119328707,
+          "myosin_net_force_mag_pN": 24.4557479989808,
+          "myosin_net_force_outward_pN": 14.823981726288778,
+          "actins": [
+            {
+              "id": 1337,
+              "patch_force_total_pN": 8.134413299268981,
+              "force_mag_pN": 26.37285193438361,
+              "force_outward_pN": -20.432877030041944,
+              "cap_fraction_since_last_frame": 1.0,
+              "barbed_endstop_force_pN": 0.0
+            },
+            {
+              "id": 1084,
+              "patch_force_total_pN": 8.134413299268981,
+              "force_mag_pN": 26.37285193438361,
+              "force_outward_pN": 16.56207865941407,
+              "cap_fraction_since_last_frame": 1.0,
+              "barbed_endstop_force_pN": 19.961262103713825
+            }
+          ]
+        },
+        {
+          "frame": 433,
+          "step": 216500,
+          "age_ms": 74.43,
+          "status": 2,
+          "connector_excluded": true,
+          "connector_min_radius_nm": 111.07512211396434,
+          "midpoint_radius_nm": 114.16182169358905,
+          "midpoint_gap_nm": -8.576631691356324,
+          "eligible_half": true,
+          "radial_gate": 0.5418652963430848,
+          "candidate_patch_force_pN": 10.77553826933248,
+          "recorded_selected_tip_force_pN": 18.072888840609394,
+          "recorded_opposite_tip_force_pN": 18.563595651707104,
+          "two_tip_force_on_myosin_outward_pN": 0.4907068110977093,
+          "recorded_selected_gap_nm": 20.165196231202653,
+          "recorded_selected_radius_nm": 81.81921398054378,
+          "gap_difference_from_selected_nm": -28.74182792255898,
+          "radius_difference_from_selected_nm": 32.34260771304527,
+          "myosin_net_force_mag_pN": 18.078506063714336,
+          "myosin_net_force_outward_pN": 6.175916020478113,
+          "actins": [
+            {
+              "id": 1337,
+              "patch_force_total_pN": 9.036444420304697,
+              "force_mag_pN": 26.37285193438361,
+              "force_outward_pN": -8.14897462765996,
+              "cap_fraction_since_last_frame": 1.0,
+              "barbed_endstop_force_pN": 11.562102330776831
+            },
+            {
+              "id": 1084,
+              "patch_force_total_pN": 9.036444420304697,
+              "force_mag_pN": 26.37285193438361,
+              "force_outward_pN": 21.09142045672224,
+              "cap_fraction_since_last_frame": 1.0,
+              "barbed_endstop_force_pN": 19.965807315852754
+            }
+          ]
+        },
+        {
+          "frame": 434,
+          "step": 217000,
+          "age_ms": 79.43,
+          "status": 2,
+          "connector_excluded": true,
+          "connector_min_radius_nm": 107.3254001283934,
+          "midpoint_radius_nm": 112.0164675168225,
+          "midpoint_gap_nm": -13.508627015206363,
+          "eligible_half": true,
+          "radial_gate": 0.6472093787372355,
+          "candidate_patch_force_pN": 12.899084839650172,
+          "recorded_selected_tip_force_pN": 15.384943484989094,
+          "recorded_opposite_tip_force_pN": 17.955088755783112,
+          "two_tip_force_on_myosin_outward_pN": 2.5701452707940184,
+          "recorded_selected_gap_nm": 29.630377094388784,
+          "recorded_selected_radius_nm": 72.06929959924668,
+          "gap_difference_from_selected_nm": -43.13900410959515,
+          "radius_difference_from_selected_nm": 39.94716791757581,
+          "myosin_net_force_mag_pN": 14.977232951127966,
+          "myosin_net_force_outward_pN": 2.6531645995991417,
+          "actins": [
+            {
+              "id": 1337,
+              "patch_force_total_pN": 7.692471742494547,
+              "force_mag_pN": 26.37285193438361,
+              "force_outward_pN": -3.6706068648446637,
+              "cap_fraction_since_last_frame": 1.0,
+              "barbed_endstop_force_pN": 10.029963204760026
+            },
+            {
+              "id": 1084,
+              "patch_force_total_pN": 7.692471742494547,
+              "force_mag_pN": 26.37285193438361,
+              "force_outward_pN": 18.911468674966578,
+              "cap_fraction_since_last_frame": 1.0,
+              "barbed_endstop_force_pN": 19.982488775838373
+            }
+          ]
+        },
+        {
+          "frame": 435,
+          "step": 217500,
+          "age_ms": 84.43,
+          "status": 2,
+          "connector_excluded": true,
+          "connector_min_radius_nm": 108.85337386975094,
+          "midpoint_radius_nm": 112.21767558036134,
+          "midpoint_gap_nm": -7.735703882090574,
+          "eligible_half": true,
+          "radial_gate": 0.6375207477073277,
+          "candidate_patch_force_pN": 12.671387756199486,
+          "recorded_selected_tip_force_pN": 14.543801125211672,
+          "recorded_opposite_tip_force_pN": 16.527176878077075,
+          "two_tip_force_on_myosin_outward_pN": 1.9833757528654026,
+          "recorded_selected_gap_nm": -9.521441501235891,
+          "recorded_selected_radius_nm": 110.21840370908862,
+          "gap_difference_from_selected_nm": 1.7857376191453174,
+          "radius_difference_from_selected_nm": 1.9992718712727315,
+          "myosin_net_force_mag_pN": 26.37285193438361,
+          "myosin_net_force_outward_pN": -2.9759123223704362,
+          "actins": [
+            {
+              "id": 1337,
+              "patch_force_total_pN": 7.271900562605836,
+              "force_mag_pN": 26.37285193438361,
+              "force_outward_pN": -18.347919822280556,
+              "cap_fraction_since_last_frame": 1.0,
+              "barbed_endstop_force_pN": 1.2145613069391457
+            },
+            {
+              "id": 1084,
+              "patch_force_total_pN": 7.271900562605836,
+              "force_mag_pN": 26.372851934383608,
+              "force_outward_pN": 18.74627405449122,
+              "cap_fraction_since_last_frame": 1.0,
+              "barbed_endstop_force_pN": 19.976817483832342
+            }
+          ]
+        },
+        {
+          "frame": 436,
+          "step": 218000,
+          "age_ms": 89.43,
+          "status": 2,
+          "connector_excluded": true,
+          "connector_min_radius_nm": 101.8290097238272,
+          "midpoint_radius_nm": 104.66325803091327,
+          "midpoint_gap_nm": -8.69294510565037,
+          "eligible_half": true,
+          "radial_gate": 0.9350250517694694,
+          "candidate_patch_force_pN": 18.59514584756899,
+          "recorded_selected_tip_force_pN": 18.327709447104592,
+          "recorded_opposite_tip_force_pN": 16.85825556944522,
+          "two_tip_force_on_myosin_outward_pN": -1.4694538776593724,
+          "recorded_selected_gap_nm": -9.004132030910291,
+          "recorded_selected_radius_nm": 105.16024373343906,
+          "gap_difference_from_selected_nm": 0.31118692525992053,
+          "radius_difference_from_selected_nm": -0.4969857025257929,
+          "myosin_net_force_mag_pN": 24.261248642849612,
+          "myosin_net_force_outward_pN": 1.693455028065982,
+          "actins": [
+            {
+              "id": 1337,
+              "patch_force_total_pN": 9.163854723552296,
+              "force_mag_pN": 26.37285193438361,
+              "force_outward_pN": -13.873676104152816,
+              "cap_fraction_since_last_frame": 1.0,
+              "barbed_endstop_force_pN": 0.0
+            },
+            {
+              "id": 1084,
+              "patch_force_total_pN": 9.163854723552296,
+              "force_mag_pN": 26.37285193438361,
+              "force_outward_pN": 20.288156023682212,
+              "cap_fraction_since_last_frame": 0.996,
+              "barbed_endstop_force_pN": 19.98987939022659
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "case": {
+        "lid": 171917,
+        "m": 255,
+        "entry": 439,
+        "first": 431,
+        "kind": "lateral",
+        "clear_frames": 8,
+        "mature_frames_after": 16,
+        "blocked_streak": 16,
+        "deepest_frame": 439,
+        "max_depth_nm": 712.1081339286573,
+        "min_radius_nm": 77.1585083148061,
+        "score": 936.1081339286573,
+        "case": 2,
+        "start": 430,
+        "end": 453,
+        "mature_step": 215133,
+        "birth_step": 215131,
+        "death": {
+          "step": 227320,
+          "reason": 2
+        },
+        "actins": [
+          484,
+          159
+        ],
+        "end_sign": 1,
+        "poster_frame": 439
+      },
+      "rows": [
+        {
+          "frame": 431,
+          "step": 215500,
+          "age_ms": 3.67,
+          "status": 2,
+          "connector_excluded": false,
+          "connector_min_radius_nm": 179.7106148560891,
+          "midpoint_radius_nm": 201.47015445255008,
+          "midpoint_gap_nm": -758.2004552869804,
+          "eligible_half": false,
+          "radial_gate": 0.0,
+          "candidate_patch_force_pN": 0.0,
+          "recorded_selected_tip_force_pN": 0.0,
+          "recorded_opposite_tip_force_pN": 0.0,
+          "two_tip_force_on_myosin_outward_pN": 0.0,
+          "recorded_selected_gap_nm": NaN,
+          "recorded_selected_radius_nm": NaN,
+          "gap_difference_from_selected_nm": NaN,
+          "radius_difference_from_selected_nm": NaN,
+          "myosin_net_force_mag_pN": 26.372851934383608,
+          "myosin_net_force_outward_pN": 2.3934032886667356,
+          "actins": [
+            {
+              "id": 484,
+              "patch_force_total_pN": 0.0,
+              "force_mag_pN": 26.372851934383615,
+              "force_outward_pN": 3.8972266529444055,
+              "cap_fraction_since_last_frame": 1.0,
+              "barbed_endstop_force_pN": 0.0
+            },
+            {
+              "id": 159,
+              "patch_force_total_pN": 6.428384104163538,
+              "force_mag_pN": 26.372851934383615,
+              "force_outward_pN": -5.471606153592013,
+              "cap_fraction_since_last_frame": 1.0,
+              "barbed_endstop_force_pN": 19.07293165247795
+            }
+          ]
+        },
+        {
+          "frame": 432,
+          "step": 216000,
+          "age_ms": 8.67,
+          "status": 2,
+          "connector_excluded": false,
+          "connector_min_radius_nm": 172.2714166406563,
+          "midpoint_radius_nm": 193.8707566174559,
+          "midpoint_gap_nm": -755.1721384023289,
+          "eligible_half": false,
+          "radial_gate": 0.0,
+          "candidate_patch_force_pN": 0.0,
+          "recorded_selected_tip_force_pN": 0.0,
+          "recorded_opposite_tip_force_pN": 0.0,
+          "two_tip_force_on_myosin_outward_pN": 0.0,
+          "recorded_selected_gap_nm": NaN,
+          "recorded_selected_radius_nm": NaN,
+          "gap_difference_from_selected_nm": NaN,
+          "radius_difference_from_selected_nm": NaN,
+          "myosin_net_force_mag_pN": 26.37285193438361,
+          "myosin_net_force_outward_pN": 2.3545348084934634,
+          "actins": [
+            {
+              "id": 484,
+              "patch_force_total_pN": 0.0,
+              "force_mag_pN": 26.37285193438361,
+              "force_outward_pN": 12.069844809780712,
+              "cap_fraction_since_last_frame": 1.0,
+              "barbed_endstop_force_pN": 0.0
+            },
+            {
+              "id": 159,
+              "patch_force_total_pN": 4.38853552454926,
+              "force_mag_pN": 26.37285193438361,
+              "force_outward_pN": -8.314511823573703,
+              "cap_fraction_since_last_frame": 1.0,
+              "barbed_endstop_force_pN": 0.0
+            }
+          ]
+        },
+        {
+          "frame": 433,
+          "step": 216500,
+          "age_ms": 13.67,
+          "status": 2,
+          "connector_excluded": false,
+          "connector_min_radius_nm": 176.26716011280652,
+          "midpoint_radius_nm": 198.04230910512555,
+          "midpoint_gap_nm": -753.3079417518593,
+          "eligible_half": false,
+          "radial_gate": 0.0,
+          "candidate_patch_force_pN": 0.0,
+          "recorded_selected_tip_force_pN": 0.0,
+          "recorded_opposite_tip_force_pN": 0.0,
+          "two_tip_force_on_myosin_outward_pN": 0.0,
+          "recorded_selected_gap_nm": NaN,
+          "recorded_selected_radius_nm": NaN,
+          "gap_difference_from_selected_nm": NaN,
+          "radius_difference_from_selected_nm": NaN,
+          "myosin_net_force_mag_pN": 26.37285193438361,
+          "myosin_net_force_outward_pN": -2.7519848195263137,
+          "actins": [
+            {
+              "id": 484,
+              "patch_force_total_pN": 0.0,
+              "force_mag_pN": 26.372851934383615,
+              "force_outward_pN": 20.860924675167496,
+              "cap_fraction_since_last_frame": 1.0,
+              "barbed_endstop_force_pN": 0.0
+            },
+            {
+              "id": 159,
+              "patch_force_total_pN": 2.9384110461669697,
+              "force_mag_pN": 26.372851934383615,
+              "force_outward_pN": -8.341900087182012,
+              "cap_fraction_since_last_frame": 1.0,
+              "barbed_endstop_force_pN": 0.0
+            }
+          ]
+        },
+        {
+          "frame": 434,
+          "step": 217000,
+          "age_ms": 18.67,
+          "status": 2,
+          "connector_excluded": false,
+          "connector_min_radius_nm": 178.46184268843,
+          "midpoint_radius_nm": 200.10217733481343,
+          "midpoint_gap_nm": -753.2321603508752,
+          "eligible_half": false,
+          "radial_gate": 0.0,
+          "candidate_patch_force_pN": 0.0,
+          "recorded_selected_tip_force_pN": 0.0,
+          "recorded_opposite_tip_force_pN": 0.0,
+          "two_tip_force_on_myosin_outward_pN": 0.0,
+          "recorded_selected_gap_nm": NaN,
+          "recorded_selected_radius_nm": NaN,
+          "gap_difference_from_selected_nm": NaN,
+          "radius_difference_from_selected_nm": NaN,
+          "myosin_net_force_mag_pN": 26.37285193438361,
+          "myosin_net_force_outward_pN": -1.2613901916925867,
+          "actins": [
+            {
+              "id": 484,
+              "patch_force_total_pN": 0.0,
+              "force_mag_pN": 26.37285193438361,
+              "force_outward_pN": 17.58454798462587,
+              "cap_fraction_since_last_frame": 1.0,
+              "barbed_endstop_force_pN": 0.0
+            },
+            {
+              "id": 159,
+              "patch_force_total_pN": 1.4319489857702132,
+              "force_mag_pN": 26.372851934383608,
+              "force_outward_pN": -4.916376620493909,
+              "cap_fraction_since_last_frame": 1.0,
+              "barbed_endstop_force_pN": 0.0
+            }
+          ]
+        },
+        {
+          "frame": 435,
+          "step": 217500,
+          "age_ms": 23.67,
+          "status": 2,
+          "connector_excluded": false,
+          "connector_min_radius_nm": 179.63955988802286,
+          "midpoint_radius_nm": 201.35957542579231,
+          "midpoint_gap_nm": -743.7412057789124,
+          "eligible_half": true,
+          "radial_gate": 0.0,
+          "candidate_patch_force_pN": 0.0,
+          "recorded_selected_tip_force_pN": 0.0,
+          "recorded_opposite_tip_force_pN": 0.0,
+          "two_tip_force_on_myosin_outward_pN": 0.0,
+          "recorded_selected_gap_nm": NaN,
+          "recorded_selected_radius_nm": NaN,
+          "gap_difference_from_selected_nm": NaN,
+          "radius_difference_from_selected_nm": NaN,
+          "myosin_net_force_mag_pN": 26.37285193438361,
+          "myosin_net_force_outward_pN": 1.1349168736699817,
+          "actins": [
+            {
+              "id": 484,
+              "patch_force_total_pN": 0.0,
+              "force_mag_pN": 26.372851934383608,
+              "force_outward_pN": 15.227405767604951,
+              "cap_fraction_since_last_frame": 1.0,
+              "barbed_endstop_force_pN": 0.0
+            },
+            {
+              "id": 159,
+              "patch_force_total_pN": 2.3419326443214454,
+              "force_mag_pN": 26.37285193438361,
+              "force_outward_pN": -8.68515025648612,
+              "cap_fraction_since_last_frame": 1.0,
+              "barbed_endstop_force_pN": 0.0
+            }
+          ]
+        },
+        {
+          "frame": 436,
+          "step": 218000,
+          "age_ms": 28.67,
+          "status": 2,
+          "connector_excluded": false,
+          "connector_min_radius_nm": 171.29634355231775,
+          "midpoint_radius_nm": 194.0365476363067,
+          "midpoint_gap_nm": -734.6003107124579,
+          "eligible_half": true,
+          "radial_gate": 0.0,
+          "candidate_patch_force_pN": 0.0,
+          "recorded_selected_tip_force_pN": 0.023361041360963064,
+          "recorded_opposite_tip_force_pN": 2.7363052513870323,
+          "two_tip_force_on_myosin_outward_pN": 2.7129442100260692,
+          "recorded_selected_gap_nm": -748.594757749223,
+          "recorded_selected_radius_nm": 129.40408195318471,
+          "gap_difference_from_selected_nm": 13.994447036765113,
+          "radius_difference_from_selected_nm": 64.632465683122,
+          "myosin_net_force_mag_pN": 26.37285193438361,
+          "myosin_net_force_outward_pN": -0.5548729890638873,
+          "actins": [
+            {
+              "id": 484,
+              "patch_force_total_pN": 0.0,
+              "force_mag_pN": 26.37285193438361,
+              "force_outward_pN": 10.830545420915488,
+              "cap_fraction_since_last_frame": 1.0,
+              "barbed_endstop_force_pN": 0.0
+            },
+            {
+              "id": 159,
+              "patch_force_total_pN": 6.200263226492636,
+              "force_mag_pN": 26.37285193438361,
+              "force_outward_pN": -6.432075630504134,
+              "cap_fraction_since_last_frame": 1.0,
+              "barbed_endstop_force_pN": 0.0
+            }
+          ]
+        },
+        {
+          "frame": 437,
+          "step": 218500,
+          "age_ms": 33.67,
+          "status": 2,
+          "connector_excluded": false,
+          "connector_min_radius_nm": 172.95491632384642,
+          "midpoint_radius_nm": 193.99873585685057,
+          "midpoint_gap_nm": -732.0123369570132,
+          "eligible_half": true,
+          "radial_gate": 0.0,
+          "candidate_patch_force_pN": 0.0,
+          "recorded_selected_tip_force_pN": 0.1614554332614171,
+          "recorded_opposite_tip_force_pN": 5.353884911153375,
+          "two_tip_force_on_myosin_outward_pN": 5.192429477891958,
+          "recorded_selected_gap_nm": -744.735572950586,
+          "recorded_selected_radius_nm": 128.41563537160818,
+          "gap_difference_from_selected_nm": 12.723235993572724,
+          "radius_difference_from_selected_nm": 65.58310048524241,
+          "myosin_net_force_mag_pN": 26.37285193438361,
+          "myosin_net_force_outward_pN": -0.5634899557275233,
+          "actins": [
+            {
+              "id": 484,
+              "patch_force_total_pN": 0.0,
+              "force_mag_pN": 26.37285193438361,
+              "force_outward_pN": 13.102495845178032,
+              "cap_fraction_since_last_frame": 1.0,
+              "barbed_endstop_force_pN": 0.0
+            },
+            {
+              "id": 159,
+              "patch_force_total_pN": 7.248242695686157,
+              "force_mag_pN": 26.37285193438361,
+              "force_outward_pN": -10.63963921290468,
+              "cap_fraction_since_last_frame": 1.0,
+              "barbed_endstop_force_pN": 0.0
+            }
+          ]
+        },
+        {
+          "frame": 438,
+          "step": 219000,
+          "age_ms": 38.67,
+          "status": 2,
+          "connector_excluded": false,
+          "connector_min_radius_nm": 154.45794903628754,
+          "midpoint_radius_nm": 176.78701037868404,
+          "midpoint_gap_nm": -737.6190413623128,
+          "eligible_half": true,
+          "radial_gate": 0.0,
+          "candidate_patch_force_pN": 0.0,
+          "recorded_selected_tip_force_pN": 0.0,
+          "recorded_opposite_tip_force_pN": 18.15425115867072,
+          "two_tip_force_on_myosin_outward_pN": 18.15425115867072,
+          "recorded_selected_gap_nm": NaN,
+          "recorded_selected_radius_nm": NaN,
+          "gap_difference_from_selected_nm": NaN,
+          "radius_difference_from_selected_nm": NaN,
+          "myosin_net_force_mag_pN": 26.37285193438361,
+          "myosin_net_force_outward_pN": -0.7550181939772007,
+          "actins": [
+            {
+              "id": 484,
+              "patch_force_total_pN": 0.0,
+              "force_mag_pN": 26.372851934383608,
+              "force_outward_pN": 22.841154240146206,
+              "cap_fraction_since_last_frame": 1.0,
+              "barbed_endstop_force_pN": 0.0
+            },
+            {
+              "id": 159,
+              "patch_force_total_pN": 0.0,
+              "force_mag_pN": 26.372851934383615,
+              "force_outward_pN": -9.96926325472122,
+              "cap_fraction_since_last_frame": 1.0,
+              "barbed_endstop_force_pN": 0.0
+            }
+          ]
+        },
+        {
+          "frame": 439,
+          "step": 219500,
+          "age_ms": 43.67,
+          "status": 2,
+          "connector_excluded": true,
+          "connector_min_radius_nm": 128.8722146410131,
+          "midpoint_radius_nm": 154.85203924103914,
+          "midpoint_gap_nm": -694.3086520363373,
+          "eligible_half": true,
+          "radial_gate": 0.0,
+          "candidate_patch_force_pN": 0.0,
+          "recorded_selected_tip_force_pN": 19.741121560473086,
+          "recorded_opposite_tip_force_pN": 0.0,
+          "two_tip_force_on_myosin_outward_pN": -19.741121560473086,
+          "recorded_selected_gap_nm": -633.420190557777,
+          "recorded_selected_radius_nm": 102.01626567068121,
+          "gap_difference_from_selected_nm": -60.88846147856031,
+          "radius_difference_from_selected_nm": 52.835773570357915,
+          "myosin_net_force_mag_pN": 26.37285193438361,
+          "myosin_net_force_outward_pN": -1.0119976905633996,
+          "actins": [
+            {
+              "id": 484,
+              "patch_force_total_pN": 0.0,
+              "force_mag_pN": 26.37285193438361,
+              "force_outward_pN": 20.403920453347826,
+              "cap_fraction_since_last_frame": 1.0,
+              "barbed_endstop_force_pN": 0.0
+            },
+            {
+              "id": 159,
+              "patch_force_total_pN": 9.870560780236543,
+              "force_mag_pN": 26.37285193438361,
+              "force_outward_pN": -18.224999430859988,
+              "cap_fraction_since_last_frame": 1.0,
+              "barbed_endstop_force_pN": 0.0
+            }
+          ]
+        },
+        {
+          "frame": 440,
+          "step": 220000,
+          "age_ms": 48.67,
+          "status": 2,
+          "connector_excluded": true,
+          "connector_min_radius_nm": 99.69000118824708,
+          "midpoint_radius_nm": 131.89441917612638,
+          "midpoint_gap_nm": -641.2411991194886,
+          "eligible_half": true,
+          "radial_gate": 0.0,
+          "candidate_patch_force_pN": 0.0,
+          "recorded_selected_tip_force_pN": 19.999999998751395,
+          "recorded_opposite_tip_force_pN": 19.643657309035973,
+          "two_tip_force_on_myosin_outward_pN": -0.35634268971542227,
+          "recorded_selected_gap_nm": -191.90119626167373,
+          "recorded_selected_radius_nm": 86.48001857633086,
+          "gap_difference_from_selected_nm": -449.3400028578148,
+          "radius_difference_from_selected_nm": 45.41440059979551,
+          "myosin_net_force_mag_pN": 26.37285193438361,
+          "myosin_net_force_outward_pN": 12.94948529312999,
+          "actins": [
+            {
+              "id": 484,
+              "patch_force_total_pN": 0.0,
+              "force_mag_pN": 26.37285193438361,
+              "force_outward_pN": 23.836603311642428,
+              "cap_fraction_since_last_frame": 1.0,
+              "barbed_endstop_force_pN": 0.0
+            },
+            {
+              "id": 159,
+              "patch_force_total_pN": 0.0,
+              "force_mag_pN": 26.372851934383615,
+              "force_outward_pN": -16.958903396913627,
+              "cap_fraction_since_last_frame": 1.0,
+              "barbed_endstop_force_pN": 0.0
+            }
+          ]
+        },
+        {
+          "frame": 441,
+          "step": 220500,
+          "age_ms": 53.67,
+          "status": 2,
+          "connector_excluded": true,
+          "connector_min_radius_nm": 106.20269996066487,
+          "midpoint_radius_nm": 134.2013173113054,
+          "midpoint_gap_nm": -570.5375935191777,
+          "eligible_half": true,
+          "radial_gate": 0.0,
+          "candidate_patch_force_pN": 0.0,
+          "recorded_selected_tip_force_pN": 19.99999997949769,
+          "recorded_opposite_tip_force_pN": 18.179059720815445,
+          "two_tip_force_on_myosin_outward_pN": -1.8209402586822456,
+          "recorded_selected_gap_nm": -163.9160776412833,
+          "recorded_selected_radius_nm": 88.85338343001858,
+          "gap_difference_from_selected_nm": -406.62151587789435,
+          "radius_difference_from_selected_nm": 45.3479338812868,
+          "myosin_net_force_mag_pN": 26.37285193438361,
+          "myosin_net_force_outward_pN": -5.177323114917514,
+          "actins": [
+            {
+              "id": 484,
+              "patch_force_total_pN": 0.0,
+              "force_mag_pN": 26.37285193438361,
+              "force_outward_pN": 18.262817271610317,
+              "cap_fraction_since_last_frame": 1.0,
+              "barbed_endstop_force_pN": 0.0
+            },
+            {
+              "id": 159,
+              "patch_force_total_pN": 0.3663710814282437,
+              "force_mag_pN": 26.372851934383604,
+              "force_outward_pN": -5.041068651642336,
+              "cap_fraction_since_last_frame": 1.0,
+              "barbed_endstop_force_pN": 0.0
+            }
+          ]
+        },
+        {
+          "frame": 442,
+          "step": 221000,
+          "age_ms": 58.67,
+          "status": 2,
+          "connector_excluded": true,
+          "connector_min_radius_nm": 96.70017952557473,
+          "midpoint_radius_nm": 124.94350440607771,
+          "midpoint_gap_nm": -489.96434001346677,
+          "eligible_half": true,
+          "radial_gate": 0.07565047555295634,
+          "candidate_patch_force_pN": 1.5130095110591268,
+          "recorded_selected_tip_force_pN": 19.9986893950029,
+          "recorded_opposite_tip_force_pN": 0.0,
+          "two_tip_force_on_myosin_outward_pN": -19.9986893950029,
+          "recorded_selected_gap_nm": -53.26113106981953,
+          "recorded_selected_radius_nm": 84.86457622760678,
+          "gap_difference_from_selected_nm": -436.7032089436472,
+          "radius_difference_from_selected_nm": 40.07892817847093,
+          "myosin_net_force_mag_pN": 26.372851934383608,
+          "myosin_net_force_outward_pN": -5.017872949186258,
+          "actins": [
+            {
+              "id": 484,
+              "patch_force_total_pN": 0.0,
+              "force_mag_pN": 26.372851934383608,
+              "force_outward_pN": 20.026892866733526,
+              "cap_fraction_since_last_frame": 1.0,
+              "barbed_endstop_force_pN": 0.0
+            },
+            {
+              "id": 159,
+              "patch_force_total_pN": 0.10127756955759966,
+              "force_mag_pN": 26.37285193438361,
+              "force_outward_pN": -4.006679460514866,
+              "cap_fraction_since_last_frame": 1.0,
+              "barbed_endstop_force_pN": 0.0
+            }
+          ]
+        },
+        {
+          "frame": 443,
+          "step": 221500,
+          "age_ms": 63.67,
+          "status": 2,
+          "connector_excluded": true,
+          "connector_min_radius_nm": 92.29708285745615,
+          "midpoint_radius_nm": 122.61565400225,
+          "midpoint_gap_nm": -437.9129407072917,
+          "eligible_half": true,
+          "radial_gate": 0.15193538258641792,
+          "candidate_patch_force_pN": 3.0387076517283584,
+          "recorded_selected_tip_force_pN": 19.112146429409414,
+          "recorded_opposite_tip_force_pN": 0.0,
+          "two_tip_force_on_myosin_outward_pN": -19.112146429409414,
+          "recorded_selected_gap_nm": -349.1182683787364,
+          "recorded_selected_radius_nm": 103.81461759682952,
+          "gap_difference_from_selected_nm": -88.79467232855531,
+          "radius_difference_from_selected_nm": 18.80103640542047,
+          "myosin_net_force_mag_pN": 25.911952021313486,
+          "myosin_net_force_outward_pN": 15.226767704677773,
+          "actins": [
+            {
+              "id": 484,
+              "patch_force_total_pN": 0.0,
+              "force_mag_pN": 26.37285193438361,
+              "force_outward_pN": 17.492302965976783,
+              "cap_fraction_since_last_frame": 1.0,
+              "barbed_endstop_force_pN": 0.0
+            },
+            {
+              "id": 159,
+              "patch_force_total_pN": 9.556073214704707,
+              "force_mag_pN": 26.37285193438361,
+              "force_outward_pN": -7.701012708120633,
+              "cap_fraction_since_last_frame": 1.0,
+              "barbed_endstop_force_pN": 0.0
+            }
+          ]
+        },
+        {
+          "frame": 444,
+          "step": 222000,
+          "age_ms": 68.67,
+          "status": 2,
+          "connector_excluded": true,
+          "connector_min_radius_nm": 87.62161193386669,
+          "midpoint_radius_nm": 119.83582000800338,
+          "midpoint_gap_nm": -387.9589441201788,
+          "eligible_half": true,
+          "radial_gate": 0.26658577005640105,
+          "candidate_patch_force_pN": 5.331715401128021,
+          "recorded_selected_tip_force_pN": 19.79801113351761,
+          "recorded_opposite_tip_force_pN": 0.0,
+          "two_tip_force_on_myosin_outward_pN": -19.79801113351761,
+          "recorded_selected_gap_nm": -351.713903515903,
+          "recorded_selected_radius_nm": 101.77604243574578,
+          "gap_difference_from_selected_nm": -36.2450406042758,
+          "radius_difference_from_selected_nm": 18.0597775722576,
+          "myosin_net_force_mag_pN": 11.105813455982329,
+          "myosin_net_force_outward_pN": 4.085290052030961,
+          "actins": [
+            {
+              "id": 484,
+              "patch_force_total_pN": 0.0,
+              "force_mag_pN": 26.372851934383608,
+              "force_outward_pN": 17.043862777909613,
+              "cap_fraction_since_last_frame": 1.0,
+              "barbed_endstop_force_pN": 0.0
+            },
+            {
+              "id": 159,
+              "patch_force_total_pN": 10.363565507187428,
+              "force_mag_pN": 26.37285193438361,
+              "force_outward_pN": -13.470244658357899,
+              "cap_fraction_since_last_frame": 1.0,
+              "barbed_endstop_force_pN": 0.0
+            }
+          ]
+        },
+        {
+          "frame": 445,
+          "step": 222500,
+          "age_ms": 73.67,
+          "status": 2,
+          "connector_excluded": true,
+          "connector_min_radius_nm": 87.3695816560129,
+          "midpoint_radius_nm": 117.3140650724147,
+          "midpoint_gap_nm": -333.89442397454496,
+          "eligible_half": true,
+          "radial_gate": 0.3852146412298478,
+          "candidate_patch_force_pN": 7.704292824596956,
+          "recorded_selected_tip_force_pN": 19.99999999999991,
+          "recorded_opposite_tip_force_pN": 0.0,
+          "two_tip_force_on_myosin_outward_pN": -19.99999999999991,
+          "recorded_selected_gap_nm": -287.5343439053842,
+          "recorded_selected_radius_nm": 99.75254351338177,
+          "gap_difference_from_selected_nm": -46.3600800691607,
+          "radius_difference_from_selected_nm": 17.56152155903294,
+          "myosin_net_force_mag_pN": 11.003536190164391,
+          "myosin_net_force_outward_pN": -2.98859358208326,
+          "actins": [
+            {
+              "id": 484,
+              "patch_force_total_pN": 9.999999999999956,
+              "force_mag_pN": 26.37285193438361,
+              "force_outward_pN": 24.997901111971874,
+              "cap_fraction_since_last_frame": 1.0,
+              "barbed_endstop_force_pN": 0.0
+            },
+            {
+              "id": 159,
+              "patch_force_total_pN": 9.999999999999956,
+              "force_mag_pN": 26.37285193438361,
+              "force_outward_pN": -9.771978485579066,
+              "cap_fraction_since_last_frame": 1.0,
+              "barbed_endstop_force_pN": 0.0
+            }
+          ]
+        },
+        {
+          "frame": 446,
+          "step": 223000,
+          "age_ms": 78.67,
+          "status": 2,
+          "connector_excluded": true,
+          "connector_min_radius_nm": 83.35178624299508,
+          "midpoint_radius_nm": 113.6782097405816,
+          "midpoint_gap_nm": -308.10530208196684,
+          "eligible_half": true,
+          "radial_gate": 0.5659184508419067,
+          "candidate_patch_force_pN": 11.318369016838128,
+          "recorded_selected_tip_force_pN": 19.999999999999524,
+          "recorded_opposite_tip_force_pN": 0.0,
+          "two_tip_force_on_myosin_outward_pN": -19.999999999999524,
+          "recorded_selected_gap_nm": -270.65733910897393,
+          "recorded_selected_radius_nm": 95.27648429461742,
+          "gap_difference_from_selected_nm": -37.44796297299291,
+          "radius_difference_from_selected_nm": 18.401725445964175,
+          "myosin_net_force_mag_pN": 22.38857643510974,
+          "myosin_net_force_outward_pN": -4.0231985478896775,
+          "actins": [
+            {
+              "id": 484,
+              "patch_force_total_pN": 0.0,
+              "force_mag_pN": 26.37285193438361,
+              "force_outward_pN": 13.285944908325824,
+              "cap_fraction_since_last_frame": 1.0,
+              "barbed_endstop_force_pN": 0.0
+            },
+            {
+              "id": 159,
+              "patch_force_total_pN": 9.999999999999762,
+              "force_mag_pN": 26.37285193438361,
+              "force_outward_pN": -5.150007799810316,
+              "cap_fraction_since_last_frame": 1.0,
+              "barbed_endstop_force_pN": 0.0
+            }
+          ]
+        },
+        {
+          "frame": 447,
+          "step": 223500,
+          "age_ms": 83.67,
+          "status": 2,
+          "connector_excluded": true,
+          "connector_min_radius_nm": 91.16865648448989,
+          "midpoint_radius_nm": 119.38034370457987,
+          "midpoint_gap_nm": -284.50385250725634,
+          "eligible_half": true,
+          "radial_gate": 0.2872085521673574,
+          "candidate_patch_force_pN": 5.744171043347114,
+          "recorded_selected_tip_force_pN": 19.82263758206817,
+          "recorded_opposite_tip_force_pN": 0.0,
+          "two_tip_force_on_myosin_outward_pN": -19.82263758206817,
+          "recorded_selected_gap_nm": -266.7519344181637,
+          "recorded_selected_radius_nm": 101.66206724630764,
+          "gap_difference_from_selected_nm": -17.751918089092598,
+          "radius_difference_from_selected_nm": 17.718276458272218,
+          "myosin_net_force_mag_pN": 14.571325634684477,
+          "myosin_net_force_outward_pN": -1.0032332734827567,
+          "actins": [
+            {
+              "id": 484,
+              "patch_force_total_pN": 0.0,
+              "force_mag_pN": 26.37285193438361,
+              "force_outward_pN": 21.485889735395997,
+              "cap_fraction_since_last_frame": 1.0,
+              "barbed_endstop_force_pN": 0.0
+            },
+            {
+              "id": 159,
+              "patch_force_total_pN": 9.911318791034086,
+              "force_mag_pN": 26.37285193438361,
+              "force_outward_pN": -13.466868582255081,
+              "cap_fraction_since_last_frame": 1.0,
+              "barbed_endstop_force_pN": 0.0
+            }
+          ]
+        },
+        {
+          "frame": 448,
+          "step": 224000,
+          "age_ms": 88.67,
+          "status": 2,
+          "connector_excluded": true,
+          "connector_min_radius_nm": 95.32739141475687,
+          "midpoint_radius_nm": 122.5932956379399,
+          "midpoint_gap_nm": -260.49702354511544,
+          "eligible_half": true,
+          "radial_gate": 0.1527659805227094,
+          "candidate_patch_force_pN": 3.0553196104539877,
+          "recorded_selected_tip_force_pN": 18.62997456901476,
+          "recorded_opposite_tip_force_pN": 0.0,
+          "two_tip_force_on_myosin_outward_pN": -18.62997456901476,
+          "recorded_selected_gap_nm": -169.8265032508225,
+          "recorded_selected_radius_nm": 104.79602809735458,
+          "gap_difference_from_selected_nm": -90.67052029429296,
+          "radius_difference_from_selected_nm": 17.797267540585317,
+          "myosin_net_force_mag_pN": 20.909613501985543,
+          "myosin_net_force_outward_pN": 2.4302137465784437,
+          "actins": [
+            {
+              "id": 484,
+              "patch_force_total_pN": 0.0,
+              "force_mag_pN": 26.372851934383608,
+              "force_outward_pN": 17.493467555901677,
+              "cap_fraction_since_last_frame": 1.0,
+              "barbed_endstop_force_pN": 0.0
+            },
+            {
+              "id": 159,
+              "patch_force_total_pN": 9.31498728450738,
+              "force_mag_pN": 26.37285193438361,
+              "force_outward_pN": -8.403917056947474,
+              "cap_fraction_since_last_frame": 1.0,
+              "barbed_endstop_force_pN": 0.0
+            }
+          ]
+        },
+        {
+          "frame": 449,
+          "step": 224500,
+          "age_ms": 93.67,
+          "status": 2,
+          "connector_excluded": true,
+          "connector_min_radius_nm": 100.7517207923472,
+          "midpoint_radius_nm": 128.69913889762844,
+          "midpoint_gap_nm": -257.2926643917123,
+          "eligible_half": true,
+          "radial_gate": 0.005477734345433527,
+          "candidate_patch_force_pN": 0.10955468690866065,
+          "recorded_selected_tip_force_pN": 15.788115820952441,
+          "recorded_opposite_tip_force_pN": 0.0,
+          "two_tip_force_on_myosin_outward_pN": -15.788115820952441,
+          "recorded_selected_gap_nm": -216.51836421598463,
+          "recorded_selected_radius_nm": 108.87075660057118,
+          "gap_difference_from_selected_nm": -40.774300175727696,
+          "radius_difference_from_selected_nm": 19.828382297057246,
+          "myosin_net_force_mag_pN": 13.913286140927001,
+          "myosin_net_force_outward_pN": -3.8706260992083505,
+          "actins": [
+            {
+              "id": 484,
+              "patch_force_total_pN": 0.0,
+              "force_mag_pN": 26.37285193438361,
+              "force_outward_pN": -18.0828477325692,
+              "cap_fraction_since_last_frame": 1.0,
+              "barbed_endstop_force_pN": 0.0
+            },
+            {
+              "id": 159,
+              "patch_force_total_pN": 7.894057910476221,
+              "force_mag_pN": 26.37285193438361,
+              "force_outward_pN": -1.3247134193284573,
+              "cap_fraction_since_last_frame": 1.0,
+              "barbed_endstop_force_pN": 0.0
+            }
+          ]
+        },
+        {
+          "frame": 450,
+          "step": 225000,
+          "age_ms": 98.67,
+          "status": 2,
+          "connector_excluded": true,
+          "connector_min_radius_nm": 99.34128840808195,
+          "midpoint_radius_nm": 127.28538482745027,
+          "midpoint_gap_nm": -249.52278367483967,
+          "eligible_half": true,
+          "radial_gate": 0.023081980144050718,
+          "candidate_patch_force_pN": 0.46163960288092376,
+          "recorded_selected_tip_force_pN": 12.1130245965127,
+          "recorded_opposite_tip_force_pN": 0.0,
+          "two_tip_force_on_myosin_outward_pN": -12.1130245965127,
+          "recorded_selected_gap_nm": -144.30554044285682,
+          "recorded_selected_radius_nm": 112.87271352100242,
+          "gap_difference_from_selected_nm": -105.21724323198286,
+          "radius_difference_from_selected_nm": 14.412671306447855,
+          "myosin_net_force_mag_pN": 13.910874157558332,
+          "myosin_net_force_outward_pN": -4.902784243896973,
+          "actins": [
+            {
+              "id": 484,
+              "patch_force_total_pN": 0.0,
+              "force_mag_pN": 26.37285193438361,
+              "force_outward_pN": -18.774710347507003,
+              "cap_fraction_since_last_frame": 1.0,
+              "barbed_endstop_force_pN": 0.0
+            },
+            {
+              "id": 159,
+              "patch_force_total_pN": 6.05651229825635,
+              "force_mag_pN": 26.37285193438361,
+              "force_outward_pN": 0.7744499802636211,
+              "cap_fraction_since_last_frame": 1.0,
+              "barbed_endstop_force_pN": 0.0
+            }
+          ]
+        },
+        {
+          "frame": 451,
+          "step": 225500,
+          "age_ms": 103.67,
+          "status": 2,
+          "connector_excluded": true,
+          "connector_min_radius_nm": 90.81684300505592,
+          "midpoint_radius_nm": 124.00550166595104,
+          "midpoint_gap_nm": -226.86303160183078,
+          "eligible_half": true,
+          "radial_gate": 0.10382400723855856,
+          "candidate_patch_force_pN": 2.0764801447672414,
+          "recorded_selected_tip_force_pN": 14.440883813759356,
+          "recorded_opposite_tip_force_pN": 0.0,
+          "two_tip_force_on_myosin_outward_pN": -14.440883813759356,
+          "recorded_selected_gap_nm": -117.92625778183816,
+          "recorded_selected_radius_nm": 110.41645522698069,
+          "gap_difference_from_selected_nm": -108.93677381999261,
+          "radius_difference_from_selected_nm": 13.589046438970367,
+          "myosin_net_force_mag_pN": 15.914683502620639,
+          "myosin_net_force_outward_pN": 1.1906863145201503,
+          "actins": [
+            {
+              "id": 484,
+              "patch_force_total_pN": 0.0,
+              "force_mag_pN": 26.37285193438361,
+              "force_outward_pN": -18.96976598322908,
+              "cap_fraction_since_last_frame": 1.0,
+              "barbed_endstop_force_pN": 0.0
+            },
+            {
+              "id": 159,
+              "patch_force_total_pN": 7.220441906879678,
+              "force_mag_pN": 26.37285193438361,
+              "force_outward_pN": 19.231907764722646,
+              "cap_fraction_since_last_frame": 1.0,
+              "barbed_endstop_force_pN": 7.934712317669533
+            }
+          ]
+        },
+        {
+          "frame": 452,
+          "step": 226000,
+          "age_ms": 108.67,
+          "status": 2,
+          "connector_excluded": true,
+          "connector_min_radius_nm": 88.92862407759303,
+          "midpoint_radius_nm": 123.79516034354566,
+          "midpoint_gap_nm": -200.59055541347564,
+          "eligible_half": true,
+          "radial_gate": 0.11063815091510387,
+          "candidate_patch_force_pN": 2.2127630182441407,
+          "recorded_selected_tip_force_pN": 18.90834446463471,
+          "recorded_opposite_tip_force_pN": 0.0,
+          "two_tip_force_on_myosin_outward_pN": -18.90834446463471,
+          "recorded_selected_gap_nm": -160.5607062900888,
+          "recorded_selected_radius_nm": 104.25249881352649,
+          "gap_difference_from_selected_nm": -40.02984912338683,
+          "radius_difference_from_selected_nm": 19.542661530019185,
+          "myosin_net_force_mag_pN": 3.790948208957906,
+          "myosin_net_force_outward_pN": 3.233139923661641,
+          "actins": [
+            {
+              "id": 484,
+              "patch_force_total_pN": 0.0,
+              "force_mag_pN": 26.37285193438361,
+              "force_outward_pN": -3.7971481416191963,
+              "cap_fraction_since_last_frame": 1.0,
+              "barbed_endstop_force_pN": 0.0
+            },
+            {
+              "id": 159,
+              "patch_force_total_pN": 9.454172232317354,
+              "force_mag_pN": 26.37285193438361,
+              "force_outward_pN": 8.927252345224067,
+              "cap_fraction_since_last_frame": 1.0,
+              "barbed_endstop_force_pN": 7.0881745794936855
+            }
+          ]
+        },
+        {
+          "frame": 453,
+          "step": 226500,
+          "age_ms": 113.67,
+          "status": 2,
+          "connector_excluded": true,
+          "connector_min_radius_nm": 82.60315643646197,
+          "midpoint_radius_nm": 117.79662591909218,
+          "midpoint_gap_nm": -157.74844393225547,
+          "eligible_half": true,
+          "radial_gate": 0.36178890680152326,
+          "candidate_patch_force_pN": 7.2357781222864075,
+          "recorded_selected_tip_force_pN": 19.999998188049755,
+          "recorded_opposite_tip_force_pN": 0.0,
+          "two_tip_force_on_myosin_outward_pN": -19.999998188049755,
+          "recorded_selected_gap_nm": -119.09986217553696,
+          "recorded_selected_radius_nm": 99.37837469450555,
+          "gap_difference_from_selected_nm": -38.64858175671849,
+          "radius_difference_from_selected_nm": 18.418251224586623,
+          "myosin_net_force_mag_pN": 8.925796652031146,
+          "myosin_net_force_outward_pN": -1.5272936423993195,
+          "actins": [
+            {
+              "id": 484,
+              "patch_force_total_pN": 0.0,
+              "force_mag_pN": 26.372851934383615,
+              "force_outward_pN": -19.858086549500154,
+              "cap_fraction_since_last_frame": 1.0,
+              "barbed_endstop_force_pN": 0.0
+            },
+            {
+              "id": 159,
+              "patch_force_total_pN": 9.999999094024878,
+              "force_mag_pN": 26.37285193438361,
+              "force_outward_pN": 7.363317013867886,
+              "cap_fraction_since_last_frame": 1.0,
+              "barbed_endstop_force_pN": 7.817317993865604
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "caveat": "Kernel values reconstructed at saved pose; recorded forces evaluated just before that pose. Selected link ID is not recorded.",
+  "parameters": {
+    "aa_zdisc_tip_transverse_flat": 0.1,
+    "aa_zdisc_tip_transverse_cutoff": 0.13,
+    "aa_zdisc_tip_force_max": 20.0,
+    "max_actin_force": 7.127094785287516,
+    "max_myosin_force": 26.37285193438361,
+    "aa_actn2_contact_radius": 0.005,
+    "myosin_radius": 0.05,
+    "aa_myosin_contact_shell_width": 0.015
+  }
+}

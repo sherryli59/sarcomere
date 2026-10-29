@@ -1,0 +1,23 @@
+{
+  "source": "../trajectories.npz",
+  "realization_index_zero_based": 1,
+  "seed": 20261028,
+  "selection": "Illustrative saved realization with one connector loss and three surviving connectors, selected to show the sequence clearly; not an ensemble average.",
+  "first_loss_interval_ms": [
+    0.11,
+    0.12
+  ],
+  "first_lost_connector_zero_based": 0,
+  "cause": "contact hazard (local reason 2)",
+  "coordinate_units": "nm",
+  "time_units": "ms",
+  "view": "End-on Y-Z projection; actual X tip position relative to original scaffold plane appears in status.",
+  "final_sideways_nm": 102.082043,
+  "final_tip_past_original_plane_nm": 1067.486857,
+  "source_npz_sha256": "a40323680a4b7219748345d74fe98441234e1d38adf6fe5ee23e416986b8f698",
+  "files_sha256": {
+    "check-escape-instance.js": "b5e4f24a8f24b0aead444f6a685d08256f8c434bd002323765f60c7587184c99",
+    "myosin-escape-instance.json": "178d591ce24f5b3138706de6d613f63a37dda669dd6e4cd7c234a3da1aedf664",
+    "myosin-sideways-escape.html": "4dd57d6267cd4b81e6d6130412177cf11aa950c8a1680b0a9541ff3a78fe1069"
+  }
+}

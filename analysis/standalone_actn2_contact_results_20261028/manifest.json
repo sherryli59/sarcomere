@@ -1,0 +1,43 @@
+{
+  "slurm_job_id": "50081778",
+  "numerical_model_matches_audited_snapshot": {
+    "Model": true,
+    "gauss": true,
+    "point_energy": true,
+    "contact": true,
+    "cylinder_intersects": true,
+    "capsule_intersects": true,
+    "maturation_allowed": true,
+    "association_factor": true,
+    "pair_budget": true,
+    "edge_hazard": true,
+    "contact_hazard": true,
+    "sample_channels": true,
+    "endpoint_crossing": true,
+    "rig_initial": true,
+    "weak_sites": true,
+    "simulate_rig_integration_before_summary": true
+  },
+  "files_sha256": {
+    "check_standalone_actn2_viewer.js": "77d2fac158b0dfad3498a5d97bf70e9baae9a5212dbf7a64a74a70afad984101",
+    "final.log": "a66eecc9378f971f708b161d222fc0f078fdc25dee935e03bc9dcf8d3c677dbf",
+    "formation_repulsion.png": "e79e5569ac76960e64f6a8832112316b02578396296741606ddeeeca5a83b862",
+    "lateral_escape.png": "fb5158ed901e8c1f4351fba40073389a964a4a906721d1731be85bc3028914ff",
+    "mechanics_failure.png": "919087653f5f3adf530a8b30a7151890fcc2b9a0e78352beb18b033ce5e86df3",
+    "refinement/convergence.json": "5021dddeba52fa135cc4fc6f45cb280dfb7f344f2a70e003abc46e43a4da1098",
+    "refinement/convergence.md": "e4a9ee6147315157b8950da8c7b7e0284693c4dc7414bb8dd907682eca7170d7",
+    "refinement/standalone_actn2_contact.py": "3157b897c7ebaeade0b36d9bf00675bf3e65d0f445ea61c444763b90a96bc223",
+    "refinement/validate_standalone_actn2_contact.py": "b19e43a30401efb2c86333f3c45d29596b587e886226acd0e3491b7a649424f4",
+    "refinement.log": "59557e699f242c56618804da34655b270be6d19d30b1bbcea2bfdad48aeda512",
+    "report.md": "e0ba12a6cceee4d7cabfabde290eabdfd5a53c5de610eac9c8cc215786418c16",
+    "run_standalone_actn2_contact.sbatch": "638d4bf64bbcb9ae2b3bcdb5520e0a77f7361b50dd7de532ce773fdb2331c446",
+    "standalone_actn2_contact.py": "b3526ecb8f12491db2cfe8e6019bffed915af4a14cd7be17ac7d5effcd83844f",
+    "standalone_contact.html": "00dac7dc155e5dade4b8543a55a351ac339531444e54d6aea926b17c06ac81f6",
+    "summary.json": "8a0d11f42fce54055ab1d32196aaaeb0304577cd0a2a529f4f330d5830b89b3e",
+    "trajectories.npz": "a40323680a4b7219748345d74fe98441234e1d38adf6fe5ee23e416986b8f698",
+    "validate_standalone_actn2_contact.py": "b19e43a30401efb2c86333f3c45d29596b587e886226acd0e3491b7a649424f4",
+    "viewer_check.json": "f04e108cdaa2d39e2259ce7e8d2eec0db3037297231202e958f6225a9c3b16b7",
+    "weak_boundaries.png": "bbcb238b52f972307adedcda34a204e4ee92733aa80d8e09f6e430566ae7289f",
+    "README.md": "7c0dee6d535a17def9a72632f9609158a830ff562bbb082dc1cf3b2aab084758"
+  }
+}

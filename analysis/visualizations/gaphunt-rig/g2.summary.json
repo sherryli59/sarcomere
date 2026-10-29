@@ -1,0 +1,80 @@
+[
+ {
+  "group": "Partner ladder: N frozen parallel myosins",
+  "arm": "lat1par",
+  "seed": 20260805,
+  "label": "1 myosin",
+  "tilt_x": 7.744630310105493,
+  "tilt_m": 7.744630310105493,
+  "heads": 0.0,
+  "links": 0.0,
+  "spread": 0.0,
+  "perp_nm": 297.9616535320047,
+  "nflags": 9
+ },
+ {
+  "group": "Partner ladder: N frozen parallel myosins",
+  "arm": "lat2par",
+  "seed": 20260805,
+  "label": "2 myosins",
+  "tilt_x": 1.2115665896022343,
+  "tilt_m": 1.2115665896022343,
+  "heads": 20.209476309226932,
+  "links": 0.0,
+  "spread": 0.0,
+  "perp_nm": 78.75616406178779,
+  "nflags": 9
+ },
+ {
+  "group": "Partner ladder: N frozen parallel myosins",
+  "arm": "lat3par",
+  "seed": 20260805,
+  "label": "3 myosins",
+  "tilt_x": 0.4409648437731261,
+  "tilt_m": 0.4409648437731261,
+  "heads": 22.59351620947631,
+  "links": 0.0,
+  "spread": 0.0,
+  "perp_nm": 78.66750712213604,
+  "nflags": 9
+ },
+ {
+  "group": "Partner ladder: N frozen parallel myosins",
+  "arm": "lat4par",
+  "seed": 20260805,
+  "label": "4 myosins",
+  "tilt_x": 52.6209642923103,
+  "tilt_m": 52.6209642923103,
+  "heads": 0.0,
+  "links": 0.0,
+  "spread": 0.0,
+  "perp_nm": 220.16441809243443,
+  "nflags": 9
+ },
+ {
+  "group": "Partner ladder: N frozen parallel myosins",
+  "arm": "lat6par",
+  "seed": 20260805,
+  "label": "6 myosins",
+  "tilt_x": 0.4269681257597304,
+  "tilt_m": 0.4269681257597304,
+  "heads": 23.5785536159601,
+  "links": 0.0,
+  "spread": 0.0,
+  "perp_nm": 77.16034141718971,
+  "nflags": 9
+ },
+ {
+  "group": "Partner ladder: N frozen parallel myosins",
+  "arm": "lat3tilt",
+  "seed": 20260805,
+  "label": "3 myosins, tilted",
+  "tilt_x": 80.28293370246529,
+  "tilt_m": 73.18996778475157,
+  "heads": 0.0,
+  "links": 0.0,
+  "spread": 32.3600189110721,
+  "perp_nm": 276.97919325663224,
+  "nflags": 9
+ }
+]

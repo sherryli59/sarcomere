@@ -90,7 +90,7 @@ def read_material(handle, sl, nmyo):
     return e1, e2
 
 
-def build_run(path, stride=1, box_override=None, label=None):
+def build_run(path, stride=1, box_override=None, label=None, step_range=None):
     with h5py.File(path, "r", locking=False) as h:
         attrs = dict(h["meta"].attrs)
         frames = int(min(h["meta/committed_frames"][0],
@@ -137,7 +137,11 @@ def build_run(path, stride=1, box_override=None, label=None):
             Rm = 0.0          # anchor sits on the myosin axis
         k_ax_weak = float(attrs.get("am_motor_k", 0.0)) * 0.1
 
-        sl = slice(0, frames, max(1, int(stride)))
+        lo_f, hi_f = (0, frames) if step_range is None else (
+            max(0, int(step_range[0])), min(frames, int(step_range[1]) + 1))
+        if hi_f - lo_f < 2:
+            raise SystemExit("step range %r leaves < 2 frames" % (step_range,))
+        sl = slice(lo_f, hi_f, max(1, int(stride)))
         step = h["state/current_step"][sl, 0].astype(float)
         ac = h["actin/center"][sl]; ad = unit(h["actin/direction"][sl])
         mc = h["myosin/center"][sl]; md = unit(h["myosin/direction"][sl])
@@ -159,7 +163,7 @@ def build_run(path, stride=1, box_override=None, label=None):
         off = h["catch_bond/local_link_frame_offsets"][:]
         ident = h["catch_bond/local_link_identity"][:]
         coord = h["catch_bond/local_link_coordinates"][:]
-        frame_idx = np.arange(0, frames, max(1, int(stride)))
+        frame_idx = np.arange(lo_f, hi_f, max(1, int(stride)))
 
     nA, nM = ac.shape[1], mc.shape[1]
     frames = len(step)
@@ -212,12 +216,30 @@ def build_run(path, stride=1, box_override=None, label=None):
                     * np.maximum(0.0, z - hst[fi, mi, hi]) ** 2)
     ref = hen[fi, mi, hi]
     if len(mine) and can_validate and have_val:
-        err = np.abs(mine - ref) / np.maximum(1e-9, np.abs(ref))
-        assert err.max() < 1e-6, (
+        # A pure relative tolerance is the wrong metric here: many bound heads
+        # carry essentially zero strain energy, and dividing double-precision
+        # round-off by a 4e-9 reference turns a 1.4e-14 absolute discrepancy
+        # into a 3.1e-6 "error".  MEASURED 2026-09-30: the reconstruction agrees
+        # to <= 1.8e-14 absolute across every frame of every run checked, while
+        # reference energies run up to ~0.19 pN um.  So gate on
+        #     abs <= atol + rtol * |ref|
+        # with atol tied to the run's own energy scale.  atol is ~11 orders
+        # below the signal, so a real geometry error still trips this.
+        abs_err = np.abs(mine - ref)
+        rel_err = abs_err / np.maximum(1e-9, np.abs(ref))
+        scale = float(np.abs(ref).max())
+        atol = max(1e-15, 1e-12 * scale)
+        rtol = 1e-6
+        ok = abs_err <= atol + rtol * np.abs(ref)
+        assert ok.all(), (
             f"{path}: head reconstruction disagrees with "
-            f"state/am_head_strain_energy_current, max rel err {err.max():.3e}")
+            f"state/am_head_strain_energy_current: "
+            f"{int((~ok).sum())}/{ok.size} heads outside "
+            f"abs <= {atol:.2e} + {rtol:g}*|ref|; "
+            f"max abs err {abs_err.max():.3e}, max rel err {rel_err.max():.3e}")
         print(f"  {os.path.basename(path)}: head geometry VALIDATED against "
-              f"am_head_strain_energy_current, max rel err {err.max():.2e}")
+              f"am_head_strain_energy_current, max abs err {abs_err.max():.2e} "
+              f"(tol {atol:.1e}), max rel err {rel_err.max():.2e}")
     elif len(mine):
         print(f"  {os.path.basename(path)}: WARNING head geometry NOT validated "
               f"(this campaign predates am_head_strain_energy_current / "
@@ -340,12 +362,17 @@ if __name__ == "__main__":
     p = argparse.ArgumentParser()
     p.add_argument("runs", nargs="+")
     p.add_argument("--stride", type=int, default=1)
+    p.add_argument("--range", type=int, nargs=2, default=None,
+                   metavar=("FIRST", "LAST"),
+                   help="restrict to this inclusive committed-frame window "
+                        "before striding; lets a short episode be resolved at "
+                        "fine stride without a huge payload")
     p.add_argument("--box", type=float, nargs=3, default=None)
     p.add_argument("--out", required=True)
     p.add_argument("--template", required=True)
     p.add_argument("--title", default="Minimal wrap-around catch bond")
     a = p.parse_args()
-    runs = [build_run(r, a.stride, a.box) for r in a.runs]
+    runs = [build_run(r, a.stride, a.box, step_range=a.range) for r in a.runs]
     tpl = open(a.template, encoding="ascii").read()
     payload = json.dumps(runs, separators=(",", ":"))
     assert "/*__RUNS__*/" in tpl, "template lacks /*__RUNS__*/"

@@ -1,0 +1,28 @@
+[
+ {
+  "group": "ACTN2 attempt v1 (geometry failed)",
+  "arm": "aa_ks160",
+  "seed": 20260805,
+  "label": "2 antiparallel actins, k_soff 160",
+  "tilt_x": 10.90164451831213,
+  "tilt_m": 2.990057214567301,
+  "heads": 36.7356608478803,
+  "links": 0.0,
+  "spread": 19.959297591490166,
+  "perp_nm": 79.9349488176631,
+  "nflags": 9
+ },
+ {
+  "group": "ACTN2 attempt v1 (geometry failed)",
+  "arm": "aa_ks27",
+  "seed": 20260805,
+  "label": "2 antiparallel actins, k_soff 27",
+  "tilt_x": 18.059993778978697,
+  "tilt_m": 12.400258500168475,
+  "heads": 23.658354114713216,
+  "links": 0.0,
+  "spread": 10.525009476152787,
+  "perp_nm": 759.0028645694424,
+  "nflags": 10
+ }
+]

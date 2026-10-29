@@ -33,3 +33,13 @@ cpp/smoke_test_run/
 *.csv
 *.svg
 *.jpg
+
+# --- added 2026-10-29 ---
+__pycache__/
+*.pyc
+# Editor/backup copies of sources
+*.bak
+*.bak_*
+# Regenerable multi-MB standalone-rig data (rebuild with the scripts beside them)
+analysis/standalone_actn2_*_results_*/trajectories.npz
+analysis/standalone_actn2_axial_contact_results_*/viewer_data.json

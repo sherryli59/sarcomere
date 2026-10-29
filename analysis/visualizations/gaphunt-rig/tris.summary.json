@@ -1,0 +1,54 @@
+[
+ {
+  "group": "One actin shared by 3 TILTED myosins (sigma 0.40)",
+  "arm": "tris0",
+  "seed": 20260805,
+  "label": "sigma 0.4, 0 deg",
+  "tilt_x": 24.85726339203554,
+  "tilt_m": 14.528063450671656,
+  "heads": 0.0,
+  "links": 0.0,
+  "spread": 30.383534100965708,
+  "perp_nm": 849.2684279280692,
+  "nflags": 12
+ },
+ {
+  "group": "One actin shared by 3 TILTED myosins (sigma 0.40)",
+  "arm": "tris15",
+  "seed": 20260805,
+  "label": "sigma 0.4, 15 deg",
+  "tilt_x": 35.143178312940435,
+  "tilt_m": 11.70635880706321,
+  "heads": 0.5605493133583022,
+  "links": 0.0,
+  "spread": 19.500359692838213,
+  "perp_nm": 486.3295569135775,
+  "nflags": 12
+ },
+ {
+  "group": "One actin shared by 3 TILTED myosins (sigma 0.40)",
+  "arm": "tris30",
+  "seed": 20260805,
+  "label": "sigma 0.4, 30 deg",
+  "tilt_x": 30.059789849828487,
+  "tilt_m": 11.348360010900796,
+  "heads": 0.04868913857677903,
+  "links": 0.0,
+  "spread": 27.738590629369696,
+  "perp_nm": 857.2604774724169,
+  "nflags": 12
+ },
+ {
+  "group": "One actin shared by 3 TILTED myosins (sigma 0.40)",
+  "arm": "tris45",
+  "seed": 20260805,
+  "label": "sigma 0.4, 45 deg",
+  "tilt_x": 37.43180399343004,
+  "tilt_m": 12.904407868654037,
+  "heads": 0.21722846441947566,
+  "links": 0.0,
+  "spread": 31.96302861241951,
+  "perp_nm": 617.403416200352,
+  "nflags": 12
+ }
+]

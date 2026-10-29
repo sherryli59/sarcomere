@@ -1,0 +1,7 @@
+{
+  "passed": true,
+  "browser_rendering_checked": false,
+  "max_python_js_energy_error_pNnm": 4.4391265419108095e-7,
+  "max_python_js_force_error_pN": 4.618527782440651e-14,
+  "checked": "4 modes; 8 examples; force bound; endpoint reactions; contour, force, slice and endpoint toggles; custom probe; view and scale controls"
+}

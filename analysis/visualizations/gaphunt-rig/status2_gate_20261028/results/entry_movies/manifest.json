@@ -1,0 +1,66 @@
+{
+  "input": "/scratch/users/xsli/sarcomere/gaphunt_20261023/data/r27zt0npg130_seed20260805.h5",
+  "videos": [
+    "/scratch/users/xsli/sarcomere/gaphunt_20261023/torque_out/status2_gate_20261028/entry_movies_v2/case1_axial_link168764_myosin32.mp4",
+    "/scratch/users/xsli/sarcomere/gaphunt_20261023/torque_out/status2_gate_20261028/entry_movies_v2/case2_lateral_link171917_myosin255.mp4"
+  ],
+  "combined": "/scratch/users/xsli/sarcomere/gaphunt_20261023/torque_out/status2_gate_20261028/entry_movies_v2/newly_mature_entries.mp4",
+  "cases": [
+    {
+      "lid": 168764,
+      "m": 32,
+      "entry": 422,
+      "first": 419,
+      "kind": "axial",
+      "clear_frames": 3,
+      "mature_frames_after": 19,
+      "blocked_streak": 19,
+      "deepest_frame": 426,
+      "max_depth_nm": 66.37067206217162,
+      "min_radius_nm": 90.72587522220962,
+      "score": 306.3706720621716,
+      "case": 1,
+      "start": 418,
+      "end": 436,
+      "mature_step": 209057,
+      "birth_step": 208820,
+      "death": null,
+      "actins": [
+        1337,
+        1084
+      ],
+      "end_sign": -1,
+      "poster_frame": 426
+    },
+    {
+      "lid": 171917,
+      "m": 255,
+      "entry": 439,
+      "first": 431,
+      "kind": "lateral",
+      "clear_frames": 8,
+      "mature_frames_after": 16,
+      "blocked_streak": 16,
+      "deepest_frame": 439,
+      "max_depth_nm": 712.1081339286573,
+      "min_radius_nm": 77.1585083148061,
+      "score": 936.1081339286573,
+      "case": 2,
+      "start": 430,
+      "end": 453,
+      "mature_step": 215133,
+      "birth_step": 215131,
+      "death": {
+        "step": 227320,
+        "reason": 2
+      },
+      "actins": [
+        484,
+        159
+      ],
+      "end_sign": 1,
+      "poster_frame": 439
+    }
+  ],
+  "sampling_ms": 5
+}
