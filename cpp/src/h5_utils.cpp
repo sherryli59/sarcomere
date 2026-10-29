@@ -530,6 +530,21 @@ void append_to_file(std::string& filename, Filament& actin, Myosin& myosin,
 
 
     for (const auto& feature : actin.custom_features) {
+        // A feature registered by a NEWER binary does not exist in a
+        // trajectory written by an older one.  Resuming such a file must
+        // not abort on the first save: create the dataset on demand and
+        // back-fill zeros so its frame index stays aligned with every
+        // other dataset in the group.
+        if (!group_actin.nameExists(feature.first)) {
+            create_empty_dataset(file, "/actin", feature.first,
+                                 {0, n_actins, 1},
+                                 {H5S_UNLIMITED, n_actins, 1},
+                                 {10, n_actins, 1});
+            const std::vector<double> pad(static_cast<size_t>(n_actins), 0.0);
+            for (int k = 0; k < existing_frames; ++k) {
+                append_to_dataset(group_actin, feature.first, pad, {1, n_actins, 1});
+            }
+        }
         append_to_dataset(group_actin, feature.first, feature.second, {1, n_actins, 1});
     }
 
@@ -549,6 +564,21 @@ void append_to_file(std::string& filename, Filament& actin, Myosin& myosin,
     append_to_dataset(group_myosin, "direction", flattened_myosin_direction, {1, n_myosins, 3});
 
     for (const auto& feature : myosin.custom_features) {
+        // A feature registered by a NEWER binary does not exist in a
+        // trajectory written by an older one.  Resuming such a file must
+        // not abort on the first save: create the dataset on demand and
+        // back-fill zeros so its frame index stays aligned with every
+        // other dataset in the group.
+        if (!group_myosin.nameExists(feature.first)) {
+            create_empty_dataset(file, "/myosin", feature.first,
+                                 {0, n_myosins, 1},
+                                 {H5S_UNLIMITED, n_myosins, 1},
+                                 {10, n_myosins, 1});
+            const std::vector<double> pad(static_cast<size_t>(n_myosins), 0.0);
+            for (int k = 0; k < existing_frames; ++k) {
+                append_to_dataset(group_myosin, feature.first, pad, {1, n_myosins, 1});
+            }
+        }
         append_to_dataset(group_myosin, feature.first, feature.second, {1, n_myosins, 1});
     }
 

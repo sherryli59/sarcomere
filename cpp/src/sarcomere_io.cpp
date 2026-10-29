@@ -10,6 +10,7 @@
 #include "aa_refractory.h"
 #include "aa_association_kinetics.h"
 #include "catch_bond_kinetics.h"
+#include "actn2_maturation_geometry.h"
 #include "counter_rng.h"
 #include <algorithm>
 #include <chrono>
@@ -274,9 +275,12 @@ void Sarcomere::new_file(){
     write_double_attr("minimal_catch_tilt_deg", minimal_catch_tilt_deg);
     write_double_attr("minimal_catch_myosin_tilt_deg",
                       minimal_catch_myosin_tilt_deg);
+    write_double_attr("minimal_catch_myosin_inward_shift",
+                      minimal_catch_myosin_inward_shift);
     write_double_attr("am_spokes_per_crown",
                       static_cast<double>(am_spokes_per_crown));
     write_int_attr("am_head_azimuth", am_head_azimuth ? 1 : 0);
+    write_int_attr("am_motor_saturation_heads", am_motor_saturation_heads);
     write_int_attr("legacy_actin_torque_cap", legacy_actin_torque_cap ? 1 : 0);
     write_double_attr("actin_direction_polar_fraction",
                       actin_direction_polar_fraction);
@@ -297,6 +301,11 @@ void Sarcomere::new_file(){
     write_double_attr("am_alignment_k", am_alignment_k);
     write_double_attr("am_alignment_slack_rad", am_alignment_slack);
     write_int_attr("am_tether_saturation_heads", am_tether_saturation_heads);
+    write_int_attr("am_alignment_saturation_heads",
+                   am_alignment_saturation_heads);
+    write_int_attr("am_head_radial_mode", am_head_radial_mode);
+    write_double_attr("am_head_radial_k_effective", _am_head_radial_k());
+    write_double_attr("am_head_radial_rest_effective", _am_head_radial_rest());
     write_int_attr("am_max_heads_per_actin_half",
                    am_max_heads_per_actin_half);
     write_int_attr("am_sites_per_actin", am_sites_per_actin);
@@ -459,9 +468,25 @@ void Sarcomere::new_file(){
     write_double_attr("aa_myosin_contact_shell_energy",
                       aa_myosin_contact_shell_energy);
     write_int_attr("aa_zdisc_tip_contact", aa_zdisc_tip_contact ? 1 : 0);
+    write_string_attr("aa_zdisc_tip_contact_geometry",
+                      "full_connector_min_radius_same_point_axial_v1");
+    write_double_attr("aa_status2_connector_exclusion_radius",
+                      actn2_maturation::exclusion_radius);
+    write_string_attr("aa_status2_connector_exclusion_geometry",
+                      "full_connector_finite_cylinder_axial_overlap_v1");
+    write_double_attr("aa_status2_connector_deletion_radius",
+                      actn2_maturation::deletion_radius);
+    write_double_attr("aa_status2_connector_deletion_axial_inset",
+                      actn2_maturation::deletion_buffer);
+    write_string_attr("aa_status2_connector_deletion_rule",
+                      "immediate_reason5_full_connector_eroded_cylinder_v2");
     write_double_attr("aa_zdisc_tip_onset", aa_zdisc_tip_onset);
     write_double_attr("aa_zdisc_tip_stiffness", aa_zdisc_tip_stiffness);
     write_double_attr("aa_zdisc_tip_force_max", aa_zdisc_tip_force_max);
+    write_int_attr("aa_zdisc_tip_contact_requires_link",
+                   aa_zdisc_tip_contact_requires_link ? 1 : 0);
+    write_int_attr("aa_zdisc_tip_hard_projection",
+                   aa_zdisc_tip_hard_projection ? 1 : 0);
     write_double_attr("aa_barbed_lateral_range", aa_barbed_lateral_range);
     write_double_attr("aa_barbed_lateral_k", aa_barbed_lateral_k);
     write_double_attr("aa_barbed_lateral_force_max",
@@ -472,6 +497,19 @@ void Sarcomere::new_file(){
                       aa_zdisc_tip_transverse_flat);
     write_double_attr("aa_zdisc_tip_transverse_cutoff",
                       aa_zdisc_tip_transverse_cutoff);
+    // The geometry string above describes the gap queries; the force law
+    // applied to bodies is recorded separately.
+    write_string_attr("aa_zdisc_tip_contact_force_law",
+                      kZDiscTipContactForceLaw);
+    write_double_attr("aa_zdisc_tip_stop_stiffness",
+                      aa_zdisc_tip_stop_stiffness);
+    write_double_attr("aa_zdisc_tip_stop_force_max",
+                      aa_zdisc_tip_stop_force_max);
+    write_double_attr("aa_zdisc_tip_stop_gate_radius",
+                      aa_zdisc_tip_stop_gate_radius);
+    write_double_attr("aa_zdisc_tip_stop_gate_cutoff",
+                      aa_zdisc_tip_stop_gate_cutoff);
+    write_double_attr("aa_zdisc_tip_stop_epsilon", aa_zdisc_tip_stop_epsilon);
     write_string_attr("aa_tip_accessibility_scope",
                       "all_nearby_myosin_tips_head_independent");
     write_string_attr("aa_zdisc_tip_nonpenetration",
@@ -480,6 +518,20 @@ void Sarcomere::new_file(){
                       "spatial_incidence_exact_conservative_broadphase");
     write_double_attr("aa_occlusion_rupture_penetration",
                       aa_occlusion_rupture_penetration);
+    write_double_attr("aa_occlusion_capture_radius",
+                      aa_occlusion_capture_radius);
+    write_int_attr("aa_overlap_occlusion_veto",
+                   aa_overlap_occlusion_veto ? 1 : 0);
+    write_double_attr("aa_occlusion_rupture_dwell_steps",
+                      static_cast<double>(aa_occlusion_rupture_dwell_steps));
+    write_double_attr("aa_occlusion_rupture_rate",
+                      aa_occlusion_rupture_rate);
+    write_int_attr("aa_barbed_tip_endstop_slab",
+                   aa_barbed_tip_endstop_slab ? 1 : 0);
+    write_double_attr("aa_barbed_tip_endstop_transverse_cutoff",
+                      aa_barbed_tip_endstop_transverse_cutoff);
+    write_string_attr("aa_barbed_tip_kill_penetration_geometry",
+                      "legacy_capsule_at_aa_occlusion_capture_radius");
     write_double_attr(
         "aa_status1_radial_k_effective",
         aa_link_radial_stiffness(static_cast<BondFlag>(1)));
@@ -657,7 +709,8 @@ void Sarcomere::new_file(){
     write_string_attr(
         "aa_local_link_detachment_reason_codes",
         "0=not_a_detachment,1=geometric_contour,2=stochastic,"
-        "3=am_overlap_occlusion,4=actn2_myosin_collision");
+        "3=barbed_tip_capsule_penetration,4=actn2_myosin_collision,"
+        "5=mature_connector_exclusion");
     write_string_attr(
         "aa_tip_accessibility_events_columns",
         "link_id,step,event_code,actin_i,actin_j,s_i,s_j,nearest_myosin,"
@@ -1883,6 +1936,54 @@ void Sarcomere::save_resume_snapshot() {
     const std::string backup_resume_path = "/resume_prev";
     delete_link_if_exists(file, temp_resume_path);
     H5::Group group_resume = file.createGroup(temp_resume_path);
+    // Runtime provenance also belongs on checkpoints: a resumed file keeps
+    // its original /meta, even when it was created before this gate existed.
+    {
+        H5::DataSpace scalar(H5S_SCALAR);
+        auto radius = group_resume.createAttribute(
+            "aa_status2_connector_exclusion_radius",
+            H5::PredType::NATIVE_DOUBLE, scalar);
+        const double radius_um = actn2_maturation::exclusion_radius;
+        radius.write(H5::PredType::NATIVE_DOUBLE, &radius_um);
+        constexpr char geometry[] =
+            "full_connector_finite_cylinder_axial_overlap_v1";
+        H5::StrType text_type(H5::PredType::C_S1, sizeof(geometry));
+        auto rule = group_resume.createAttribute(
+            "aa_status2_connector_exclusion_geometry", text_type, scalar);
+        rule.write(text_type, geometry);
+        const double deletion_radius = actn2_maturation::deletion_radius;
+        const double deletion_inset = actn2_maturation::deletion_buffer;
+        auto retention_radius = group_resume.createAttribute(
+            "aa_status2_connector_deletion_radius",
+            H5::PredType::NATIVE_DOUBLE, scalar);
+        retention_radius.write(H5::PredType::NATIVE_DOUBLE, &deletion_radius);
+        auto retention_inset = group_resume.createAttribute(
+            "aa_status2_connector_deletion_axial_inset",
+            H5::PredType::NATIVE_DOUBLE, scalar);
+        retention_inset.write(H5::PredType::NATIVE_DOUBLE, &deletion_inset);
+        constexpr char deletion_rule[] =
+            "immediate_reason5_full_connector_eroded_cylinder_v2";
+        H5::StrType deletion_type(H5::PredType::C_S1, sizeof(deletion_rule));
+        auto retention_rule = group_resume.createAttribute(
+            "aa_status2_connector_deletion_rule", deletion_type, scalar);
+        retention_rule.write(deletion_type, deletion_rule);
+        const int mature_reason = 5;
+        auto reason_code = group_resume.createAttribute(
+            "aa_mature_connector_detachment_reason",
+            H5::PredType::NATIVE_INT, scalar);
+        reason_code.write(H5::PredType::NATIVE_INT, &mature_reason);
+        constexpr char tip_geometry[] =
+            "full_connector_min_radius_same_point_axial_v1";
+        H5::StrType tip_type(H5::PredType::C_S1, sizeof(tip_geometry));
+        auto tip_rule = group_resume.createAttribute(
+            "aa_zdisc_tip_contact_geometry", tip_type, scalar);
+        tip_rule.write(tip_type, tip_geometry);
+        H5::StrType law_type(H5::PredType::C_S1,
+                             sizeof(kZDiscTipContactForceLaw));
+        auto law_rule = group_resume.createAttribute(
+            "aa_zdisc_tip_contact_force_law", law_type, scalar);
+        law_rule.write(law_type, kZDiscTipContactForceLaw);
+    }
 
     const hsize_t n_actins = static_cast<hsize_t>(actin.n);
     const hsize_t n_myosins = static_cast<hsize_t>(myosin.n);
@@ -2710,9 +2811,41 @@ int Sarcomere::load_state(int& n_frames, int frame_index){
                 require_promoted_double(
                     "aa_zdisc_tip_transverse_cutoff",
                     aa_zdisc_tip_transverse_cutoff, 0.130);
+                // Files written before the axial-stop force law lack these;
+                // they resume only with the default axial-stop values.
+                require_promoted_double(
+                    "aa_zdisc_tip_stop_stiffness",
+                    aa_zdisc_tip_stop_stiffness, 1000.0);
+                require_promoted_double(
+                    "aa_zdisc_tip_stop_force_max",
+                    aa_zdisc_tip_stop_force_max, 30.0);
+                require_promoted_double(
+                    "aa_zdisc_tip_stop_gate_radius",
+                    aa_zdisc_tip_stop_gate_radius, 0.130);
+                require_promoted_double(
+                    "aa_zdisc_tip_stop_gate_cutoff",
+                    aa_zdisc_tip_stop_gate_cutoff, 0.140);
+                require_promoted_double(
+                    "aa_zdisc_tip_stop_epsilon",
+                    aa_zdisc_tip_stop_epsilon, 0.005);
                 require_promoted_double(
                     "aa_occlusion_rupture_penetration",
                     aa_occlusion_rupture_penetration, 0.010);
+                require_promoted_double(
+                    "aa_occlusion_capture_radius",
+                    aa_occlusion_capture_radius, -1.0);
+                require_promoted_double(
+                    "aa_occlusion_rupture_rate",
+                    aa_occlusion_rupture_rate, 0.0);
+                require_promoted_int(
+                    "aa_barbed_tip_endstop_slab",
+                    aa_barbed_tip_endstop_slab ? 1 : 0, 0);
+                require_promoted_double(
+                    "aa_barbed_tip_endstop_transverse_cutoff",
+                    aa_barbed_tip_endstop_transverse_cutoff, 0.0);
+                require_promoted_int(
+                    "aa_overlap_occlusion_veto",
+                    aa_overlap_occlusion_veto ? 1 : 0, 1);
                 require_promoted_double(
                     "aa_association_max_direction_dot",
                     aa_association_max_direction_dot, 1.0);
@@ -4695,4 +4828,3 @@ int Sarcomere::load_state(int& n_frames, int frame_index){
     _rebuild_active_pair_lists_from_dense();
     return target_frame;
 }
-

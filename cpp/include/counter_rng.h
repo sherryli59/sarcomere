@@ -22,6 +22,7 @@ enum class Stream : std::uint64_t {
     myomesin_release = 0x3f84d5b5b5470917ULL,
     aa_status2_unlock = 0x9216d5d98979fb1bULL,
     actin_turnover = 0xd1310ba698dfb5acULL,
+    aa_occlusion_rupture = 0x24a19947b3916cf7ULL,
 };
 
 inline std::uint64_t mix64(std::uint64_t value) {

@@ -361,7 +361,8 @@ void Langevin::resolve_myosin_hard_contacts(int fix_myosin, int max_sweeps) {
 void Langevin::resolve_actn2_tip_hard_contacts(
     int fix_myosin, int max_sweeps, double tolerance,
     Actn2TipProjectionTraversal traversal) {
-    if (!model.aa_zdisc_tip_contact || max_sweeps <= 0 ||
+    if (!model.aa_zdisc_tip_contact || !model.aa_zdisc_tip_hard_projection ||
+        max_sweeps <= 0 ||
         model.aa_active_link_slots.empty() || model.myosin.n <= 0) {
         return;
     }

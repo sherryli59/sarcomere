@@ -122,6 +122,16 @@ if(BUILD_TESTING)
     target_include_directories(actn2_arm_kinetics_test PRIVATE ${INCLUDE_DIR})
     add_test(NAME actn2_arm_kinetics COMMAND actn2_arm_kinetics_test)
 
+    add_executable(zdisc_tip_endstop_test tests/zdisc_tip_endstop_test.cpp)
+    target_link_libraries(zdisc_tip_endstop_test PRIVATE my_library)
+    target_include_directories(zdisc_tip_endstop_test PRIVATE ${INCLUDE_DIR})
+    add_test(NAME zdisc_tip_endstop COMMAND zdisc_tip_endstop_test)
+
+    add_executable(burial_slab_rate_test tests/burial_slab_rate_test.cpp)
+    target_link_libraries(burial_slab_rate_test PRIVATE my_library)
+    target_include_directories(burial_slab_rate_test PRIVATE ${INCLUDE_DIR})
+    add_test(NAME burial_slab_rate COMMAND burial_slab_rate_test)
+
     add_executable(zdisc_tip_gap_test tests/zdisc_tip_gap_test.cpp)
     target_link_libraries(zdisc_tip_gap_test PRIVATE my_library)
     target_include_directories(zdisc_tip_gap_test PRIVATE ${INCLUDE_DIR})
@@ -136,6 +146,16 @@ if(BUILD_TESTING)
     target_link_libraries(am_prefilter_test PRIVATE my_library)
     target_include_directories(am_prefilter_test PRIVATE ${INCLUDE_DIR})
     add_test(NAME am_prefilter COMMAND am_prefilter_test)
+
+    add_executable(am_motor_saturation_test tests/am_motor_saturation_test.cpp)
+    target_link_libraries(am_motor_saturation_test PRIVATE my_library)
+    target_include_directories(am_motor_saturation_test PRIVATE ${INCLUDE_DIR})
+    add_test(NAME am_motor_saturation COMMAND am_motor_saturation_test)
+
+    add_executable(am_azimuth_gate_test tests/am_azimuth_gate_test.cpp)
+    target_link_libraries(am_azimuth_gate_test PRIVATE my_library)
+    target_include_directories(am_azimuth_gate_test PRIVATE ${INCLUDE_DIR})
+    add_test(NAME am_azimuth_gate COMMAND am_azimuth_gate_test)
 
     add_executable(barbed_lateral_test tests/barbed_lateral_test.cpp)
     target_link_libraries(barbed_lateral_test PRIVATE my_library)
@@ -281,6 +301,38 @@ if(BUILD_TESTING)
                    tests/actn2_motor_removal_test.cpp)
     target_link_libraries(actn2_motor_removal_test PRIVATE my_library)
     add_test(NAME actn2_motor_removal COMMAND actn2_motor_removal_test)
+
+    add_executable(status2_connector_gate_test
+                   tests/status2_connector_gate_test.cpp)
+    target_link_libraries(status2_connector_gate_test PRIVATE my_library)
+    target_compile_options(status2_connector_gate_test PRIVATE -UNDEBUG)
+    add_test(NAME status2_connector_gate COMMAND status2_connector_gate_test)
+    set_tests_properties(status2_connector_gate PROPERTIES
+        ENVIRONMENT "OMP_NUM_THREADS=1;HDF5_USE_FILE_LOCKING=FALSE")
+
+    add_executable(zdisc_axial_stop_contact_test
+                   tests/zdisc_axial_stop_contact_test.cpp)
+    target_link_libraries(zdisc_axial_stop_contact_test PRIVATE my_library)
+    target_compile_options(zdisc_axial_stop_contact_test PRIVATE -UNDEBUG)
+    add_test(NAME zdisc_axial_stop_contact COMMAND zdisc_axial_stop_contact_test)
+
+    add_executable(zdisc_axial_stop_pair_budget_test
+                   tests/zdisc_axial_stop_pair_budget_test.cpp)
+    target_link_libraries(zdisc_axial_stop_pair_budget_test PRIVATE my_library)
+    target_compile_options(zdisc_axial_stop_pair_budget_test PRIVATE -UNDEBUG)
+    add_test(NAME zdisc_axial_stop_pair_budget
+             COMMAND zdisc_axial_stop_pair_budget_test)
+    set_tests_properties(zdisc_axial_stop_pair_budget PROPERTIES
+        ENVIRONMENT "OMP_NUM_THREADS=1;HDF5_USE_FILE_LOCKING=FALSE")
+
+    add_executable(zdisc_axial_stop_integrator_test
+                   tests/zdisc_axial_stop_integrator_test.cpp)
+    target_link_libraries(zdisc_axial_stop_integrator_test PRIVATE my_library)
+    target_compile_options(zdisc_axial_stop_integrator_test PRIVATE -UNDEBUG)
+    add_test(NAME zdisc_axial_stop_integrator
+             COMMAND zdisc_axial_stop_integrator_test)
+    set_tests_properties(zdisc_axial_stop_integrator PROPERTIES
+        ENVIRONMENT "OMP_NUM_THREADS=1;HDF5_USE_FILE_LOCKING=FALSE")
 
     add_executable(actn2_am_occlusion_test
                    tests/actn2_am_occlusion_test.cpp)

@@ -13,7 +13,7 @@ bool near(double lhs, double rhs, double tolerance = 1e-12) {
 
 int main() {
     using catch_bond_kinetics::break_probability;
-    using catch_bond_kinetics::decide_am_overlap_occlusion;
+    using catch_bond_kinetics::decide_barbed_tip_capsule_penetration;
     using catch_bond_kinetics::decide_detachment;
     using catch_bond_kinetics::DetachmentReason;
     using catch_bond_kinetics::lifetime_for_status;
@@ -72,21 +72,35 @@ int main() {
     assert(survives.reason() == DetachmentReason::none);
     assert(draws == 2);
 
-    // A zero crosslinkable fraction on either actin is an immediate geometric
-    // rupture, independent of catch-bond lifetime and without an RNG draw.
-    const auto overlap_occluded = decide_am_overlap_occlusion(0.0, 0.4);
-    assert(overlap_occluded.detaches());
-    assert(overlap_occluded.am_overlap_occluded);
-    assert(!overlap_occluded.geometric);
-    assert(!overlap_occluded.stochastic);
-    assert(overlap_occluded.reason() ==
+    // Reason 3 fires only for true barbed-tip penetration, not mere overlap.
+    const auto penetrated =
+        decide_barbed_tip_capsule_penetration(0.010, 0.0, 0.010);
+    assert(penetrated.detaches());
+    assert(penetrated.am_overlap_occluded);
+    assert(!penetrated.geometric);
+    assert(!penetrated.stochastic);
+    assert(penetrated.reason() ==
            DetachmentReason::am_overlap_occlusion);
-    assert(near(overlap_occluded.probability, 1.0));
-    assert(std::isnan(overlap_occluded.draw));
+    assert(near(penetrated.probability, 1.0));
+    assert(std::isnan(penetrated.draw));
+    catch_bond_kinetics::DetachmentDecision connector;
+    connector.mature_connector_excluded = true;
+    connector.probability = 1.0;
+    assert(connector.detaches());
+    assert(connector.reason() == DetachmentReason::mature_connector_exclusion);
+    assert(std::isnan(connector.draw));
+    assert(!connector.am_overlap_occluded);
 
-    const auto overlap_available = decide_am_overlap_occlusion(0.1, 0.4);
-    assert(!overlap_available.detaches());
-    assert(overlap_available.reason() == DetachmentReason::none);
+    const auto outside =
+        decide_barbed_tip_capsule_penetration(0.0, 0.009, 0.010);
+    assert(!outside.detaches());
+    assert(outside.reason() == DetachmentReason::none);
+
+    // A disabled threshold cannot accidentally recreate the old immediate
+    // contour-overlap veto.
+    const auto disabled =
+        decide_barbed_tip_capsule_penetration(1.0, 1.0, 0.0);
+    assert(!disabled.detaches());
 
     return 0;
 }

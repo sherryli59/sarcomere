@@ -13,6 +13,7 @@
 #include <mutex>
 #include <cstddef>
 #include <cstdint>
+#include <limits>
 #include <unordered_map>
 
 #include "components.h"
@@ -116,6 +117,10 @@ public:
         double contact_penetration = 0.0;
         RecoveryStep attach_step = 0;
         RecoveryStep status2_memory_until = 0;
+        // Consecutive steps the barbed-tip burial condition has held for this
+        // link.  Not persisted across resume: it is at most a few tens of
+        // steps, so a restart merely grants one fresh grace window.
+        RecoveryStep occlusion_dwell = 0;
         double support_ema = 0.0;   // motor-timescale average of productive opposed load
         // Candidate motor identities are exchangeable only in status 1. Once
         // status 2 forms they are frozen while the mature conformation lasts;
@@ -249,6 +254,10 @@ public:
     // separation exactly.  Prefer this one: tilting the thin filaments moves
     // them out of motor reach.
     double minimal_catch_myosin_tilt_deg = 0.0;
+    // -1e6 (the default) means 'use the variant's own shift': 0 for
+    // minimal_catch_balanced, 0.55 for minimal_catch_balanced_buried.
+    // Any finite value overrides both, so the default stays bitwise inert.
+    double minimal_catch_myosin_inward_shift = -1e6;
     // Complete record of the run configuration, written to /meta by new_file().
     // cli_invocation is argv verbatim (every explicit override); cli_defaults is
     // every option name with its compiled-in default.  The effective value of
@@ -354,12 +363,28 @@ public:
     // original short-range WCA contact and disables association gating.
     double aa_myosin_contact_shell_width = 0.0;
     double aa_myosin_contact_shell_energy = 0.0;
-    // Optional axial end-stop between a myosin tip and the local bilateral
-    // ACTN2 patch. At most one patch is selected per myosin tip per step.
+    // Optional axial end-stop between myosin tips and bilateral ACTN2
+    // connectors; see the aa_zdisc_tip_stop_* parameters below.
     bool aa_zdisc_tip_contact = false;
     double aa_zdisc_tip_onset = 0.050;
     double aa_zdisc_tip_stiffness = 1000.0;
     double aa_zdisc_tip_force_max = 20.0;
+    // The 2026-09-28 design note specifies that this endstop requires a
+    // live ACTN2 link: it represents the Z-disc structure at the barbed
+    // end being unable to occupy the thick filament, NOT steric exclusion
+    // between the filaments (which is radial and handled separately in
+    // _volume_exclusion).  A bare barbed tip should interdigitate freely.
+    // Default true (2026-10-25): the myosin capsule excludes the Z-disc --
+    // actins holding a live ACTN2 link -- not a bare barbed tip.  With false,
+    // an uncrosslinked actin was shoved at the 20 pN cap as if it were a Z-disc.
+    bool aa_zdisc_tip_contact_requires_link = true;
+    // The hard position projection (resolve_actn2_tip_hard_contacts) and the
+    // soft patch force share aa_zdisc_tip_contact today, so the projection
+    // cannot be removed without also removing the force.  This separates
+    // them.  With the projection off, a crosslink driven into a myosin is
+    // not displaced back out -- actn2_myosin_collision kills it instead,
+    // which is the physical outcome rather than a numerical correction.
+    bool aa_zdisc_tip_hard_projection = true;
     // Lateral pressure holding ALL barbed-end pairs near a target spacing.
     // Zero range keeps the term inert so existing runs are unchanged.
     double aa_barbed_lateral_range = 0.0;
@@ -368,7 +393,45 @@ public:
     double aa_barbed_lateral_axial_window = 0.25;
     double aa_zdisc_tip_transverse_flat = 0.100;
     double aa_zdisc_tip_transverse_cutoff = 0.130;
+    // Axial-stop contact force (compute_zdisc_axial_stop_contact), applied
+    // for every distinct actin pair and myosin; redundant links on one pair
+    // share one budget, the link of greatest energy.  The geometric gap
+    // queries above (exclusion, hard projection) keep their own parameters.
+    // Onset is aa_zdisc_tip_onset.
+    double aa_zdisc_tip_stop_stiffness = 1000.0;
+    double aa_zdisc_tip_stop_force_max = 30.0;
+    double aa_zdisc_tip_stop_gate_radius = 0.130;
+    double aa_zdisc_tip_stop_gate_cutoff = 0.140;
+    double aa_zdisc_tip_stop_epsilon = 0.005;
     double aa_occlusion_rupture_penetration = 0.010;
+    // Steric centerline radius of the finite myosin capsule used by the
+    // barbed-tip end-stop and reason-3 rupture.  This deliberately excludes
+    // the additional 0.050 um motor-head reach used by A-M capture.
+    double aa_occlusion_capture_radius = 0.080;
+    // Legacy weak-link reason-3 rupture after barbed-tip capsule penetration.
+    // Mature links instead use unconditional reason-5 connector exclusion with
+    // the formation cylinder eroded by the fixed 10 nm deletion buffer.
+    bool aa_overlap_occlusion_veto = true;
+    // Burial must PERSIST this many consecutive steps before the link is
+    // deleted.  0 (default) reproduces the original probability-1 guillotine
+    // exactly, so this is bitwise inert unless set.  Measured burial episodes
+    // in a registered two-sarcomere lattice last a median of 2 steps (20 us)
+    // and at most 32 steps (320 us) -- far shorter than the ~0.1 s bond
+    // lifetime the veto was destroying.
+    size_t aa_occlusion_rupture_dwell_steps = 0;
+    // Treat the A-band exclusion as a SLAB instead of a gated capsule end
+    // cap: drops the transverse hard cutoff in favour of
+    // aa_barbed_tip_endstop_transverse_cutoff and removes the cap
+    // extension, making the force a function of the axial coordinate alone.
+    // false (default) is bitwise inert.
+    bool aa_barbed_tip_endstop_slab = false;
+    // Transverse locality bound (um) used only in slab mode.  0 falls back
+    // to aa_occlusion_capture_radius, i.e. the legacy gate.
+    double aa_barbed_tip_endstop_transverse_cutoff = 0.0;
+    // Zero-depth hazard rate (1/s) for reason-3 burial.  0 (default) keeps
+    // the probability-1 veto and is bitwise inert.  See
+    // catch_bond_kinetics::decide_barbed_tip_capsule_penetration_rate.
+    double aa_occlusion_rupture_rate = 0.0;
     // Optional molecular polarity gate for new local ACTN2 associations.
     // Values >= 1 disable it; lower values require u_i dot u_j below the
     // threshold without prescribing a neighbor graph.
@@ -395,6 +458,7 @@ public:
     std::vector<std::vector<std::pair<int, ACTN2MyosinContactResult>>>
         aa_scratch_contact_results;
     std::vector<std::uint8_t> aa_scratch_contact_evaluated;
+    std::vector<std::uint8_t> aa_scratch_mature_connector_excluded;
     std::unordered_map<std::uint64_t, double> aa_scratch_pair_tension;
     std::vector<double> aa_scratch_total_arm_load;
     std::vector<double> aa_scratch_productive_load;
@@ -632,6 +696,13 @@ enum ProfileSection {
     // alone and the aggregate pair tether is folded per-head.  true restores
     // the legacy surface-anchored behaviour with the separate pair tether.
     bool am_head_azimuth = false;
+    // Azimuth-selection gate.  When true, a head may only bind an actin its
+    // FIXED crown spoke points at, within am_azimuth_gate_half_width.  This is a
+    // binding permission, not a geometry change, so it works with
+    // am_head_azimuth = false (anchor on the axis) and does not reintroduce the
+    // surface-anchor two-spring conflict.  Default false and bitwise inert.
+    bool am_azimuth_gate = false;
+    double am_azimuth_gate_half_width = 0.0;   // radians; <=0 or >=pi admits all
     // Per-source actin torque breakdown.  Off by default and bitwise inert.
     enum TorqueSource {
         kTsActn2Lever = 0, kTsActn2Perp, kTsActn2Align, kTsActn2Axial,
@@ -707,6 +778,9 @@ enum ProfileSection {
         return (am_head_azimuth && am_spatial_heads) ? myosin.radius : 0.0;
     }
     double _am_head_radial_rest() const {
+        if (am_head_radial_rest_override > 0.0) {
+            return am_head_radial_rest_override;
+        }
         if (am_head_azimuth) {
             return actin_radius + am_surface_gap;
         }
@@ -724,11 +798,34 @@ enum ProfileSection {
     }
     // Single definitions, used by BOTH the force path and the recorded strain
     // energy.  They were duplicated once and drifted by a factor of 6.
+    // The AM head's radial spring sets TWO things at once: the bodily pull
+    // that holds an actin at its standoff, and -- through the saturation
+    // length lambda = f_max/k -- the angular sensitivity of the two-head
+    // aligning couple.  With the composite k = 100 + 3000/6 = 600 pN/um and
+    // the derived cap f_max = 1.92 pN, lambda = 3.2 nm, while a tilt of 36 deg
+    // over a 140 nm span produces a radial DIFFERENCE of ~82 nm.  Both heads
+    // therefore sit at tanh -> 1, the differential F(e1) - F(e2) vanishes and
+    // the couple dies.  Overriding k alone raises lambda WITHOUT raising the
+    // peak pull, which the single composite could not do.
+    // <= 0 (default) keeps the composite and is bitwise inert.
+    // 0 = line (shipped), 1 = connector, 2 = axis-radial.  See AmRadialMode.
+    int am_head_radial_mode = 0;
+    double am_head_radial_k_override = 0.0;
+    // Standoff the radial spring prefers.  <= 0 (default) inherits
+    // am_preferred_centerline, as before, and is bitwise inert.
+    double am_head_radial_rest_override = 0.0;
     double _am_head_radial_k() const {
+        if (am_head_radial_k_override > 0.0) return am_head_radial_k_override;
         return am_head_azimuth
             ? am_head_transverse_k
             : am_head_transverse_k + am_tether_k /
                   static_cast<double>(std::max(1, am_tether_saturation_heads));
+    }
+    // Forwards to the pure function in interaction.h so the axial and radial
+    // channels cannot drift apart -- these two were duplicated once before and
+    // diverged by a factor of 6.
+    double _am_motor_scale(int bound_heads) const {
+        return am_motor_saturation_scale(bound_heads, am_motor_saturation_heads);
     }
     double _am_head_radial_cap() const {
         return am_head_azimuth ? 0.0 : am_head_radial_force_max;
@@ -792,6 +889,20 @@ enum ProfileSection {
     // Pair-level transverse stiffness grows with occupied heads and saturates
     // at this population instead of appearing/disappearing with the last head.
     int am_tether_saturation_heads = 6;
+    // The AM ALIGNING TORQUE was scaled by the same occupancy ramp as the
+    // radial tether, so am_alignment_k was silently multiplied by
+    // min(1, bound_heads/6).  MEASURED at msat6: the delivered constant was
+    // 0.61-0.72 at hph27 and 1.18-1.20 at hph54 against a nominal 3, i.e.
+    // DOUBLE the aligning torque purely from having more heads.  That makes
+    // every head-count comparison an alignment comparison too.  This gives
+    // the alignment its own saturation count; 1 delivers the full nominal
+    // am_alignment_k to any engaged pair, independent of head number.
+    // 0 (default) inherits am_tether_saturation_heads and is bitwise inert.
+    int am_alignment_saturation_heads = 0;
+    // Axial counterpart of am_tether_saturation_heads.  0 disables it, which
+    // reproduces the historical behaviour exactly (verified bitwise).  Not
+    // defaulted to 6, so no existing result changes silently.
+    int am_motor_saturation_heads = 0;
     bool am_binding_azimuth_selection = true;
     double am_binding_azimuth_half_width = M_PI / 6.0;
     // Emergency contour-extension guard. Ordinary loss is sampled through
@@ -903,10 +1014,9 @@ enum ProfileSection {
         size_t slot;
         int myosin_index;
         int end_sign;
-        ZDiscMyosinTipContactResult contact;
+        ZDiscAxialStopContactResult contact;
     };
     std::vector<std::vector<AaTipScanHit>> aa_tip_scan_buckets;
-    std::vector<std::vector<long long>> aa_tip_stamp_pool;
     // Per-thread phase timers for _update_local_aa_links.  Mean over
     // threads charges each thread its share of the barrier it waits on,
     // which is exactly what makes a serial region visible.
@@ -1398,6 +1508,9 @@ private:
     bool _local_aa_neighbor_pair_available(int first, int second) const;
     AAMyosinExclusionEvaluation _local_aa_myosin_exclusion(
         int actin_i, int actin_j, double s_i, double s_j) const;
+    bool _aa_status2_connector_excluded(
+        int actin_i, int actin_j, double s_i, double s_j,
+        double penetration_buffer = 0.0) const;
     AAAssociationProposal _evaluate_aa_association(int i, int j) const;
     bool _local_aa_site_outside_am_overlap(int actin_index,
                                            double axial_coordinate) const;

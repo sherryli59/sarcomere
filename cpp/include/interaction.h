@@ -301,16 +301,16 @@ ACTN2MyosinContactResult compute_actn2_myosin_contact(
     double epsilon, double force_cap = 0.0,
     double shell_width = 0.0, double shell_energy = 0.0);
 
-// Axial contact between one thick-filament tip and the midpoint of a local
-// bilateral ACTN2 bridge.  This represents the finite axial extent of the
-// crowded Z-disc/ACTN2 patch, rather than enlarging the myosin hard core.
+// Axial contact between a thick-filament tip and the full material connector
+// of a bilateral ACTN2 bridge. Clip to that tip's half and axial onset before
+// minimizing radial distance. Gap and radius refer to the SAME point.
 // Just enough of the tip contact to decide whether the projection fires.
 // compute_zdisc_myosin_tip_contact() below also evaluates a smoothstep, a
 // tanh, an exp/log1p/log energy and three orientation drives -- and the solver
 // discards all of it unless axial_gap < -tolerance, which happens about twice
 // per step out of ~53,000 evaluations.
 struct ZDiscMyosinTipGap {
-    bool eligible = false;          // on the tip's own half and inside the cone
+    bool eligible = false;          // a connector point satisfies both gates
     double axial_gap = 0.0;
     double transverse_distance = 0.0;
 };
@@ -344,6 +344,86 @@ ZDiscMyosinTipContactResult compute_zdisc_myosin_tip_contact(
     int end_sign, const std::vector<double>& box, double onset,
     double stiffness, double force_max, double transverse_flat,
     double transverse_cutoff);
+
+// Axial stop between one myosin tip half and the full material connector of
+// a bilateral ACTN2 bridge; the C++ form of the standalone axial-stop law
+// (analysis/standalone_actn2_axial_contact.py).  On this tip's half, with z
+// measured outward from the myosin center and rho from its axis,
+//
+//     u(x) = g(rho) Phi(max(0, H - sqrt(z^2 + epsilon^2))),  H = L/2 + onset,
+//
+// Phi quadratic with `stiffness` up to `force_max`, then linear with slope
+// `force_max`; g = 1 for rho <= gate_radius and a C1 smoothstep to 0 at
+// gate_cutoff.  The force on a connector point is only the axial part of
+// -grad u: radial position decides whether contact applies but never pushes
+// either body sideways.  It is the exact gradient along the axis at fixed
+// radial positions, not the full gradient of u; loops that cross the gate
+// edge do net work Phi*(g_in - g_out).
+//
+// Energy and endpoint forces are normalized integrals over the connector,
+// t in [0, 1], with endpoint shares (1 - t) and t.  The integral is taken on
+// the analytically clipped support, split where Phi saturates and where the
+// gate leaves 1, with Gauss-Legendre nodes on each piece.  The myosin
+// receives the opposite force and the exact reaction torque about its center.
+// torque_on_* are orientation drives (physical torque x unit axis), as for
+// the other contact kernels; physical_torque_on_* are the torques themselves.
+// Recorded in trajectory and resume metadata.
+inline constexpr char kZDiscTipContactForceLaw[] =
+    "full_connector_integral_axial_stop_pair_max_energy_v1";
+
+struct ZDiscAxialStopContactResult {
+    vec force_on_actin_i {0.0, 0.0, 0.0};
+    vec force_on_actin_j {0.0, 0.0, 0.0};
+    vec force_on_myosin {0.0, 0.0, 0.0};
+    vec torque_on_actin_i {0.0, 0.0, 0.0};
+    vec torque_on_actin_j {0.0, 0.0, 0.0};
+    vec torque_on_myosin {0.0, 0.0, 0.0};
+    vec physical_torque_on_actin_i {0.0, 0.0, 0.0};
+    vec physical_torque_on_actin_j {0.0, 0.0, 0.0};
+    vec physical_torque_on_myosin {0.0, 0.0, 0.0};
+    double energy = 0.0;       // pN um
+    double axial_force = 0.0;  // |force_on_myosin|, all along the tip axis
+    // Deepest contacting quadrature node: axial gap to the physical tip
+    // (negative past it), its radius, and its gate value.
+    double deepest_gap = 0.0;
+    double deepest_rho = 0.0;
+    double deepest_gate = 0.0;
+    bool applied = false;
+};
+
+ZDiscAxialStopContactResult compute_zdisc_axial_stop_contact(
+    const Filament& actin, const Myosin& myosin,
+    int actin_i, int actin_j, double s_i, double s_j, int myosin_index,
+    int end_sign, const std::vector<double>& box, double onset,
+    double stiffness, double force_max, double gate_radius,
+    double gate_cutoff, double epsilon, int quadrature_nodes = 16);
+
+// Axial end-stop for the material barbed endpoint of one actin against the
+// finite myosin capture capsule. This is independent of ACTN2 occupancy.
+// signed_clearance is positive outside, zero on the cap, and negative inside.
+struct BarbedTipMyosinEndstopResult {
+    vec force_on_actin {0.0, 0.0, 0.0};
+    vec force_on_myosin {0.0, 0.0, 0.0};
+    vec torque_on_actin {0.0, 0.0, 0.0};
+    vec torque_on_myosin {0.0, 0.0, 0.0};
+    double axial_coordinate = 0.0;
+    double transverse_distance = 0.0;
+    double capsule_axial_boundary = 0.0;
+    double signed_clearance = 0.0;
+    double penetration = 0.0;
+    double compression = 0.0;
+    double force = 0.0;
+    int end_sign = 0;
+    bool radially_eligible = false;
+    bool applied = false;
+};
+
+BarbedTipMyosinEndstopResult compute_barbed_tip_myosin_endstop(
+    const Filament& actin, const Myosin& myosin,
+    int actin_index, int myosin_index, const std::vector<double>& box,
+    double capsule_radius, double onset, double stiffness,
+    double force_max, bool slab_exclusion = false,
+    double transverse_cutoff = 0.0);
 
 
 // Compute forces and energy for actin–myosin interaction in 3D.
@@ -433,6 +513,19 @@ struct AMTwoSpringHeadResult {
     double axial_energy = 0.0;
 };
 
+// Radial branch variants.  kAmRadialLine is the shipped behaviour.
+//   kAmRadialLine      spring on rho = |h - (h.u_a)u_a|, the perpendicular
+//                      from the anchor to the ACTIN'S LINE.  That quantity is
+//                      the same for every point on the line, so the bound site
+//                      effectively slides and the whole tilt-induced change is
+//                      forced into rho.
+//   kAmRadialConnector spring on |h|, the full connector length from the bound
+//                      material site.  Merges radial and axial into one spring.
+//   kAmRadialAxis      spring on the distance from the bound material site to
+//                      the MYOSIN AXIS.  Keeps radial and axial separate, so
+//                      the power stroke is untouched.
+enum class AmRadialMode { kAmRadialLine = 0, kAmRadialConnector, kAmRadialAxis };
+
 AMTwoSpringHeadResult compute_am_two_spring_head(
     const Filament& actin, const Myosin& myosin,
     int actin_index, int myosin_index, const std::vector<double>& box,
@@ -442,7 +535,50 @@ AMTwoSpringHeadResult compute_am_two_spring_head(
     double radial_preferred, double radial_stiffness, double radial_slack,
     double axial_stiffness, double stroke_progress, double stall_force,
     bool strong, bool bidirectional_strong = false,
-    double radial_force_max = 0.0);
+    double radial_force_max = 0.0,
+    AmRadialMode radial_mode = AmRadialMode::kAmRadialLine);
+
+// Per-head scale that makes the TOTAL axial (sliding) force a pair exerts
+// saturate with the number of bound heads instead of growing linearly with it.
+// The radial channel already saturates (am_tether_saturation_heads); the axial
+// channel had no equivalent, so N bound heads meant N times the sliding force --
+// which is why raising the head pool also raised motor drive and starved the
+// ACTN2 network.
+//
+// Returns 1/min(bound_heads, saturation_heads), clamped at >= 1 head, and
+// exactly 1.0 when saturation_heads <= 0 so the default is bitwise inert.
+// The CALLER must apply it to BOTH the axial stiffness and the stall cap:
+// scaling only the stiffness leaves the capped regime at stall_force per head,
+// and scaling only the cap leaves the linear regime growing with N.
+inline double am_motor_saturation_scale(int bound_heads, int saturation_heads) {
+    if (saturation_heads <= 0) return 1.0;
+    const int n = bound_heads < 1 ? 1 : bound_heads;
+    const int capped = n < saturation_heads ? n : saturation_heads;
+    return 1.0 / static_cast<double>(capped);
+}
+
+// Signed angular offset, in radians wrapped to (-pi, pi], from a crown's FIXED
+// azimuth to the direction a head there must point to reach the actin.  The
+// actin point used is its closest approach to the head's axial anchor, not the
+// actin centre: a tilted actin subtends different azimuths at different crowns.
+// Returns NaN when the geometry is degenerate -- either axis ill-defined, or the
+// actin passing through the myosin axis, where the azimuth is meaningless.
+double am_head_azimuth_offset(
+    const Filament& actin, const Myosin& myosin,
+    int actin_index, int myosin_index, const std::vector<double>& box,
+    double myosin_anchor_axial, double crown_azimuth,
+    const vec& material_e1, const vec& material_e2);
+
+// Gate: may a head on this crown spoke bind this actin?  True when the spoke
+// points within half_width of the actin.  With spokes 2*pi/n apart and
+// half_width = pi/n, exactly one spoke per crown admits any given actin, which
+// is the "only the best-pointing head may link" rule.  half_width >= pi admits
+// everything, reproducing the ungated behaviour.  Degenerate geometry admits.
+bool am_head_azimuth_admits(
+    const Filament& actin, const Myosin& myosin,
+    int actin_index, int myosin_index, const std::vector<double>& box,
+    double myosin_anchor_axial, double crown_azimuth, double half_width,
+    const vec& material_e1, const vec& material_e2);
 
 // Choose the closest azimuth reachable from a fixed crown anchor. The result
 // is clamped to crown_azimuth +/- max_swing and returned in radians.

@@ -1090,6 +1090,15 @@ void Sarcomere::two_sarcomere_unit() {
         std::min(1.0, 0.5 * aa_optimal / std::max(d_am, 1e-12)));
     myosin.center[0] = {-0.5 * Ls, 0.0, 0.0};
     myosin.center[1] = { 0.5 * Ls, 0.0, 0.0};
+    // Optional: slide BOTH thick filaments toward the central Z-disc so the
+    // barbed tips there start inside the endstop's repulsion zone.  Clearance
+    // of the central tip is (0.20 - shift) um, so 0.15 lands on the 50 nm onset
+    // edge and 0.21 is 10 nm inside.  Default (negative sentinel) is no shift,
+    // so this is bitwise inert unless set.
+    if (minimal_catch_myosin_inward_shift > -1e5) {
+        myosin.center[0].x += minimal_catch_myosin_inward_shift;
+        myosin.center[1].x -= minimal_catch_myosin_inward_shift;
+    }
     myosin.direction[0] = {1.0, 0.0, 0.0};
     myosin.direction[1] = {1.0, 0.0, 0.0};
     // barbed end sits half the Z-disc overlap on the far side of its Z-plane
@@ -1482,6 +1491,15 @@ void Sarcomere::minimal_catch_variant(const std::string& variant) {
             constexpr double inward_shift = 0.55;
             myosin.center[0].x -= inward_shift;
             myosin.center[1].x += inward_shift;
+        }
+        // Explicit override, so the tip can be placed anywhere relative to
+        // the capsule. Applied on top of (not in addition to) the variant
+        // default: buried_start already shifted, so undo it first.
+        if (minimal_catch_myosin_inward_shift > -1e5) {
+            const double base = buried_start ? 0.55 : 0.0;
+            const double delta = minimal_catch_myosin_inward_shift - base;
+            myosin.center[0].x -= delta;
+            myosin.center[1].x += delta;
         }
         myosin.direction[0] = {1.0, 0.0, 0.0};
         myosin.direction[1] = {1.0, 0.0, 0.0};

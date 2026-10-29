@@ -50,6 +50,7 @@ std::unique_ptr<Sarcomere> make_model(
     model->aa_neighbor_identity_enabled = false;
     model->aa_status2_locked_until_detach = true;
     model->aa_link_rupture_length = 0.0;
+    model->aa_zdisc_tip_contact = true;
     model->sterics_enabled = false;
 
     // Antiparallel actins at the ACTN2 radial rest separation.
@@ -118,26 +119,29 @@ int main() {
     assert(unlock_model->aa_links[unlock_slot].s_i == old_s_i);
     assert(unlock_model->aa_links[unlock_slot].s_j == old_s_j);
 
-    // Move the thick filament over both complete actins. The current AM
-    // geometry leaves no barbed-end contour on either actin, so the existing
-    // status-2 link must rupture in this update despite status-2 locking and an
-    // effectively infinite catch-bond lifetime.
+    // Move the thick filament over both complete actins. Both material barbed
+    // endpoints now deeply penetrate its finite capture capsule, so the
+    // existing status-2 link must rupture despite its infinite lifetime.
     model->myosin.center[0] = {0.0, 0.0, 0.0};
     model->myosin.update_endpoints();
     model->update_system();
     assert(model->actin_crosslink_ratio[0] <= 1e-12);
     assert(model->actin_crosslink_ratio[1] <= 1e-12);
+    assert(model->actin["aa_barbed_tip_penetration"][0] >=
+           model->aa_occlusion_rupture_penetration);
+    assert(model->actin["aa_barbed_tip_penetration"][1] >=
+           model->aa_occlusion_rupture_penetration);
     assert(active_link_count(*model) == 0);
 
     // The v3 audit row records a deterministic geometric rupture with the
-    // dedicated AM-overlap reason code and no stochastic draw.
+    // geometric occlusion reason code and no stochastic draw.
     constexpr size_t width = 35;
     assert(model->aa_local_link_events_v3.size() >= width);
     const size_t start = model->aa_local_link_events_v3.size() - width;
     assert(static_cast<int>(model->aa_local_link_events_v3[start + 4]) == 2);
     assert(static_cast<int>(model->aa_local_link_events_v3[start + 30]) ==
            static_cast<int>(
-               catch_bond_kinetics::DetachmentReason::am_overlap_occlusion));
+               catch_bond_kinetics::DetachmentReason::mature_connector_exclusion));
     assert(std::isnan(model->aa_local_link_events_v3[start + 32]));
     assert(model->aa_local_link_events_v3[start + 33] == 1.0);
     assert(model->aa_local_link_events_v3[start + 34] == 0.0);
@@ -150,6 +154,10 @@ int main() {
         "/tmp/actn2_am_diffusion_collision_test.h5";
     std::remove(collision_output.c_str());
     auto collision_model = make_model(collision_output, rng, seed);
+    // Isolate physical collision on a weak link: mature connectors now
+    // encounter the broader buffered exclusion rule first (reason 3).
+    collision_model->aa_links[
+        collision_model->aa_active_link_slots.front()].status = 1;
     collision_model->aa_arm_state_model = false;
     collision_model->aa_myosin_contact_shell_width = 0.015;
     collision_model->aa_myosin_contact_shell_energy = 0.0214;

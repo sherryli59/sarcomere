@@ -113,6 +113,7 @@ int main(int argc, char* argv[]){
     double init_aa_overlap;
     double minimal_catch_tilt_deg;
     double minimal_catch_myosin_tilt_deg;
+    double minimal_catch_myosin_inward_shift;
     double aa_barbed_zone;
     double aa_axial_register_force_max;
     double aa_radial_force_max;
@@ -164,13 +165,26 @@ int main(int argc, char* argv[]){
     double aa_zdisc_tip_onset;
     double aa_zdisc_tip_stiffness;
     double aa_zdisc_tip_force_max;
+    bool aa_zdisc_tip_contact_requires_link;
+    bool aa_zdisc_tip_hard_projection;
     double aa_barbed_lateral_range;
     double aa_barbed_lateral_k;
     double aa_barbed_lateral_force_max;
     double aa_barbed_lateral_axial_window;
     double aa_zdisc_tip_transverse_flat;
     double aa_zdisc_tip_transverse_cutoff;
+    double aa_zdisc_tip_stop_stiffness;
+    double aa_zdisc_tip_stop_force_max;
+    double aa_zdisc_tip_stop_gate_radius;
+    double aa_zdisc_tip_stop_gate_cutoff;
+    double aa_zdisc_tip_stop_epsilon;
     double aa_occlusion_rupture_penetration;
+    double aa_occlusion_capture_radius;
+    bool aa_overlap_occlusion_veto;
+    double aa_occlusion_rupture_dwell;
+    double aa_occlusion_rupture_rate;
+    bool aa_barbed_tip_endstop_slab;
+    double aa_barbed_tip_endstop_transverse_cutoff;
     double aa_association_max_direction_dot;
     double aa_link_rupture_length;
     int aa_stiffness_reference_links;
@@ -211,6 +225,8 @@ int main(int argc, char* argv[]){
     int am_heads_per_half;
     int am_spokes_per_crown;
     bool am_head_azimuth;
+    bool am_azimuth_gate;
+    double am_azimuth_gate_half_width_deg;
     bool torque_breakdown;
     bool legacy_actin_torque_cap;
     double am_head_radial_force_max;
@@ -234,6 +250,11 @@ int main(int argc, char* argv[]){
     double am_alignment_k;
     double am_alignment_slack_deg;
     int am_tether_saturation_heads;
+    int am_head_radial_mode;
+    double am_head_radial_k_override;
+    double am_head_radial_rest_override;
+    int am_alignment_saturation_heads;
+    int am_motor_saturation_heads;
     bool am_binding_azimuth_selection;
     double am_binding_azimuth_half_width_deg;
     double am_rupture_distance;
@@ -375,6 +396,8 @@ int main(int argc, char* argv[]){
             ("legacy_actin_torque_cap", "Restore the pre-2026-09-18 actin torque clamp, which budgeted the FULL gradient magnitude rather than the component that can rotate the filament. Actin has no roll channel, so the axial component is inert; budgeting it made the clamp fire on 98.8% of entries in the canonical wrap rig and discard 50.2% of the real rotational drive while the effective torque sat 4.7x below the cap. Set this ONLY to reproduce runs made before the fix", cxxopts::value<bool>(legacy_actin_torque_cap)->default_value("false")->implicit_value("true"))
             ("torque_breakdown", "Record per-source ACTIN TORQUE contributions as tb_<source>_{x,y,z} plus tb_total_precap. Off by default and bitwise inert. The ACTN2 link torque is split by which stiffness supplies it: lever, aa_perpendicular_k, kappa_aa (align) and the axial register", cxxopts::value<bool>(torque_breakdown)->default_value("false")->implicit_value("true"))
             ("am_head_azimuth", "Radial channel mode. false (default) anchors the head on the myosin AXIS and measures its radial spring against am_preferred_centerline, so the azimuth cannot strain a head by geometry alone and the aggregate pair tether is folded per-head. true restores the legacy surface-anchored behaviour with the separate pair tether", cxxopts::value<bool>(am_head_azimuth)->default_value("false"))
+            ("am_azimuth_gate", "Azimuth-selection gate: a head may only bind an actin that its FIXED crown spoke points at, within am_azimuth_gate_half_width_deg.  A binding permission, not a geometry change, so it composes with am_head_azimuth=false.  Default false is bitwise inert", cxxopts::value<bool>(am_azimuth_gate)->default_value("false")->implicit_value("true"))
+            ("am_azimuth_gate_half_width_deg", "Half-width of the azimuth gate in degrees.  <=0 selects 180/am_spokes_per_crown, which partitions the circle so exactly one spoke per crown admits any actin.  >=180 admits everything", cxxopts::value<double>(am_azimuth_gate_half_width_deg)->default_value("0"))
             ("am_head_radial_force_max", "Saturating cap on the per-head radial force (pN). Negative (default) DERIVES it from the integrator displacement clamp as max_actin_displacement/(mu_perp*dt*am_tether_saturation_heads), so a full complement of heads exactly reaches the clamp and the cap tracks dt. 0 keeps the unbounded linear spring; >0 is taken literally", cxxopts::value<double>(am_head_radial_force_max)->default_value("-1"))
             ("am_heads_per_half", "Conserved myosin head slots on each thick-filament half (three sites per crown; 141 gives ~14.3-nm crown spacing at the default length)", cxxopts::value<int>(am_heads_per_half)->default_value("141"))
             ("am_max_heads_per_actin_half", "Full-overlap weak+strong attachment capacity for one actin on one myosin half; scales with productive overlap, strong heads have priority, 0 disables", cxxopts::value<int>(am_max_heads_per_actin_half)->default_value("24"))
@@ -397,6 +420,11 @@ int main(int argc, char* argv[]){
             ("am_alignment_k", "Weak occupied-pair AM nematic alignment stiffness (pN um/rad^2 near alignment)", cxxopts::value<double>(am_alignment_k)->default_value("30"))
             ("am_alignment_slack_deg", "Force-free AM axial misalignment half-width in degrees", cxxopts::value<double>(am_alignment_slack_deg)->default_value("2"))
             ("am_tether_saturation_heads", "Occupied heads needed to reach the pair-level AM tether stiffness", cxxopts::value<int>(am_tether_saturation_heads)->default_value("6"))
+            ("am_head_radial_k", "Override the AM head radial stiffness (pN/um). The composite default is am_head_transverse_k + am_tether_k/am_tether_saturation_heads = 600, which with the derived cap gives a saturation length lambda = f_max/k of only 3.2 nm -- far below the tens of nm of radial difference a tilted actin produces, so the two-head aligning differential saturates to zero. Lowering k alone raises lambda at UNCHANGED peak pull. <=0 (default) keeps the composite and is bitwise inert.", cxxopts::value<double>(am_head_radial_k_override)->default_value("0"))
+            ("am_head_radial_mode", "What the AM head radial spring penalises. 0 = line (DEFAULT, shipped): the perpendicular from the anchor to the ACTIN LINE, identical for every point on that line, so the bound site effectively slides and a tilt lands entirely on it. 1 = connector: the full length |h| from the bound material site. 2 = axis: distance from the bound material site to the MYOSIN AXIS, keeping radial and axial separate so the power stroke is untouched. Standalone two-filament escape barrier from 36 deg: 9.9 kT for mode 0, 0.9 for mode 1, 0.0 for mode 2.", cxxopts::value<int>(am_head_radial_mode)->default_value("0"))
+            ("am_head_radial_rest", "Override the AM head radial rest length (um). <=0 (default) inherits am_preferred_centerline and is bitwise inert.", cxxopts::value<double>(am_head_radial_rest_override)->default_value("0"))
+            ("am_alignment_saturation_heads", "Occupancy count for the AM ALIGNING TORQUE alone. am_alignment_k is multiplied by min(1, bound heads on the pair / this), so with the default it inherits am_tether_saturation_heads=6 and the delivered aligning constant scales with head number -- MEASURED 0.6-0.7 at hph27 vs 1.2 at hph54 against a nominal 3, which confounds every head-count comparison. Set to 1 to deliver the full nominal am_alignment_k to any engaged pair, head-count independent. 0 (default) inherits the tether count and is bitwise inert.", cxxopts::value<int>(am_alignment_saturation_heads)->default_value("0"))
+            ("am_motor_saturation_heads", "Axial counterpart of am_tether_saturation_heads: scales each head's axial stiffness AND stall cap by 1/min(bound heads on that pair, this value), so a pair's TOTAL sliding force saturates instead of growing with head count. 0 (default) disables it and is bitwise inert", cxxopts::value<int>(am_motor_saturation_heads)->default_value("0"))
             ("am_binding_azimuth_selection", "Let a head swivel toward reachable actin at binding", cxxopts::value<bool>(am_binding_azimuth_selection)->default_value("true")->implicit_value("true"))
             ("am_binding_azimuth_half_width_deg", "Maximum binding-time swivel away from the fixed crown azimuth", cxxopts::value<double>(am_binding_azimuth_half_width_deg)->default_value("30"))
             ("am_rupture_distance", "Emergency AM contour extension beyond the relaxed connector", cxxopts::value<double>(am_rupture_distance)->default_value("0.1"))
@@ -470,6 +498,7 @@ int main(int argc, char* argv[]){
             ("init_aa_overlap", "[UNUSED 2026-09-17: not set by any of 177 sbatch files] Initial Z-disc interdigitation for two_sarcomere_unit; <=0 starts perfectly registered at aa_antiparallel_overlap", cxxopts::value<double>(init_aa_overlap)->default_value("-1"))
             ("minimal_catch_tilt_deg", "Initial thin-filament misalignment for minimal_catch_* rigs (degrees), applied as a rigid rotation of each prebound ACTN2 pair about its barbed-end midpoint. Moves the thin filaments out of motor reach; prefer --minimal_catch_myosin_tilt_deg", cxxopts::value<double>(minimal_catch_tilt_deg)->default_value("0"))
             ("minimal_catch_myosin_tilt_deg", "Initial THICK-filament misalignment for minimal_catch_* rigs (degrees), about the actin-myosin offset direction through the filament centre, which preserves the capture separation exactly and never touches the Z-disc", cxxopts::value<double>(minimal_catch_myosin_tilt_deg)->default_value("0"))
+            ("minimal_catch_myosin_inward_shift", "Axial inward shift (um) of BOTH thick filaments toward the central Z-disc, for minimal_catch_balanced* AND two_sarcomere_unit. Default -1e6 = use the variant value (0 for balanced, 0.55 for balanced_buried), so this flag is bitwise inert unless set. Clearance of the central barbed tip is 0.1975-shift um at Lx=4.", cxxopts::value<double>(minimal_catch_myosin_inward_shift)->default_value("-1e6"))
             ("aa_barbed_zone", "Z-disc width: ACTN2 binds only within this distance (um) of a barbed end; <=0 binds anywhere in the mutual overlap", cxxopts::value<double>(aa_barbed_zone)->default_value("-1"))
             ("aa_axial_register_force_max", "Ceiling (pN) for a saturating status-2 axial register force that does not decay far from the target; <=0 keeps the Gaussian-attenuated form", cxxopts::value<double>(aa_axial_register_force_max)->default_value("36"))
             ("aa_radial_force_max", "[UNUSED 2026-09-17: not set by any of 177 sbatch files] Saturating cap on the ACTN2 radial force (pN); <=0 keeps the unbounded quadratic. Small-displacement stiffness is unchanged; bounding the force is what permits a larger dt without a displacement clamp", cxxopts::value<double>(aa_radial_force_max)->default_value("0"))
@@ -491,6 +520,8 @@ int main(int argc, char* argv[]){
             ("aa_status2_registry_off", "Maximum barbed-end register error for status-2 retention", cxxopts::value<double>(aa_status2_registry_off)->default_value("0.15"))
             ("aa_register_saturation_error", "Error scale that bounds the status-2 register energy and force", cxxopts::value<double>(aa_register_saturation_error)->default_value("0.05"))
             ("am_bidirectional_crossbridge", "Strong heads act as bidirectional elastic springs (restoring force on overshoot) instead of tension-only", cxxopts::value<bool>(am_bidirectional_crossbridge)->default_value("false")->implicit_value("true"))
+            ("aa_zdisc_tip_hard_projection", "Run the hard position projection that displaces a penetrating ACTN2 patch back out of a myosin; false leaves penetration to be resolved by actn2_myosin_collision instead", cxxopts::value<bool>(aa_zdisc_tip_hard_projection)->default_value("true")->implicit_value("true"))
+            ("aa_zdisc_tip_contact_requires_link", "Apply the Z-disc barbed-tip endstop only to actins carrying a live ACTN2 link; a bare barbed tip then interdigitates freely. Default true (2026-10-25): the capsule excludes the Z-disc, not a free thin filament", cxxopts::value<bool>(aa_zdisc_tip_contact_requires_link)->default_value("true")->implicit_value("true"))
             ("am_crossover_pull_through", "Once an actin slides past the bare zone into the opposite head-bearing half, let that half power stroke too; direction follows actin polarity so it keeps pulling the same way until the actin exits", cxxopts::value<bool>(am_crossover_pull_through)->default_value("true")->implicit_value("true"))
             ("am_overlap_target_ratio", "Legacy sliding throttle: engaged-overlap fraction at which motor sliding stalls (<=0 disables)", cxxopts::value<double>(am_overlap_target_ratio)->default_value("0"))
             ("aa_local_multilink", "Use sparse local multi-link ACTN2 mechanics (production default; pass false for the legacy pair edge)", cxxopts::value<bool>(aa_local_multilink)->default_value("true")->implicit_value("true"))
@@ -519,15 +550,26 @@ int main(int argc, char* argv[]){
             ("aa_myosin_contact_shell_energy", "Corona energy (pN um) at the physical hard-core surface; 0 disables the soft corona", cxxopts::value<double>(aa_myosin_contact_shell_energy)->default_value("0.0214"))
             ("aa_zdisc_tip_contact", "Enable head-independent axial exclusion and nonpenetration between myosin tips and bilateral ACTN2/Z-disc patches", cxxopts::value<bool>(aa_zdisc_tip_contact)->default_value("true")->implicit_value("true"))
             ("aa_zdisc_tip_onset", "Axial myosin-tip/Z-patch gap (um) where the end-stop begins", cxxopts::value<double>(aa_zdisc_tip_onset)->default_value("0.050"))
-            ("aa_zdisc_tip_stiffness", "Small-compression axial stiffness (pN/um) of one myosin-tip/Z-patch contact", cxxopts::value<double>(aa_zdisc_tip_stiffness)->default_value("1000"))
-            ("aa_zdisc_tip_force_max", "Saturating force (pN) for one myosin-tip/Z-patch contact", cxxopts::value<double>(aa_zdisc_tip_force_max)->default_value("20"))
-            ("aa_zdisc_tip_transverse_flat", "Transverse radius (um) over which myosin-tip/Z-patch contact has full strength", cxxopts::value<double>(aa_zdisc_tip_transverse_flat)->default_value("0.100"))
-            ("aa_zdisc_tip_transverse_cutoff", "Transverse cutoff (um) for myosin-tip/Z-patch contact", cxxopts::value<double>(aa_zdisc_tip_transverse_cutoff)->default_value("0.130"))
+            ("aa_zdisc_tip_stiffness", "Small-compression axial stiffness (pN/um) of the barbed-tip end-stop; the ACTN2 connector force uses aa_zdisc_tip_stop_stiffness", cxxopts::value<double>(aa_zdisc_tip_stiffness)->default_value("1000"))
+            ("aa_zdisc_tip_force_max", "Saturating force (pN) of the barbed-tip end-stop; the ACTN2 connector force uses aa_zdisc_tip_stop_force_max", cxxopts::value<double>(aa_zdisc_tip_force_max)->default_value("20"))
+            ("aa_zdisc_tip_transverse_flat", "Transverse radius (um) of full strength for the geometric tip-gap queries (exclusion audit, hard projection)", cxxopts::value<double>(aa_zdisc_tip_transverse_flat)->default_value("0.100"))
+            ("aa_zdisc_tip_transverse_cutoff", "Transverse cutoff (um) for the geometric tip-gap queries (exclusion audit, hard projection)", cxxopts::value<double>(aa_zdisc_tip_transverse_cutoff)->default_value("0.130"))
+            ("aa_zdisc_tip_stop_stiffness", "Axial-stop connector force: stiffness (pN/um) of the quadratic part of Phi", cxxopts::value<double>(aa_zdisc_tip_stop_stiffness)->default_value("1000"))
+            ("aa_zdisc_tip_stop_force_max", "Axial-stop connector force: saturation slope (pN) of Phi, the per-connector axial force bound", cxxopts::value<double>(aa_zdisc_tip_stop_force_max)->default_value("30"))
+            ("aa_zdisc_tip_stop_gate_radius", "Axial-stop connector force: radius (um) inside which the radial gate is 1", cxxopts::value<double>(aa_zdisc_tip_stop_gate_radius)->default_value("0.130"))
+            ("aa_zdisc_tip_stop_gate_cutoff", "Axial-stop connector force: radius (um) where the smoothstep gate reaches 0", cxxopts::value<double>(aa_zdisc_tip_stop_gate_cutoff)->default_value("0.140"))
+            ("aa_zdisc_tip_stop_epsilon", "Axial-stop connector force: axial smoothing length (um) in sqrt(z^2 + epsilon^2)", cxxopts::value<double>(aa_zdisc_tip_stop_epsilon)->default_value("0.005"))
             ("aa_barbed_lateral_range", "Target transverse barbed-end spacing (um) enforced between ALL barbed-end pairs; 0 disables. ACTN2 alone contracts a crosslinked cluster to the actin hard core, so this supplies the lateral pressure a Z-disc face needs to tile", cxxopts::value<double>(aa_barbed_lateral_range)->default_value("0"))
             ("aa_barbed_lateral_k", "Stiffness (pN/um) of the barbed-end lateral repulsion; 0 disables", cxxopts::value<double>(aa_barbed_lateral_k)->default_value("0"))
             ("aa_barbed_lateral_force_max", "Saturating force (pN) for one barbed-end lateral contact; <=0 is uncapped", cxxopts::value<double>(aa_barbed_lateral_force_max)->default_value("0"))
             ("aa_barbed_lateral_axial_window", "Axial gate (um): barbed ends separated by more than this along the filament axis belong to different Z-discs and do not repel", cxxopts::value<double>(aa_barbed_lateral_axial_window)->default_value("0.250"))
             ("aa_occlusion_rupture_penetration", "Deep ACTN2/thick-filament penetration (um) causing immediate geometric rupture", cxxopts::value<double>(aa_occlusion_rupture_penetration)->default_value("0.010"))
+            ("aa_overlap_occlusion_veto", "Enable reason-3 ACTN2 rupture only when either linked actin barbed tip penetrates the myosin capture capsule by aa_occlusion_rupture_penetration; AM reach/contour overlap alone never ruptures", cxxopts::value<bool>(aa_overlap_occlusion_veto)->default_value("true")->implicit_value("true"))
+            ("aa_occlusion_rupture_dwell", "Grace period (SECONDS) that barbed-tip burial must persist before the reason-3 ACTN2 deletion fires. 0 (default) keeps the original probability-1 immediate deletion and is bitwise inert. Converted internally to steps via dt, so the physics does not change with dt. Measured burial episodes last a median 20 us / max 320 us in a registered lattice, so 1e-4 to 5e-4 spares 92-100% of transients while still punishing sustained burial. The per-link counter resets on resume.", cxxopts::value<double>(aa_occlusion_rupture_dwell)->default_value("0"))
+            ("aa_occlusion_rupture_rate", "Zero-depth hazard rate (1/s) for reason-3 barbed-tip burial. 0 (default) keeps the original probability-1 deletion and is bitwise inert. Nonzero makes burial a RATE like every other ACTN2 death channel: k(p) = rate * exp((p - aa_occlusion_rupture_penetration)/aa_occlusion_rupture_penetration), summed over the two barbed tips. A soft repulsion cannot defend a probability-1 threshold, because a spring in a thermal bath holds a distribution of depths and the first excursion past the line is fatal; a rate charges a transient dip a small probability while still killing sustained deep burial.", cxxopts::value<double>(aa_occlusion_rupture_rate)->default_value("0"))
+            ("aa_barbed_tip_endstop_slab", "Treat the A-band barbed-tip exclusion as a slab rather than a transversely gated capsule end cap. Drops the hard cutoff at aa_occlusion_capture_radius (which in production equals the resting A-M centerline, so every bound actin sits on it and a tip arriving from outside it meets no force at all until it is already past the kill depth) and drops the spherocylinder cap extension (which makes the axial boundary depend on the transverse distance and so gives this purely axial force a nonzero curl). false (default) is bitwise inert.", cxxopts::value<bool>(aa_barbed_tip_endstop_slab)->default_value("false")->implicit_value("true"))
+            ("aa_barbed_tip_endstop_transverse_cutoff", "Transverse locality bound (um) for the slab-mode barbed-tip endstop. 0 (default) falls back to aa_occlusion_capture_radius, i.e. the legacy gate. Only meaningful with aa_barbed_tip_endstop_slab.", cxxopts::value<double>(aa_barbed_tip_endstop_transverse_cutoff)->default_value("0"))
+            ("aa_occlusion_capture_radius", "Steric centerline radius (um) used by ACTN2 contour exclusion, the barbed-tip axial end-stop, and reason-3 penetration; default 0.080 excludes the separate 0.050-um motor-head reach, while <=0 restores the legacy full A-M capture centerline", cxxopts::value<double>(aa_occlusion_capture_radius)->default_value("0.080"))
             ("aa_association_max_direction_dot", "Maximum actin director dot product for a new local ACTN2 association; >=1 disables", cxxopts::value<double>(aa_association_max_direction_dot)->default_value("-0.5"))
             ("aa_link_rupture_length", "Finite explicit ACTN2 contour length in um; <=0 disables forced contour rupture", cxxopts::value<double>(aa_link_rupture_length)->default_value("0"))
             ("aa_stiffness_reference_links", "Reference explicit-link count used to convert legacy k_aa and kappa_aa pair stiffnesses into fixed per-ACTN2 stiffnesses", cxxopts::value<int>(aa_stiffness_reference_links)->default_value("3"))
@@ -815,6 +857,15 @@ int main(int argc, char* argv[]){
         !std::isfinite(aa_zdisc_tip_transverse_flat) ||
         aa_zdisc_tip_transverse_cutoff <= aa_zdisc_tip_transverse_flat ||
         !std::isfinite(aa_zdisc_tip_transverse_cutoff) ||
+        !(aa_zdisc_tip_stop_stiffness > 0.0) ||
+        !std::isfinite(aa_zdisc_tip_stop_stiffness) ||
+        !(aa_zdisc_tip_stop_force_max > 0.0) ||
+        !std::isfinite(aa_zdisc_tip_stop_force_max) ||
+        !(aa_zdisc_tip_stop_gate_radius >= 0.0) ||
+        !(aa_zdisc_tip_stop_gate_cutoff > aa_zdisc_tip_stop_gate_radius) ||
+        !std::isfinite(aa_zdisc_tip_stop_gate_cutoff) ||
+        !(aa_zdisc_tip_stop_epsilon > 0.0) ||
+        !(aa_zdisc_tip_stop_epsilon < aa_zdisc_tip_onset + 0.5 * myosin_length) ||
         aa_barbed_lateral_range < 0.0 ||
         !std::isfinite(aa_barbed_lateral_range) ||
         aa_barbed_lateral_k < 0.0 || !std::isfinite(aa_barbed_lateral_k) ||
@@ -823,6 +874,13 @@ int main(int argc, char* argv[]){
         !std::isfinite(aa_barbed_lateral_axial_window) ||
         aa_occlusion_rupture_penetration < 0.0 ||
         !std::isfinite(aa_occlusion_rupture_penetration) ||
+        aa_occlusion_rupture_dwell < 0.0 ||
+        !std::isfinite(aa_occlusion_rupture_dwell) ||
+        aa_occlusion_rupture_rate < 0.0 ||
+        !std::isfinite(aa_occlusion_rupture_rate) ||
+        aa_barbed_tip_endstop_transverse_cutoff < 0.0 ||
+        !std::isfinite(aa_barbed_tip_endstop_transverse_cutoff) ||
+        !std::isfinite(aa_occlusion_capture_radius) ||
         aa_motor_pair_support_window < 0.0 ||
         !std::isfinite(aa_motor_pair_support_window) ||
         aa_motor_pair_commit_time < 0.0 ||
@@ -869,6 +927,9 @@ int main(int argc, char* argv[]){
         std::abs(minimal_catch_tilt_deg) > 90.0 ||
         !std::isfinite(minimal_catch_myosin_tilt_deg) ||
         std::abs(minimal_catch_myosin_tilt_deg) > 90.0 ||
+        !std::isfinite(minimal_catch_myosin_inward_shift) ||
+        (minimal_catch_myosin_inward_shift > -1e5 &&
+         std::abs(minimal_catch_myosin_inward_shift) > 5.0) ||
         !std::isfinite(am_head_radial_force_max) ||
         three_membered_tilt_jitter < 0.0 ||
         !std::isfinite(three_membered_transverse_jitter) ||
@@ -1180,13 +1241,30 @@ int main(int argc, char* argv[]){
     model.aa_zdisc_tip_onset = aa_zdisc_tip_onset;
     model.aa_zdisc_tip_stiffness = aa_zdisc_tip_stiffness;
     model.aa_zdisc_tip_force_max = aa_zdisc_tip_force_max;
+    model.aa_zdisc_tip_contact_requires_link = aa_zdisc_tip_contact_requires_link;
+    model.aa_zdisc_tip_hard_projection = aa_zdisc_tip_hard_projection;
     model.aa_zdisc_tip_transverse_flat = aa_zdisc_tip_transverse_flat;
     model.aa_zdisc_tip_transverse_cutoff = aa_zdisc_tip_transverse_cutoff;
+    model.aa_zdisc_tip_stop_stiffness = aa_zdisc_tip_stop_stiffness;
+    model.aa_zdisc_tip_stop_force_max = aa_zdisc_tip_stop_force_max;
+    model.aa_zdisc_tip_stop_gate_radius = aa_zdisc_tip_stop_gate_radius;
+    model.aa_zdisc_tip_stop_gate_cutoff = aa_zdisc_tip_stop_gate_cutoff;
+    model.aa_zdisc_tip_stop_epsilon = aa_zdisc_tip_stop_epsilon;
     model.aa_barbed_lateral_range = aa_barbed_lateral_range;
     model.aa_barbed_lateral_k = aa_barbed_lateral_k;
     model.aa_barbed_lateral_force_max = aa_barbed_lateral_force_max;
     model.aa_barbed_lateral_axial_window = aa_barbed_lateral_axial_window;
     model.aa_occlusion_rupture_penetration = aa_occlusion_rupture_penetration;
+    model.aa_occlusion_capture_radius = aa_occlusion_capture_radius;
+    model.aa_overlap_occlusion_veto = aa_overlap_occlusion_veto;
+    model.aa_occlusion_rupture_dwell_steps =
+        (aa_occlusion_rupture_dwell > 0.0 && dt > 0.0)
+            ? static_cast<size_t>(std::llround(aa_occlusion_rupture_dwell / dt))
+            : static_cast<size_t>(0);
+    model.aa_occlusion_rupture_rate = aa_occlusion_rupture_rate;
+    model.aa_barbed_tip_endstop_slab = aa_barbed_tip_endstop_slab;
+    model.aa_barbed_tip_endstop_transverse_cutoff =
+        aa_barbed_tip_endstop_transverse_cutoff;
     if (model.aa_zdisc_tip_contact) {
         std::cout
             << "ACTN2 tip projection traversal: spatial_incidence "
@@ -1245,7 +1323,47 @@ int main(int argc, char* argv[]){
     }
     // Must precede set_am_head_count: that call builds the head pools.
     model.am_spokes_per_crown = am_spokes_per_crown;
+    if (am_head_radial_mode < 0 || am_head_radial_mode > 2) {
+        std::cerr << "ERROR: --am_head_radial_mode must be 0, 1 or 2\n";
+        return 1;
+    }
+    if (am_head_radial_k_override < 0.0 ||
+        !std::isfinite(am_head_radial_k_override) ||
+        am_head_radial_rest_override < 0.0 ||
+        !std::isfinite(am_head_radial_rest_override)) {
+        std::cerr << "ERROR: --am_head_radial_k / --am_head_radial_rest must be finite and >= 0\n";
+        return 1;
+    }
+    if (am_alignment_saturation_heads < 0 ||
+        am_alignment_saturation_heads > 64) {
+        std::cerr << "ERROR: --am_alignment_saturation_heads must be in [0, 64]\n";
+        return 1;
+    }
+    if (am_motor_saturation_heads < 0 || am_motor_saturation_heads > 64) {
+        std::cerr << "ERROR: --am_motor_saturation_heads must be in [0, 64]\n";
+        return 1;
+    }
+    model.am_motor_saturation_heads = am_motor_saturation_heads;
+    model.am_alignment_saturation_heads = am_alignment_saturation_heads;
+    model.am_head_radial_mode = am_head_radial_mode;
+    model.am_head_radial_k_override = am_head_radial_k_override;
+    model.am_head_radial_rest_override = am_head_radial_rest_override;
     model.am_head_azimuth = am_head_azimuth;
+    model.am_azimuth_gate = am_azimuth_gate;
+    {
+        // <=0 means "partition the circle": with n spokes 2*pi/n apart, a
+        // half-width of pi/n makes exactly one spoke admit any given actin.
+        const double deg = am_azimuth_gate_half_width_deg > 0.0
+            ? am_azimuth_gate_half_width_deg
+            : 180.0 / static_cast<double>(std::max(1, am_spokes_per_crown));
+        model.am_azimuth_gate_half_width = deg * M_PI / 180.0;
+    }
+    if (am_azimuth_gate && !am_spatial_heads) {
+        std::cerr << "ERROR: --am_azimuth_gate requires --am_spatial_heads, "
+                     "because without spatial heads there is no crown azimuth "
+                     "or myosin material frame to gate on.\n";
+        return 1;
+    }
     // Derive the radial cap from the displacement clamp unless given explicitly.
     // mu_perp = beta * D_perp is the mobility the clamp actually acts through,
     // so F_clamp = max_actin_displacement/(mu_perp*dt) is the largest force the
@@ -1412,6 +1530,7 @@ int main(int argc, char* argv[]){
     // Sarcomere by reference, so this is the same object.
     model.minimal_catch_tilt_deg = minimal_catch_tilt_deg;
     model.minimal_catch_myosin_tilt_deg = minimal_catch_myosin_tilt_deg;
+    model.minimal_catch_myosin_inward_shift = minimal_catch_myosin_inward_shift;
     // Features must be registered BEFORE the Langevin constructor creates the
     // HDF5 file, or the run aborts on a missing dataset.
     model.torque_breakdown = torque_breakdown;
@@ -1444,6 +1563,8 @@ int main(int argc, char* argv[]){
             sim.model.minimal_catch_tilt_deg = minimal_catch_tilt_deg;
             sim.model.minimal_catch_myosin_tilt_deg =
                 minimal_catch_myosin_tilt_deg;
+            sim.model.minimal_catch_myosin_inward_shift =
+                minimal_catch_myosin_inward_shift;
             sim.model.minimal_catch_variant(
                 init_struc.substr(std::string("minimal_catch_").size()));
         }

@@ -4,8 +4,11 @@
 #include <cstdio>
 #include <cstdlib>  // For exit()
 #include <cmath>
+#include <deque>
 #include <limits>
 #include <algorithm>
+#include <utility>
+#include <vector>
 
 //---------------------------------------------------------------------
 // Non-Template Function Definitions
@@ -186,6 +189,10 @@ inline double stable_log_cosh(double x) {
 // `k`, so a bond still holds as tightly as before and only its behaviour under
 // a large pull changes. This is a genuine potential, unlike a displacement
 // clamp, so detailed balance and the equilibrium distribution are preserved.
+inline vec mul_vec(const vec& v, double s) {
+    return vec{v.x * s, v.y * s, v.z * s};
+}
+
 inline void saturating_radial(double k, double f_max, double extension,
                               double& force, double& energy) {
     if (!(f_max > 0.0) || !(k > 0.0)) {
@@ -575,7 +582,8 @@ AMTwoSpringHeadResult compute_am_two_spring_head(
     double radial_preferred, double radial_stiffness, double radial_slack,
     double axial_stiffness, double stroke_progress, double stall_force,
     bool strong, bool bidirectional_strong,
-    double radial_force_max) {
+    double radial_force_max,
+    AmRadialMode radial_mode) {
     AMTwoSpringHeadResult result;
     vec axis_a = actin.direction[actin_index];
     vec axis_m = myosin.direction[myosin_index];
@@ -628,7 +636,27 @@ AMTwoSpringHeadResult compute_am_two_spring_head(
     vec gradient_h {0.0, 0.0, 0.0};
     vec explicit_gradient_axis {0.0, 0.0, 0.0};
 
-    const double radial_extension = rho - std::max(0.0, radial_preferred);
+    // What the radial spring penalises, and the direction it pulls.
+    // kAmRadialLine reproduces the shipped behaviour exactly.
+    double q = rho;
+    vec q_hat = (rho > 1e-12) ? mul_vec(transverse, 1.0 / rho)
+                              : vec{0.0, 0.0, 0.0};
+    bool explicit_axis_term = true;
+    if (radial_mode == AmRadialMode::kAmRadialConnector) {
+        q = result.connector.norm();
+        q_hat = (q > 1e-12) ? mul_vec(result.connector, 1.0 / q)
+                            : vec{0.0, 0.0, 0.0};
+        explicit_axis_term = false;   // |h| depends on u_a only via s*grad
+    } else if (radial_mode == AmRadialMode::kAmRadialAxis) {
+        vec from_centre = result.actin_attachment -
+                          static_cast<vec>(myosin.center[myosin_index]);
+        from_centre.pbc_wrap(box, actin.periodic_axes);
+        const vec perp = from_centre - axis_m * from_centre.dot(axis_m);
+        q = perp.norm();
+        q_hat = (q > 1e-12) ? mul_vec(perp, 1.0 / q) : vec{0.0, 0.0, 0.0};
+        explicit_axis_term = false;   // a projection of P; s*grad covers u_a
+    }
+    const double radial_extension = q - std::max(0.0, radial_preferred);
     const double slack = std::max(0.0, radial_slack);
     double loaded_radial_extension = 0.0;
     if (radial_extension > slack) {
@@ -636,7 +664,7 @@ AMTwoSpringHeadResult compute_am_two_spring_head(
     } else if (radial_extension < -slack) {
         loaded_radial_extension = radial_extension + slack;
     }
-    if (radial_stiffness > 0.0 && rho > 1e-12 &&
+    if (radial_stiffness > 0.0 && q > 1e-12 &&
         loaded_radial_extension != 0.0) {
         // Saturating when radial_force_max > 0: f_max*tanh(ext/scale) with
         // scale = f_max/k.  The force is bounded while log cosh grows LINEARLY,
@@ -647,10 +675,17 @@ AMTwoSpringHeadResult compute_am_two_spring_head(
         double radial_energy_term = 0.0;
         saturating_radial(radial_stiffness, radial_force_max,
                           loaded_radial_extension, dU_drho, radial_energy_term);
-        gradient_h += (dU_drho / rho) * transverse;
-        // rho^2 = h.h - (h.u)^2.  This explicit orientation derivative is
-        // required in addition to the material-point lever arm.
-        explicit_gradient_axis += -(dU_drho * z / rho) * result.connector;
+        if (radial_mode == AmRadialMode::kAmRadialLine) {
+            // Written exactly as before the mode switch existed, so the
+            // default path is BITWISE identical -- (dU/rho)*t and t*(dU/rho)
+            // do not round the same way, and this is the shipped behaviour.
+            gradient_h += (dU_drho / rho) * transverse;
+            // rho^2 = h.h - (h.u)^2.  Explicit orientation derivative, needed
+            // in addition to the material-point lever arm.
+            explicit_gradient_axis += -(dU_drho * z / rho) * result.connector;
+        } else {
+            gradient_h += mul_vec(q_hat, dU_drho);
+        }
         result.radial_energy = radial_energy_term;
         result.energy += result.radial_energy;
     }
@@ -712,6 +747,57 @@ AMTwoSpringHeadResult compute_am_two_spring_head(
     myosin_lever.pbc_wrap(box, actin.periodic_axes);
     result.physical_torque_on_myosin = myosin_lever.cross(gradient_h);
     return result;
+}
+
+double am_head_azimuth_offset(
+    const Filament& actin, const Myosin& myosin,
+    int actin_index, int myosin_index, const std::vector<double>& box,
+    double myosin_anchor_axial, double crown_azimuth,
+    const vec& material_e1, const vec& material_e2) {
+    const double kNaN = std::numeric_limits<double>::quiet_NaN();
+    vec axis_m = myosin.direction[myosin_index];
+    vec axis_a = actin.direction[actin_index];
+    if (axis_m.norm() <= 1e-12 || axis_a.norm() <= 1e-12) return kNaN;
+    axis_m.normalize();
+    axis_a.normalize();
+    vec e1 = material_e1 - axis_m * material_e1.dot(axis_m);
+    if (e1.norm() <= 1e-12) return kNaN;
+    e1.normalize();
+    vec e2 = axis_m.cross(e1);
+    e2.normalize();
+    if (e2.dot(material_e2) < 0.0) e2 = -1.0 * e2;
+
+    const vec axial_anchor = static_cast<vec>(myosin.center[myosin_index]) +
+                             myosin_anchor_axial * axis_m;
+    vec center_disp = static_cast<vec>(actin.center[actin_index]) - axial_anchor;
+    center_disp.pbc_wrap(box, actin.periodic_axes);
+    const vec actin_center_image = axial_anchor + center_disp;
+    const double actin_coordinate = std::clamp(
+        (axial_anchor - actin_center_image).dot(axis_a),
+        -0.5 * actin.length, 0.5 * actin.length);
+    const vec closest_actin = actin_center_image + actin_coordinate * axis_a;
+    vec radial = closest_actin - axial_anchor;
+    radial -= axis_m * radial.dot(axis_m);
+    if (radial.norm() <= 1e-12) return kNaN;
+    radial.normalize();
+    const double target = std::atan2(radial.dot(e2), radial.dot(e1));
+    return std::remainder(target - crown_azimuth, 2.0 * M_PI);
+}
+
+bool am_head_azimuth_admits(
+    const Filament& actin, const Myosin& myosin,
+    int actin_index, int myosin_index, const std::vector<double>& box,
+    double myosin_anchor_axial, double crown_azimuth, double half_width,
+    const vec& material_e1, const vec& material_e2) {
+    if (!(half_width > 0.0)) return true;
+    if (half_width >= M_PI) return true;
+    const double offset = am_head_azimuth_offset(
+        actin, myosin, actin_index, myosin_index, box,
+        myosin_anchor_axial, crown_azimuth, material_e1, material_e2);
+    // Degenerate geometry carries no azimuth information, so it must not be
+    // allowed to silently forbid every head.
+    if (!std::isfinite(offset)) return true;
+    return std::abs(offset) <= half_width;
 }
 
 double select_am_binding_azimuth(
@@ -921,11 +1007,11 @@ bool actn2_patch_may_contact_myosin_tip(
         return false;
     }
     const double axial_reach = 0.5 * myosin.length + axial_margin;
-    const double reach_squared = axial_reach * axial_reach +
-        transverse_cutoff * transverse_cutoff;
+    const double reach = std::hypot(axial_reach, transverse_cutoff) +
+        patch.half_length;
     return periodic_center_distance_squared(
         patch.midpoint, myosin.center[myosin_index], box,
-        myosin.periodic_axes) <= reach_squared;
+        myosin.periodic_axes) <= reach * reach;
 }
 
 bool actn2_patch_may_contact_myosin_body(
@@ -1061,9 +1147,7 @@ ZDiscMyosinTipGap zdisc_myosin_tip_gap(
     int actin_i, int actin_j, double s_i, double s_j, int myosin_index,
     int end_sign, const std::vector<double>& box, double onset,
     double transverse_cutoff) {
-    // Every expression here is copied verbatim from the head of
-    // compute_zdisc_myosin_tip_contact so the two agree bit for bit;
-    // zdisc_tip_gap_test.cpp pins that.
+    // Shared full-connector geometry for soft force and hard-contact queries.
     ZDiscMyosinTipGap result{};
     if (actin_i < 0 || actin_j < 0 || actin_i >= actin.n ||
         actin_j >= actin.n || myosin_index < 0 || myosin_index >= myosin.n ||
@@ -1077,25 +1161,89 @@ ZDiscMyosinTipGap zdisc_myosin_tip_gap(
     const vec second_raw = center_j + s_j * actin.direction[actin_j];
     vec connector = second_raw - first;
     connector.pbc_wrap(box, actin.periodic_axes);
-    const vec patch = first + 0.5 * connector;
-
     vec axis = myosin.direction[myosin_index];
     if (axis.norm() <= 1e-12) return result;
     axis.normalize();
     const vec outward = static_cast<double>(end_sign) * axis;
-    const vec tip = end_sign < 0 ? myosin.left_end[myosin_index]
-                                 : myosin.right_end[myosin_index];
-    vec center_to_patch = patch - myosin.center[myosin_index];
-    center_to_patch.pbc_wrap(box, myosin.periodic_axes);
-    if (end_sign * center_to_patch.dot(axis) < 0.0) return result;
-
-    vec tip_to_patch = patch - tip;
-    tip_to_patch.pbc_wrap(box, myosin.periodic_axes);
-    result.axial_gap = tip_to_patch.dot(outward);
-    const vec transverse = tip_to_patch - result.axial_gap * outward;
-    result.transverse_distance = transverse.norm();
-    result.eligible = result.transverse_distance < transverse_cutoff &&
-                      result.axial_gap < onset;
+    const double half_length = 0.5 * myosin.length;
+    if (!(half_length > 0.0)) return result;
+    vec midpoint = first + 0.5 * connector - myosin.center[myosin_index];
+    midpoint.pbc_wrap(box, myosin.periodic_axes);
+    // A non-nearest periodic myosin image can intersect a long or tilted
+    // connector. Enumerate every image within the conservative sphere.
+    const double reach = std::hypot(half_length + onset, transverse_cutoff) +
+        0.5 * connector.norm();
+    const double coord[3]{midpoint.x, midpoint.y, midpoint.z};
+    double period[3]{0.0, 0.0, 0.0};
+    int lower[3]{0, 0, 0}, upper[3]{0, 0, 0};
+    for (int k = 0; k < 3; ++k) {
+        if (myosin.periodic_axes[k] &&
+            k < static_cast<int>(box.size()) && box[k] > 0.0) {
+            period[k] = box[k];
+            lower[k] = static_cast<int>(std::ceil((-reach - coord[k]) / box[k]));
+            upper[k] = static_cast<int>(std::floor((reach - coord[k]) / box[k]));
+            if (lower[k] > upper[k]) return result;
+        } else if (std::abs(coord[k]) > reach) {
+            return result;
+        }
+    }
+    for (int ix = lower[0]; ix <= upper[0]; ++ix)
+    for (int iy = lower[1]; iy <= upper[1]; ++iy)
+    for (int iz = lower[2]; iz <= upper[2]; ++iz) {
+        const vec image_midpoint = midpoint +
+            vec{ix * period[0], iy * period[1], iz * period[2]};
+        if (image_midpoint.norm_squared() > reach * reach) continue;
+        const vec start = image_midpoint - 0.5 * connector;
+        const double z0 = start.dot(outward);
+        const double dz = connector.dot(outward);
+        double lo = 0.0, hi = 1.0;
+        // Same-point axial eligibility: this tip's half, up to its onset.
+        if (dz == 0.0) {
+            if (z0 < 0.0 || z0 >= half_length + onset) continue;
+        } else {
+            double entry = -z0 / dz;
+            double exit = (half_length + onset - z0) / dz;
+            if (entry > exit) std::swap(entry, exit);
+            lo = std::max(lo, entry);
+            hi = std::min(hi, exit);
+            if (lo > hi) continue;
+        }
+        const vec radial_start = start - z0 * outward;
+        const vec radial_delta = connector - dz * outward;
+        const double a = radial_delta.norm_squared();
+        const double minimum = a > 0.0
+            ? -radial_start.dot(radial_delta) / a
+            : (dz < 0.0 ? hi : lo);
+        double t = std::clamp(minimum, lo, hi);
+        double rho = (radial_start + t * radial_delta).norm();
+        double gap = z0 + t * dz - half_length;
+        if (rho >= transverse_cutoff) continue;
+        // If the radial minimum is exactly at the onset plane, choose an
+        // interior point of the simultaneously eligible radial/axial interval.
+        // Otherwise an eligible connector could falsely request zero force.
+        if (gap >= onset && dz != 0.0 && lo < hi) {
+            double inside_lo = lo, inside_hi = hi;
+            if (a > 0.0) {
+                const double minimum_sq =
+                    (radial_start + minimum * radial_delta).norm_squared();
+                const double span = std::sqrt(std::max(
+                    0.0, (transverse_cutoff * transverse_cutoff - minimum_sq) / a));
+                inside_lo = std::max(lo, minimum - span);
+                inside_hi = std::min(hi, minimum + span);
+            }
+            t = 0.5 * (inside_lo + inside_hi);
+            rho = (radial_start + t * radial_delta).norm();
+            gap = z0 + t * dz - half_length;
+        }
+        if (!(rho < transverse_cutoff && gap < onset)) continue;
+        // Prefer radial proximity; break equal-radius ties by penetration.
+        if (!result.eligible || rho < result.transverse_distance ||
+            (rho == result.transverse_distance && gap < result.axial_gap)) {
+            result.eligible = true;
+            result.axial_gap = gap;
+            result.transverse_distance = rho;
+        }
+    }
     return result;
 }
 
@@ -1121,7 +1269,6 @@ ZDiscMyosinTipContactResult compute_zdisc_myosin_tip_contact(
     vec connector = second_raw - first;
     connector.pbc_wrap(box, actin.periodic_axes);
     const vec second = first + connector;
-    const vec patch = first + 0.5 * connector;
 
     vec axis = myosin.direction[myosin_index];
     if (axis.norm() <= 1e-12) return result;
@@ -1129,26 +1276,20 @@ ZDiscMyosinTipContactResult compute_zdisc_myosin_tip_contact(
     const vec outward = static_cast<double>(end_sign) * axis;
     const vec tip = end_sign < 0 ? myosin.left_end[myosin_index]
                                  : myosin.right_end[myosin_index];
-    vec center_to_patch = patch - myosin.center[myosin_index];
-    center_to_patch.pbc_wrap(box, myosin.periodic_axes);
-    // A tip may only interact with a patch on its own half of the filament.
-    if (end_sign * center_to_patch.dot(axis) < 0.0) return result;
+    const auto geometry = zdisc_myosin_tip_gap(
+        actin, myosin, actin_i, actin_j, s_i, s_j, myosin_index,
+        end_sign, box, onset, transverse_cutoff);
+    if (!geometry.eligible) return result;
     result.eligible_half = true;
-
-    vec tip_to_patch = patch - tip;
-    tip_to_patch.pbc_wrap(box, myosin.periodic_axes);
-    result.axial_gap = tip_to_patch.dot(outward);
-    const vec transverse = tip_to_patch - result.axial_gap * outward;
-    result.transverse_distance = transverse.norm();
-    if (result.transverse_distance >= transverse_cutoff ||
-        result.axial_gap >= onset) return result;
+    result.axial_gap = geometry.axial_gap;
+    result.transverse_distance = geometry.transverse_distance;
 
     if (result.transverse_distance <= transverse_flat) {
         result.radial_gate = 1.0;
     } else {
         const double q = (result.transverse_distance - transverse_flat) /
             (transverse_cutoff - transverse_flat);
-        result.radial_gate = 1.0 - 3.0 * q * q + 2.0 * q * q * q;
+        result.radial_gate = (1.0 - q) * (1.0 - q) * (1.0 + 2.0 * q);
     }
     result.compression = onset - result.axial_gap;
     const double x = stiffness * result.compression / force_max;
@@ -1175,6 +1316,330 @@ ZDiscMyosinTipContactResult compute_zdisc_myosin_tip_contact(
     result.torque_on_myosin = steric_contact_orientation_drive(
         myosin.center[myosin_index], myosin.direction[myosin_index], tip,
         result.force_on_myosin, box, myosin.periodic_axes, connector);
+    result.applied = true;
+    return result;
+}
+
+namespace {
+
+// Gauss-Legendre rule on [0, 1]; weights sum to 1.
+struct UnitGaussRule {
+    std::vector<double> nodes;
+    std::vector<double> weights;
+};
+
+UnitGaussRule make_unit_gauss_rule(int n) {
+    UnitGaussRule rule;
+    rule.nodes.resize(static_cast<size_t>(n));
+    rule.weights.resize(static_cast<size_t>(n));
+    const double pi = std::acos(-1.0);
+    for (int i = 0; i < n; ++i) {
+        // Newton iteration on P_n from the usual Chebyshev-like guess.
+        double x = std::cos(pi * (i + 0.75) / (n + 0.5));
+        double derivative = 1.0;
+        for (int iteration = 0; iteration < 100; ++iteration) {
+            double previous = 1.0, current = x;
+            for (int k = 2; k <= n; ++k) {
+                const double next =
+                    ((2.0 * k - 1.0) * x * current - (k - 1.0) * previous) / k;
+                previous = current;
+                current = next;
+            }
+            derivative = n == 1 ? 1.0
+                : n * (x * current - previous) / (x * x - 1.0);
+            const double step = current / derivative;
+            x -= step;
+            if (std::abs(step) < 1e-15) break;
+        }
+        rule.nodes[static_cast<size_t>(i)] = 0.5 * (1.0 - x);
+        rule.weights[static_cast<size_t>(i)] =
+            1.0 / ((1.0 - x * x) * derivative * derivative);
+    }
+    return rule;
+}
+
+const UnitGaussRule& unit_gauss_rule(int n) {
+    static const UnitGaussRule production_rule = make_unit_gauss_rule(16);
+    if (n == 16) return production_rule;
+    // Other orders are for refinement tests; a deque keeps references stable.
+    thread_local std::deque<std::pair<int, UnitGaussRule>> cache;
+    for (const auto& entry : cache) {
+        if (entry.first == n) return entry.second;
+    }
+    cache.emplace_back(n, make_unit_gauss_rule(n));
+    return cache.back().second;
+}
+
+}  // namespace
+
+ZDiscAxialStopContactResult compute_zdisc_axial_stop_contact(
+    const Filament& actin, const Myosin& myosin,
+    int actin_i, int actin_j, double s_i, double s_j, int myosin_index,
+    int end_sign, const std::vector<double>& box, double onset,
+    double stiffness, double force_max, double gate_radius,
+    double gate_cutoff, double epsilon, int quadrature_nodes) {
+    ZDiscAxialStopContactResult result{};
+    if (actin_i < 0 || actin_j < 0 || actin_i >= actin.n ||
+        actin_j >= actin.n || myosin_index < 0 || myosin_index >= myosin.n ||
+        (end_sign != -1 && end_sign != 1) || !(onset > 0.0) ||
+        !(stiffness > 0.0) || !(force_max > 0.0) || !(gate_radius >= 0.0) ||
+        !(gate_cutoff > gate_radius) || !(epsilon > 0.0) ||
+        quadrature_nodes < 1) {
+        return result;
+    }
+    vec axis = myosin.direction[myosin_index];
+    if (axis.norm() <= 1e-12) return result;
+    axis.normalize();
+    const vec outward = static_cast<double>(end_sign) * axis;
+    const double half_length = 0.5 * myosin.length;
+    const double contact_half = half_length + onset;  // H
+    if (!(half_length > 0.0) || !(contact_half > epsilon)) return result;
+    // sqrt(z^2 + epsilon^2) < H exactly when z < axial_support.
+    const double axial_support =
+        std::sqrt(contact_half * contact_half - epsilon * epsilon);
+    const double saturation_depth = force_max / stiffness;
+
+    const vec center_i = actin.center[actin_i];
+    const vec center_j = actin.center[actin_j];
+    const vec first = center_i + s_i * actin.direction[actin_i];
+    const vec second_raw = center_j + s_j * actin.direction[actin_j];
+    vec connector = second_raw - first;
+    connector.pbc_wrap(box, actin.periodic_axes);
+    const vec second = first + connector;
+    vec midpoint = first + 0.5 * connector - myosin.center[myosin_index];
+    midpoint.pbc_wrap(box, myosin.periodic_axes);
+
+    // Every periodic myosin image within the conservative sphere, as in
+    // zdisc_myosin_tip_gap(); distinct images are distinct contacts and add.
+    const double reach = std::hypot(contact_half, gate_cutoff) +
+        0.5 * connector.norm();
+    const double coord[3]{midpoint.x, midpoint.y, midpoint.z};
+    double period[3]{0.0, 0.0, 0.0};
+    int lower[3]{0, 0, 0}, upper[3]{0, 0, 0};
+    for (int k = 0; k < 3; ++k) {
+        if (myosin.periodic_axes[k] &&
+            k < static_cast<int>(box.size()) && box[k] > 0.0) {
+            period[k] = box[k];
+            lower[k] = static_cast<int>(std::ceil((-reach - coord[k]) / box[k]));
+            upper[k] = static_cast<int>(std::floor((reach - coord[k]) / box[k]));
+            if (lower[k] > upper[k]) return result;
+        } else if (std::abs(coord[k]) > reach) {
+            return result;
+        }
+    }
+
+    const auto& rule = unit_gauss_rule(quadrature_nodes);
+    const double dz = connector.dot(outward);
+    const vec radial_delta = connector - dz * outward;
+    const double radial_a = radial_delta.norm_squared();
+    vec force_i{0.0, 0.0, 0.0}, force_j{0.0, 0.0, 0.0};
+    vec torque_m{0.0, 0.0, 0.0};
+    double energy = 0.0;
+    bool have_deepest = false;
+    for (int ix = lower[0]; ix <= upper[0]; ++ix)
+    for (int iy = lower[1]; iy <= upper[1]; ++iy)
+    for (int iz = lower[2]; iz <= upper[2]; ++iz) {
+        const vec image_midpoint = midpoint +
+            vec{ix * period[0], iy * period[1], iz * period[2]};
+        if (image_midpoint.norm_squared() > reach * reach) continue;
+        // Connector relative to this image's myosin center.
+        const vec start = image_midpoint - 0.5 * connector;
+        const double z0 = start.dot(outward);
+        // Support on this half: 0 <= z(t) < axial_support, rho(t) < cutoff.
+        double lo = 0.0, hi = 1.0;
+        if (dz == 0.0) {
+            if (z0 < 0.0 || z0 >= axial_support) continue;
+        } else {
+            double entry = -z0 / dz;
+            double exit = (axial_support - z0) / dz;
+            if (entry > exit) std::swap(entry, exit);
+            lo = std::max(lo, entry);
+            hi = std::min(hi, exit);
+        }
+        const vec radial_start = start - z0 * outward;
+        const double radial_b = radial_start.dot(radial_delta);
+        const double radial_c =
+            radial_start.norm_squared() - gate_cutoff * gate_cutoff;
+        if (radial_a > 0.0) {
+            const double discriminant =
+                radial_b * radial_b - radial_a * radial_c;
+            if (!(discriminant > 0.0)) continue;
+            const double root = std::sqrt(discriminant);
+            lo = std::max(lo, (-radial_b - root) / radial_a);
+            hi = std::min(hi, (-radial_b + root) / radial_a);
+        } else if (!(radial_c < 0.0)) {
+            continue;
+        }
+        // A zero-length connector keeps [0, 1]: its point is either inside
+        // the support or rejected above.
+        if (!(hi > lo)) continue;
+        // Split where the integrand is not smooth, so each piece converges
+        // spectrally: Phi changes from quadratic to linear (a kink in the
+        // force), and the gate leaves 1 at gate_radius.
+        double breaks[5]{lo, 0.0, 0.0, 0.0, 0.0};
+        int n_breaks = 1;
+        auto add_break = [&](double t) {
+            if (t > lo && t < hi) breaks[n_breaks++] = t;
+        };
+        const double saturation_eps = contact_half - saturation_depth;
+        if (dz != 0.0 && saturation_eps > epsilon) {
+            const double z_saturation = std::sqrt(
+                saturation_eps * saturation_eps - epsilon * epsilon);
+            add_break((z_saturation - z0) / dz);
+        }
+        if (radial_a > 0.0 && gate_radius > 0.0) {
+            const double inner_c = radial_start.norm_squared() -
+                gate_radius * gate_radius;
+            const double discriminant =
+                radial_b * radial_b - radial_a * inner_c;
+            if (discriminant > 0.0) {
+                const double root = std::sqrt(discriminant);
+                add_break((-radial_b - root) / radial_a);
+                add_break((-radial_b + root) / radial_a);
+            }
+        }
+        breaks[n_breaks++] = hi;
+        std::sort(breaks + 1, breaks + n_breaks - 1);
+        for (int piece = 0; piece + 1 < n_breaks; ++piece) {
+            const double piece_lo = breaks[piece];
+            const double span = breaks[piece + 1] - piece_lo;
+            if (!(span > 0.0)) continue;
+            for (size_t k = 0; k < rule.nodes.size(); ++k) {
+                const double t = piece_lo + span * rule.nodes[k];
+                const double weight = span * rule.weights[k];
+                const vec x = start + t * connector;
+                const double z = x.dot(outward);
+                if (z < 0.0) continue;
+                const double z_eps = std::sqrt(z * z + epsilon * epsilon);
+                const double depth = contact_half - z_eps;
+                if (!(depth > 0.0)) continue;
+                const double rho = (x - z * outward).norm();
+                if (!(rho < gate_cutoff)) continue;
+                double gate = 1.0;
+                if (rho > gate_radius) {
+                    const double q =
+                        (rho - gate_radius) / (gate_cutoff - gate_radius);
+                    gate = (1.0 - q) * (1.0 - q) * (1.0 + 2.0 * q);
+                }
+                const double phi = depth <= saturation_depth
+                    ? 0.5 * stiffness * depth * depth
+                    : force_max * (depth - 0.5 * saturation_depth);
+                const double slope = std::min(stiffness * depth, force_max);
+                // Axial part of -grad u only; no radial component.
+                const vec f = (gate * slope * z / z_eps) * outward;
+                energy += weight * gate * phi;
+                force_i += (weight * (1.0 - t)) * f;
+                force_j += (weight * t) * f;
+                torque_m += (-weight) * x.cross(f);
+                const double gap = z - half_length;
+                if (!have_deepest || gap < result.deepest_gap) {
+                    have_deepest = true;
+                    result.deepest_gap = gap;
+                    result.deepest_rho = rho;
+                    result.deepest_gate = gate;
+                }
+            }
+        }
+    }
+    if (!(energy > 0.0) || !std::isfinite(energy)) return result;
+
+    result.energy = energy;
+    result.force_on_actin_i = force_i;
+    result.force_on_actin_j = force_j;
+    result.force_on_myosin = -(force_i + force_j);
+    result.axial_force = result.force_on_myosin.norm();
+    // Forces act at the material attachment sites of the two actins.
+    vec lever_i = first - center_i;
+    lever_i.pbc_wrap(box, actin.periodic_axes);
+    vec lever_j = second - center_j;
+    lever_j.pbc_wrap(box, actin.periodic_axes);
+    vec axis_i = actin.direction[actin_i];
+    vec axis_j = actin.direction[actin_j];
+    axis_i.normalize();
+    axis_j.normalize();
+    result.physical_torque_on_actin_i = lever_i.cross(force_i);
+    result.physical_torque_on_actin_j = lever_j.cross(force_j);
+    result.physical_torque_on_myosin = torque_m;
+    result.torque_on_actin_i = result.physical_torque_on_actin_i.cross(axis_i);
+    result.torque_on_actin_j = result.physical_torque_on_actin_j.cross(axis_j);
+    result.torque_on_myosin = torque_m.cross(axis);
+    result.applied = true;
+    return result;
+}
+
+BarbedTipMyosinEndstopResult compute_barbed_tip_myosin_endstop(
+    const Filament& actin, const Myosin& myosin,
+    int actin_index, int myosin_index, const std::vector<double>& box,
+    double capsule_radius, double onset, double stiffness,
+    double force_max, bool slab_exclusion, double transverse_cutoff) {
+    BarbedTipMyosinEndstopResult result{};
+    if (actin_index < 0 || actin_index >= actin.n || myosin_index < 0 ||
+        myosin_index >= myosin.n || !(capsule_radius > 0.0) ||
+        !(onset > 0.0) || !(stiffness > 0.0) || !(force_max > 0.0)) {
+        return result;
+    }
+    vec axis = myosin.direction[myosin_index];
+    if (axis.norm() <= 1e-12) return result;
+    axis.normalize();
+    const vec barbed_tip = actin.left_end[actin_index];
+    vec relative = barbed_tip - myosin.center[myosin_index];
+    relative.pbc_wrap(box, myosin.periodic_axes);
+    result.axial_coordinate = relative.dot(axis);
+    result.end_sign = result.axial_coordinate < 0.0 ? -1 : 1;
+    const vec transverse = relative - result.axial_coordinate * axis;
+    result.transverse_distance = transverse.norm();
+    // SLAB MODE.  The A-band a barbed tip must stay out of is a slab, and a
+    // slab has no sides: it can only be entered through one of its two
+    // faces, so the onset shell covers every approach and penetration
+    // always grows continuously from zero.  Two things change.
+    //
+    // (1) The transverse HARD CUTOFF at capsule_radius becomes a wide
+    //     locality bound.  In production capsule_radius (0.080) is exactly
+    //     the resting A-M centerline (myosin_radius 0.050 + actin_radius
+    //     0.015 + am_surface_gap 0.015), so every bound actin sits ON the
+    //     gate boundary and dithers across it ~1000 times/s, and any tip
+    //     arriving from outside it meets no opposition at all until the
+    //     gate flips -- MEASURED: 3441 production cases went from gate-shut
+    //     to past the kill depth in one frame, median 347.6 nm deep, 100%
+    //     already fatal the first time the code could see them, with the
+    //     force at 0.0% of the preceding 600 us.
+    // (2) The spherocylinder cap extension is dropped, so the exclusion
+    //     boundary is the flat A-band face.  cap_extension makes the axial
+    //     boundary a function of the transverse distance, which gives this
+    //     purely axial force a nonzero curl -- F_z depends on r while F_r
+    //     is identically zero, so cycling a tip in and out at two radii
+    //     does net work.  With the boundary at 0.5*length the force is a
+    //     function of the axial coordinate alone and is a true gradient.
+    const double eligibility_radius =
+        (slab_exclusion && transverse_cutoff > 0.0) ? transverse_cutoff
+                                                    : capsule_radius;
+    if (result.transverse_distance >= eligibility_radius) return result;
+    result.radially_eligible = true;
+    const double cap_extension = slab_exclusion ? 0.0 : std::sqrt(std::max(
+        0.0, capsule_radius * capsule_radius -
+                 result.transverse_distance * result.transverse_distance));
+    result.capsule_axial_boundary = 0.5 * myosin.length + cap_extension;
+    result.signed_clearance = std::abs(result.axial_coordinate) -
+                              result.capsule_axial_boundary;
+    result.penetration = std::max(0.0, -result.signed_clearance);
+    if (result.signed_clearance >= onset) return result;
+    result.compression = onset - result.signed_clearance;
+    const double x = stiffness * result.compression / force_max;
+    result.force = force_max * std::tanh(x);
+    if (!(result.force > 0.0) || !std::isfinite(result.force)) return result;
+    const vec outward = static_cast<double>(result.end_sign) * axis;
+    result.force_on_actin = result.force * outward;
+    result.force_on_myosin = -result.force_on_actin;
+    result.torque_on_actin = steric_contact_orientation_drive(
+        actin.center[actin_index], actin.direction[actin_index], barbed_tip,
+        result.force_on_actin, box, actin.periodic_axes, outward);
+    const vec myosin_center = myosin.center[myosin_index];
+    const vec myosin_contact = myosin_center +
+        static_cast<double>(result.end_sign) * 0.5 * myosin.length * axis;
+    result.torque_on_myosin = steric_contact_orientation_drive(
+        myosin.center[myosin_index], myosin.direction[myosin_index],
+        myosin_contact, result.force_on_myosin, box,
+        myosin.periodic_axes, actin.direction[actin_index]);
     result.applied = true;
     return result;
 }

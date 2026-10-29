@@ -2,6 +2,7 @@
 #define CATCH_BOND_KINETICS_H
 
 #include <algorithm>
+#include <cmath>
 #include <limits>
 
 namespace catch_bond_kinetics {
@@ -47,6 +48,7 @@ enum class DetachmentReason {
     stochastic = 2,
     am_overlap_occlusion = 3,
     actn2_myosin_collision = 4,
+    mature_connector_exclusion = 5,
 };
 
 struct DetachmentDecision {
@@ -54,6 +56,7 @@ struct DetachmentDecision {
     bool stochastic = false;
     bool am_overlap_occluded = false;
     bool actn2_myosin_collision = false;
+    bool mature_connector_excluded = false;
     double probability = 0.0;
     // NaN means the geometric short circuit fired and no random number was
     // consumed. This distinction is important for exact trajectory replay.
@@ -61,10 +64,13 @@ struct DetachmentDecision {
 
     bool detaches() const {
         return geometric || stochastic || am_overlap_occluded ||
-               actn2_myosin_collision;
+               actn2_myosin_collision || mature_connector_excluded;
     }
 
     DetachmentReason reason() const {
+        if (mature_connector_excluded) {
+            return DetachmentReason::mature_connector_exclusion;
+        }
         if (am_overlap_occluded) {
             return DetachmentReason::am_overlap_occlusion;
         }
@@ -77,18 +83,58 @@ struct DetachmentDecision {
     }
 };
 
-// Once AM overlap leaves no barbed-end contour available, an existing ACTN2
-// link is geometrically impossible.  This is an immediate rupture and must not
-// consume a stochastic draw: doing so would perturb every later counter-based
-// event merely because the diagnostic was added.
-inline DetachmentDecision decide_am_overlap_occlusion(
-    double crosslinkable_ratio_i, double crosslinkable_ratio_j,
-    double epsilon = 1e-12) {
+// Reason 3 is reserved for actual penetration of an actin barbed endpoint
+// through the myosin capture capsule.  Mere AM reach/contour overlap is not a
+// rupture condition.  The geometric short circuit consumes no RNG draw.
+inline DetachmentDecision decide_barbed_tip_capsule_penetration(
+    double penetration_i, double penetration_j,
+    double rupture_penetration) {
     DetachmentDecision result;
     result.am_overlap_occluded =
-        crosslinkable_ratio_i <= epsilon ||
-        crosslinkable_ratio_j <= epsilon;
+        rupture_penetration > 0.0 &&
+        (penetration_i >= rupture_penetration ||
+         penetration_j >= rupture_penetration);
     result.probability = result.am_overlap_occluded ? 1.0 : 0.0;
+    return result;
+}
+
+// Burial as a HAZARD RATE rather than a certainty.  The probability-1 form
+// above is the only ACTN2 death channel that is a certainty rather than a
+// rate, and pairing it with a SOFT repulsion is unwinnable: a spring in a
+// thermal bath holds a DISTRIBUTION of penetration depths (measured median
+// 8.3 nm against a 10 nm threshold), so any fixed line inside that
+// distribution is crossed eventually and the first excursion executes a
+// bond whose natural lifetime is orders of magnitude longer.  Measured
+// burial episodes last a median 20 us with exit/entry = 1.00; stiffening
+// the spring moves the median but never removes the tail.
+//
+// The hazard is Bell-like in the depth past the threshold, with the
+// threshold itself as the scale so no extra length parameter is needed:
+//     k(p) = rate0 * exp((p - p_thr) / p_thr)   for p > 0
+// k = rate0 at p = p_thr and grows e-fold per further p_thr of burial, so
+// a transient dip costs a small probability while sustained deep burial
+// still kills promptly.  The two barbed tips are independent channels and
+// their hazards add.  rate0 <= 0 is the legacy probability-1 veto.
+template <typename UniformDraw>
+inline DetachmentDecision decide_barbed_tip_capsule_penetration_rate(
+    double penetration_i, double penetration_j,
+    double rupture_penetration, double rupture_rate, double dt,
+    UniformDraw&& uniform_draw) {
+    DetachmentDecision result;
+    if (!(rupture_penetration > 0.0) || !(rupture_rate > 0.0) ||
+        !(dt > 0.0)) {
+        return result;
+    }
+    auto hazard = [&](double penetration) {
+        if (!std::isfinite(penetration) || !(penetration > 0.0)) return 0.0;
+        return rupture_rate * std::exp(
+            (penetration - rupture_penetration) / rupture_penetration);
+    };
+    const double rate = hazard(penetration_i) + hazard(penetration_j);
+    if (!(rate > 0.0)) return result;
+    result.probability = std::clamp(rate * dt, 0.0, 1.0);
+    result.draw = uniform_draw();
+    result.am_overlap_occluded = result.draw < result.probability;
     return result;
 }
 

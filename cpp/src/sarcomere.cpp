@@ -202,6 +202,19 @@ Sarcomere::Sarcomere(int& n_actins, int& n_myosins, vector box0, double& actin_l
             actin.register_feature("aa_local_tension_max");
             actin.register_feature("aa_zdisc_tip_force");
             actin.register_feature("aa_zdisc_tip_contact_count");
+            actin.register_feature("aa_barbed_tip_endstop_force");
+            actin.register_feature("aa_barbed_tip_signed_clearance");
+            actin.register_feature("aa_barbed_tip_penetration");
+            actin.register_feature("aa_barbed_tip_myosin_index");
+            // The reason-3 kill rule reads ITS OWN penetration, computed
+            // against FIXED legacy capsule geometry, so that widening the
+            // force's transverse reach (slab mode) cannot recruit extra
+            // crosslinks into the kill channel.  MEASURED before this split:
+            // turning the slab on took pen>0 from 12.9% to 20.1% of
+            // actin-frames and burial deaths from 1071 to 7308 (6.8x) at an
+            // identical kill line and hazard rate, because both the force and
+            // the rule read one shared array.
+            actin.register_feature("aa_barbed_tip_kill_penetration");
             actin.register_feature("cumulative_aa_zdisc_tip_projection_events");
             actin.register_feature("cumulative_aa_zdisc_tip_projection_correction");
             actin.register_feature("titin_bound");
@@ -1507,6 +1520,16 @@ void Sarcomere::_set_to_zero() {
     auto& aa_zdisc_tip_force_feature = actin["aa_zdisc_tip_force"];
     auto& aa_zdisc_tip_contact_count_feature =
         actin["aa_zdisc_tip_contact_count"];
+    auto& aa_barbed_tip_endstop_force_feature =
+        actin["aa_barbed_tip_endstop_force"];
+    auto& aa_barbed_tip_signed_clearance_feature =
+        actin["aa_barbed_tip_signed_clearance"];
+    auto& aa_barbed_tip_penetration_feature =
+        actin["aa_barbed_tip_penetration"];
+    auto& aa_barbed_tip_myosin_index_feature =
+        actin["aa_barbed_tip_myosin_index"];
+    auto& aa_barbed_tip_kill_penetration_feature =
+        actin["aa_barbed_tip_kill_penetration"];
     #pragma omp for
     for (int i = 0; i < actin.n; i++) {
         actin.update_endpoints(i);
@@ -1553,6 +1576,12 @@ void Sarcomere::_set_to_zero() {
         aa_local_tension_max_feature[i] = 0;
         aa_zdisc_tip_force_feature[i] = 0;
         aa_zdisc_tip_contact_count_feature[i] = 0;
+        aa_barbed_tip_endstop_force_feature[i] = 0;
+        aa_barbed_tip_signed_clearance_feature[i] =
+            std::numeric_limits<double>::infinity();
+        aa_barbed_tip_penetration_feature[i] = 0;
+        aa_barbed_tip_myosin_index_feature[i] = -1;
+        aa_barbed_tip_kill_penetration_feature[i] = 0;
         actin_f_load_computed[i] = false;
         myosinIndicesPerActin.deleteAllConnections(i);
     }
@@ -1753,12 +1782,62 @@ void Sarcomere::_process_actin_myosin_binding(int& i) {
     auto& partial_binding_ratio_feature = actin[key_partial_binding];
     auto& myosin_binding_ratio_feature = actin[key_myosin_binding];
     auto& crosslink_ratio_feature = actin[key_crosslink_ratio];
+    auto& barbed_force_feature = actin["aa_barbed_tip_endstop_force"];
+    auto& barbed_clearance_feature = actin["aa_barbed_tip_signed_clearance"];
+    auto& barbed_penetration_feature = actin["aa_barbed_tip_penetration"];
+    auto& barbed_myosin_feature = actin["aa_barbed_tip_myosin_index"];
+    auto& barbed_kill_penetration_feature =
+        actin["aa_barbed_tip_kill_penetration"];
+    BarbedTipMyosinEndstopResult best_barbed_contact;
+    int best_barbed_myosin = -1;
+    // Separate accumulator for the kill rule.  Identical to the force's own
+    // when slab mode is off, so this split is bitwise inert by default.
+    BarbedTipMyosinEndstopResult best_kill_contact;
+    int best_kill_myosin = -1;
     double f_load_contrib = 0;
     double f_load_contrib_cb = 0;
     for (int index = 0; index < myosin_neighbors.size(); index++) {
         int j = myosin_neighbors[index];
         const double capture_centerline = myosin.radius + actin_radius +
                                           am_surface_gap + am_cutoff;
+        if (aa_zdisc_tip_contact) {
+            const double capsule_radius = aa_occlusion_capture_radius > 0.0
+                ? std::min(aa_occlusion_capture_radius, capture_centerline)
+                : capture_centerline;
+            const auto contact = compute_barbed_tip_myosin_endstop(
+                actin, myosin, i, j, box, capsule_radius,
+                aa_zdisc_tip_onset, aa_zdisc_tip_stiffness,
+                aa_zdisc_tip_force_max, aa_barbed_tip_endstop_slab,
+                aa_barbed_tip_endstop_transverse_cutoff);
+            if (contact.radially_eligible &&
+                (best_barbed_myosin < 0 ||
+                 contact.signed_clearance <
+                     best_barbed_contact.signed_clearance - 1e-12 ||
+                 (std::abs(contact.signed_clearance -
+                           best_barbed_contact.signed_clearance) <= 1e-12 &&
+                  j < best_barbed_myosin))) {
+                best_barbed_contact = contact;
+                best_barbed_myosin = j;
+            }
+            // The kill rule's domain is fixed: always the legacy capsule,
+            // never the slab's widened reach.
+            const auto kill_contact = aa_barbed_tip_endstop_slab
+                ? compute_barbed_tip_myosin_endstop(
+                      actin, myosin, i, j, box, capsule_radius,
+                      aa_zdisc_tip_onset, aa_zdisc_tip_stiffness,
+                      aa_zdisc_tip_force_max, false, 0.0)
+                : contact;
+            if (kill_contact.radially_eligible &&
+                (best_kill_myosin < 0 ||
+                 kill_contact.signed_clearance <
+                     best_kill_contact.signed_clearance - 1e-12 ||
+                 (std::abs(kill_contact.signed_clearance -
+                           best_kill_contact.signed_clearance) <= 1e-12 &&
+                  j < best_kill_myosin))) {
+                best_kill_contact = kill_contact;
+                best_kill_myosin = j;
+            }
+        }
         if (opt_gates_enabled &&
             !geometry::segments_may_interact(
                                   actin.left_end[i], actin.right_end[i],
@@ -1774,6 +1853,19 @@ void Sarcomere::_process_actin_myosin_binding(int& i) {
         const auto interaction_geometry = geometry::analyze_am(
             actin.left_end[i], actin.right_end[i], myosin.left_end[j], myosin.right_end[j],
             capture_centerline, box, is_periodic, directional);
+        // The ACTN2 occlusion veto may use a smaller capture distance than AM
+        // binding does.  Clamped to capture_centerline so the broad phase above
+        // remains conservative; unset reuses the same geometry object and is
+        // therefore bit-identical.
+        const bool occlusion_radius_overridden =
+            aa_occlusion_capture_radius > 0.0;
+        const auto occlusion_geometry = occlusion_radius_overridden
+            ? geometry::analyze_am(
+                  actin.left_end[i], actin.right_end[i],
+                  myosin.left_end[j], myosin.right_end[j],
+                  std::min(aa_occlusion_capture_radius, capture_centerline),
+                  box, is_periodic, directional)
+            : interaction_geometry;
         am_interaction[i][j] = {
             interaction_geometry.myosin_binding_ratio,
             interaction_geometry.partial_binding_ratio};
@@ -1810,10 +1902,10 @@ void Sarcomere::_process_actin_myosin_binding(int& i) {
         }
 
         if (geometry_allowed) {
-                    if (actin_crosslink_ratio[i] > interaction_geometry.crosslinkable_ratio) {
-                        actin_crosslink_ratio[i] = interaction_geometry.crosslinkable_ratio;
-                        actin_crosslink_start[i] = interaction_geometry.crosslinkable_start;
-                        actin_crosslink_end[i] = interaction_geometry.crosslinkable_end;
+                    if (actin_crosslink_ratio[i] > occlusion_geometry.crosslinkable_ratio) {
+                        actin_crosslink_ratio[i] = occlusion_geometry.crosslinkable_ratio;
+                        actin_crosslink_start[i] = occlusion_geometry.crosslinkable_start;
+                        actin_crosslink_end[i] = occlusion_geometry.crosslinkable_end;
                         if (actin_crosslink_ratio[i] < EPS) {
                             const auto& actin_neighbors = actin_neighbors_by_species[i].first;
                             bool prev_catch_bonded = false;
@@ -1882,6 +1974,34 @@ void Sarcomere::_process_actin_myosin_binding(int& i) {
             if (contrib > f_load_contrib) f_load_contrib = contrib;
             if (contrib_cb > f_load_contrib_cb) f_load_contrib_cb = contrib_cb;
         }
+    }
+    if (best_barbed_myosin >= 0) {
+        barbed_clearance_feature[i] = best_barbed_contact.signed_clearance;
+        barbed_penetration_feature[i] = best_barbed_contact.penetration;
+        barbed_myosin_feature[i] = static_cast<double>(best_barbed_myosin);
+        // Gate on a live ACTN2 link when requested.  Diagnostics above
+        // (clearance, penetration, which myosin) stay populated either way so
+        // the geometry remains observable when the force is suppressed.
+        const bool tip_stop_has_link =
+            !aa_zdisc_tip_contact_requires_link ||
+            (static_cast<size_t>(i) < aa_links_by_actin.size() &&
+             !aa_links_by_actin[static_cast<size_t>(i)].empty());
+        if (best_barbed_contact.applied && tip_stop_has_link) {
+            barbed_force_feature[i] = best_barbed_contact.force;
+            actin_forces_temp[thread_id][i] +=
+                best_barbed_contact.force_on_actin;
+            actin_torques_temp[thread_id][i] +=
+                best_barbed_contact.torque_on_actin;
+            myosin_forces_temp[thread_id][best_barbed_myosin] +=
+                best_barbed_contact.force_on_myosin;
+            myosin_torques_temp[thread_id][best_barbed_myosin] +=
+                best_barbed_contact.torque_on_myosin;
+        }
+    }
+    // The kill rule's penetration is tracked SEPARATELY and never gates the
+    // force.  Equal to best_barbed_contact when slab mode is off.
+    if (best_kill_myosin >= 0) {
+        barbed_kill_penetration_feature[i] = best_kill_contact.penetration;
     }
     double denom = (1 - std::exp(-2));
     //double load_velocity = (1 - std::exp(-2 * f_load_contrib)) / denom;
@@ -2456,6 +2576,18 @@ void Sarcomere::_process_dynamic_am_heads() {
                     const int capacity = pair_scratch.capacity[actin_index];
                     if (capacity >= 0 &&
                         pair_scratch.occupied[actin_index] >= capacity) continue;
+                    // Azimuth-selection gate, on the FIXED spoke azimuth.  It
+                    // must not use the swung binding azimuth, which already
+                    // points at the actin and would admit every head.
+                    if (am_azimuth_gate && am_spatial_heads &&
+                        !am_head_azimuth_admits(
+                            actin, myosin, candidate.actin_index, j, box,
+                            head.anchor_axial, head.anchor_azimuth,
+                            am_azimuth_gate_half_width,
+                            myosin_material_e1[static_cast<size_t>(j)],
+                            myosin_material_e2[static_cast<size_t>(j)])) {
+                        continue;
+                    }
                     const double candidate_azimuth =
                         am_binding_azimuth_selection && am_spatial_heads
                         ? select_am_binding_azimuth(
@@ -2612,6 +2744,20 @@ void Sarcomere::_process_dynamic_am_heads() {
                 // ACTN2 links after a prebound link detached.
                 myosin.radius + actin_radius + am_surface_gap + am_cutoff,
                 box, is_periodic, directional);
+            // See site A: the occlusion veto may use a smaller, steric capture
+            // distance than AM binding.  Unset reuses the same object exactly.
+            const double am_capture_centerline_dyn =
+                myosin.radius + actin_radius + am_surface_gap + am_cutoff;
+            const bool occlusion_radius_overridden =
+                aa_occlusion_capture_radius > 0.0;
+            const auto occlusion_geometry = occlusion_radius_overridden
+                ? geometry::analyze_am(
+                      actin.left_end[i], actin.right_end[i],
+                      myosin.left_end[j], myosin.right_end[j],
+                      std::min(aa_occlusion_capture_radius,
+                               am_capture_centerline_dyn),
+                      box, is_periodic, directional)
+                : interaction_geometry;
 
             #pragma omp critical(dynamic_am_actin_summary)
             {
@@ -2632,14 +2778,30 @@ void Sarcomere::_process_dynamic_am_heads() {
             myosin_binding_ratio_feature[i] = std::max(
                 myosin_binding_ratio_feature[i], binding_ratio);
 
-            if (actin_crosslink_ratio[i] >
-                interaction_geometry.crosslinkable_ratio) {
+            // A myosin that does not touch this actin must not drive its
+            // crosslinkable contour to zero.  subsegment_within_distance
+            // returns (0, A, A) when the segments are out of range
+            // (geometry.cpp:452 and :596), so crosslinkable_ratio is 0 both
+            // when the overlap has consumed the barbed contour and when there
+            // is no overlap at all -- decide_am_overlap_occlusion cannot tell
+            // those apart and deletes the link either way.  The static path
+            // already gates this update on
+            //     geometry_allowed = binding_ratio > EPS && ...
+            // but the dynamic_am path did not, so a myosin merely FAILING to
+            // reach an actin deleted every ACTN2 link on it and then blocked
+            // replacements, which is the failure the analyze_am call above
+            // was already commented as guarding against.  analyze_am's own
+            // contract (geometry.cpp): a zero binding ratio means exactly that
+            // the segments are further apart than the capture centreline.
+            if (occlusion_geometry.myosin_binding_ratio > EPS &&
+                actin_crosslink_ratio[i] >
+                occlusion_geometry.crosslinkable_ratio) {
                 actin_crosslink_ratio[i] =
-                    interaction_geometry.crosslinkable_ratio;
+                    occlusion_geometry.crosslinkable_ratio;
                 actin_crosslink_start[i] =
-                    interaction_geometry.crosslinkable_start;
+                    occlusion_geometry.crosslinkable_start;
                 actin_crosslink_end[i] =
-                    interaction_geometry.crosslinkable_end;
+                    occlusion_geometry.crosslinkable_end;
             }
 
             if (strong_heads > 0) {
@@ -4116,6 +4278,9 @@ void Sarcomere::_calc_am_force_velocity(int& i) {
                     const double axial_stiffness = interaction_ramp *
                         am_motor_k * (head_is_strong
                             ? 1.0 : am_weak_stiffness_ratio);
+                    // Saturate the pair's TOTAL axial force in the bound-head count.  Applied to
+                    // the stiffness AND the stall cap: either alone leaves one regime growing with N.
+                    const double motor_scale = _am_motor_scale(bound_head_count);
                     const auto head_mechanics = compute_am_two_spring_head(
                         actin, myosin, i, j, box,
                         head.target_axial, head.anchor_axial,
@@ -4127,10 +4292,11 @@ void Sarcomere::_calc_am_force_velocity(int& i) {
                             ? &myosin_material_e2[static_cast<size_t>(j)] : nullptr,
                         _am_head_radial_rest(),
                         per_head_tether_k, am_tether_slack,
-                        axial_stiffness, head.stroke_progress,
-                        am_stall_force, head_is_strong,
+                        axial_stiffness * motor_scale, head.stroke_progress,
+                        am_stall_force * motor_scale, head_is_strong,
                         am_bidirectional_crossbridge,
-                        per_head_radial_force_max);
+                        per_head_radial_force_max,
+                        static_cast<AmRadialMode>(am_head_radial_mode));
                     // Legacy sliding throttle: the prescribed-velocity model slowed
                     // filament sliding as the engaged AM overlap saturated
                     //   f_load = (1-exp(-2r))/(1-exp(-2)),  v = (1-f_load)*v0
@@ -4242,6 +4408,16 @@ void Sarcomere::_calc_am_force_velocity(int& i) {
             // unbounded quadratic, and the neighbour list is effectively
             // all-pairs, so an ungated floor would tether every pair in the box.
             // Guarded so the default (floor 0) costs nothing and is bitwise inert.
+            // Alignment occupancy is tracked separately from the tether's so
+            // that normalising the aligning torque does not also move
+            // am_tether_k and the derived am_head_radial_force_max, which
+            // share am_tether_saturation_heads.
+            const double alignment_occupancy =
+                am_alignment_saturation_heads > 0
+                    ? std::min(1.0, static_cast<double>(bound_head_count) /
+                                        static_cast<double>(
+                                            am_alignment_saturation_heads))
+                    : angular_occupancy;
             double radial_occupancy = angular_occupancy;
             if (am_tether_occupancy_floor > 0.0) {
                 const double pair_separation = geometry::segment_segment_distance(
@@ -4277,7 +4453,7 @@ void Sarcomere::_calc_am_force_velocity(int& i) {
             const auto angular_tether =
                 compute_am_nematic_flat_bottom_tether(
                     actin.direction[i], myosin.direction[j],
-                    interaction_ramp * am_alignment_k * angular_occupancy,
+                    interaction_ramp * am_alignment_k * alignment_occupancy,
                     am_alignment_slack);
             local_actin_torques[i] += angular_tether.drive_on_actin;
             _tb_add(kTsAmAlign, omp_get_thread_num(), i, angular_tether.drive_on_actin);
@@ -6123,4 +6299,3 @@ bool Sarcomere::_myosin_pair_bonded(int mi, int mj) const {
 // The ACTN2 subsystem (every _local_aa_*/_aa_*/actn2 function, the
 // AAPairAxis and AAAssociationProposal helpers, _process_catch_bonds and
 // _update_local_aa_links) moved to src/sarcomere_actn2.cpp on 2026-09-17.
-

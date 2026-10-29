@@ -8,6 +8,7 @@
 #include "aa_refractory.h"
 #include "aa_association_kinetics.h"
 #include "catch_bond_kinetics.h"
+#include "actn2_maturation_geometry.h"
 #include "counter_rng.h"
 #include <algorithm>
 #include <chrono>
@@ -359,6 +360,33 @@ Sarcomere::_local_aa_tether_capture_intervals(
         if (intervals.empty()) break;
     }
     return intervals;
+}
+
+bool Sarcomere::_aa_status2_connector_excluded(
+    int actin_i, int actin_j, double s_i, double s_j,
+    double penetration_buffer) const {
+    const auto patch = compute_actn2_patch_geometry(
+        actin, actin_i, actin_j, s_i, s_j, box);
+    // Compute the segment sphere once per link, then reject distant myosins
+    // before invoking the exact periodic-image kernel. Keep all myosins:
+    // endpoint force-neighbor lists cannot conservatively bound a connector.
+    const double reach = std::hypot(
+        0.5 * myosin.length - penetration_buffer,
+        actn2_maturation::exclusion_radius - penetration_buffer) +
+        patch.half_length;
+    const double reach_sq = reach * reach;
+    for (int m = 0; m < myosin.n; ++m) {
+        vec relative = patch.midpoint - myosin.center[m];
+        relative.pbc_wrap(box, myosin.periodic_axes);
+        if (relative.norm_squared() > reach_sq) continue;
+        if (actn2_maturation::connector_overlaps_myosin(
+                patch.first, patch.second, myosin.center[m],
+                myosin.direction[m], myosin.length, box, myosin.periodic_axes,
+                actn2_maturation::exclusion_radius - penetration_buffer,
+                penetration_buffer))
+            return true;
+    }
+    return false;
 }
 
 Sarcomere::AAMyosinExclusionEvaluation
@@ -906,6 +934,7 @@ void Sarcomere::_update_local_aa_links() {
     aa_scratch_contact_penetration.assign(aa_links.size(), 0.0);
     aa_scratch_contact_results.assign(aa_links.size(), {});
     aa_scratch_contact_evaluated.assign(aa_links.size(), 0);
+    aa_scratch_mature_connector_excluded.assign(aa_links.size(), 0);
     aa_scratch_total_arm_load.assign(static_cast<size_t>(actin.n), 0.0);
     aa_scratch_productive_load.assign(static_cast<size_t>(actin.n), 0.0);
     aa_scratch_motor_force.assign(static_cast<size_t>(actin.n),
@@ -1066,6 +1095,15 @@ void Sarcomere::_update_local_aa_links() {
         }
         const double link_radial_k =
             ramp * aa_link_radial_stiffness(link.status);
+        // Geometry is read-only after site diffusion. Evaluate established
+        // mature links with the team, then consume the flags in canonical
+        // slot order below. No RNG, event or floating-point reduction moves.
+        if (link.status == 2) {
+            aa_scratch_mature_connector_excluded[slot] =
+                _aa_status2_connector_excluded(
+                    link.actin_i, link.actin_j, link.s_i, link.s_j,
+                    actn2_maturation::deletion_buffer);
+        }
         mechanics[slot] = compute_local_aa_link(
             actin, link.actin_i, link.actin_j, link.s_i, link.s_j, box,
             link_radial_k, ramp * aa_link_perpendicular_stiffness(link.status),
@@ -1176,13 +1214,9 @@ void Sarcomere::_update_local_aa_links() {
     }
     }
 
-    // Phase 2.  Detachment and catch-state update are evaluated per physical
-    // link. Each actin's productive motor-force budget is shared across every
-    // favorable ACTN2 arm incident on that actin, including links to distinct
-    // partners.  Everything up to the `ordered` region is independent per link
-    // and runs concurrently; link destruction, free-slot recycling and event
-    // emission are order-sensitive and run inside `ordered`, which replays them
-    // in exactly the original slot sequence.
+    // Phase 2. Catch-state classification and deletion bookkeeping commit
+    // in canonical slot order. Read-only mechanics and mature-connector
+    // geometry were evaluated by the team in phase 1a.
     double motor_candidate_thread_seconds = 0.0;
     std::uint64_t motor_candidate_thread_pairs = 0;
     stamp_aa_phase(kAaLinkLoop);
@@ -1481,6 +1515,7 @@ void Sarcomere::_update_local_aa_links() {
             2, mech.direction_dot, mech.registry_error,
             aa_status2_registry_on, aa_status2_registry_off);
         bool instantaneous_status2_gate = false;
+        bool lock_motor_candidate = false;
         if (aa_status_mode ==
             actn2_load_kinetics::StatusMode::productive_register) {
             const int classified =
@@ -1502,15 +1537,7 @@ void Sarcomere::_update_local_aa_links() {
                     aa_status2_registry_off);
             instantaneous_status2_gate = old_status != 2 && classified == 2;
             link.status = static_cast<BondFlag>(classified);
-            if (link.status == 2) {
-                link.candidate_locked = true;
-                link.challenger_myosin_i = -1;
-                link.challenger_myosin_j = -1;
-                link.challenger_half_i = 0;
-                link.challenger_half_j = 0;
-                link.challenger_since = 0;
-                link.challenger_support_ema = 0.0;
-            }
+            lock_motor_candidate = link.status == 2;
             effective_load = link.status == 2
                 ? arm_loads.favorable_bilateral() : 0.0;
         } else if (aa_status_mode ==
@@ -1579,25 +1606,6 @@ void Sarcomere::_update_local_aa_links() {
             // and contour rupture remains an immediate escape path.
             link.status = 2;
         }
-        if (aa_arm_state_model) {
-            if (link.status == 2) {
-                if (old_status != 2) {
-                    link.arm_state_since = static_cast<RecoveryStep>(std::min(
-                        current_step,
-                        static_cast<size_t>(
-                            std::numeric_limits<RecoveryStep>::max())));
-                }
-                link.arm_state = actn2_arm_kinetics::State::mature_bridge;
-            } else {
-                if (old_status == 2) {
-                    link.arm_state_since = static_cast<RecoveryStep>(std::min(
-                        current_step,
-                        static_cast<size_t>(
-                            std::numeric_limits<RecoveryStep>::max())));
-                }
-                link.arm_state = actn2_arm_kinetics::State::weak_bridge;
-            }
-        }
         const bool register_retention_mode =
             aa_status_mode ==
                 actn2_load_kinetics::StatusMode::productive_register ||
@@ -1621,6 +1629,50 @@ void Sarcomere::_update_local_aa_links() {
                 // link or create status 2 from status 1.
                 link.status = 2;
                 effective_load = kinetic_arm_loads.favorable_bilateral();
+            }
+        }
+        // All routes into status 2 (including status memory) pass through
+        // the same material-connector gate.
+        if (old_status != 2 && link.status == 2 &&
+            _aa_status2_connector_excluded(
+                link.actin_i, link.actin_j, link.s_i, link.s_j)) {
+            link.status = 1;
+            instantaneous_status2_gate = false;
+            link.status2_memory_until = 0;
+            if (aa_status_mode ==
+                    actn2_load_kinetics::StatusMode::productive_register ||
+                motor_transmitted_mode ||
+                aa_status_mode ==
+                    actn2_load_kinetics::StatusMode::arm_load_productive)
+                effective_load = 0.0;
+        }
+        // Commit motor identity locking only after geometric admission.
+        if (lock_motor_candidate && link.status == 2) {
+            link.candidate_locked = true;
+            link.challenger_myosin_i = -1;
+            link.challenger_myosin_j = -1;
+            link.challenger_half_i = 0;
+            link.challenger_half_j = 0;
+            link.challenger_since = 0;
+            link.challenger_support_ema = 0.0;
+        }
+        if (aa_arm_state_model) {
+            if (link.status == 2) {
+                if (old_status != 2) {
+                    link.arm_state_since = static_cast<RecoveryStep>(std::min(
+                        current_step,
+                        static_cast<size_t>(
+                            std::numeric_limits<RecoveryStep>::max())));
+                }
+                link.arm_state = actn2_arm_kinetics::State::mature_bridge;
+            } else {
+                if (old_status == 2) {
+                    link.arm_state_since = static_cast<RecoveryStep>(std::min(
+                        current_step,
+                        static_cast<size_t>(
+                            std::numeric_limits<RecoveryStep>::max())));
+                }
+                link.arm_state = actn2_arm_kinetics::State::weak_bridge;
             }
         }
         mechanics[slot] = compute_local_aa_link(
@@ -1647,16 +1699,69 @@ void Sarcomere::_update_local_aa_links() {
             kinetic_arm_loads.first > arm_load_threshold &&
             kinetic_arm_loads.second > arm_load_threshold;
         const bool productive_support_ok = productive_support > 0.0;
-        // Association already rejects ACTN2 sites inside AM overlap. Apply the
-        // corresponding retention rule as well: if either actin has no
-        // crosslinkable barbed-end contour left, the existing molecular link is
-        // geometrically occluded and ruptures immediately, including status 2.
-        // Short-circuiting here deliberately avoids consuming a stochastic draw.
+        // Mature links use the same full-connector cylinder as admission,
+        // eroded by a small penetration tolerance radially and axially.
+        // Test old status too: loss of support must not evade geometric
+        // deletion on the very step a mature connector enters the cylinder.
+        // This is immediate reason-5 deletion, independent of the legacy
+        // barbed-tip hazard, dwell, force switch and arm-state model.
         catch_bond_kinetics::DetachmentDecision detachment;
-        if (!aa_arm_state_model) {
-            detachment = catch_bond_kinetics::decide_am_overlap_occlusion(
-                actin_crosslink_ratio[link.actin_i],
-                actin_crosslink_ratio[link.actin_j], EPS);
+        const bool mature_connector = old_status == 2 || link.status == 2;
+        const bool connector_excluded = old_status == 2
+            ? aa_scratch_mature_connector_excluded[slot] != 0
+            : (link.status == 2 && _aa_status2_connector_excluded(
+                link.actin_i, link.actin_j, link.s_i, link.s_j,
+                actn2_maturation::deletion_buffer));
+        if (mature_connector && connector_excluded) {
+            detachment.mature_connector_excluded = true;
+            detachment.probability = 1.0;
+        }
+        if (!mature_connector && !aa_arm_state_model &&
+            aa_overlap_occlusion_veto) {
+            if (aa_occlusion_rupture_rate > 0.0) {
+                // Burial is a hazard, not a guillotine.  A dedicated RNG
+                // stream keeps aa_link_detachment's draw sequence intact,
+                // so rate0 = 0 remains bitwise inert.
+                counter_rng::CounterRng occlusion_rng(
+                    static_cast<std::uint64_t>(initial_seed),
+                    static_cast<std::uint64_t>(current_step),
+                    counter_rng::Stream::aa_occlusion_rupture,
+                    static_cast<std::uint64_t>(link.id));
+                detachment = catch_bond_kinetics::
+                    decide_barbed_tip_capsule_penetration_rate(
+                        actin["aa_barbed_tip_kill_penetration"][link.actin_i],
+                        actin["aa_barbed_tip_kill_penetration"][link.actin_j],
+                        aa_occlusion_rupture_penetration,
+                        aa_occlusion_rupture_rate, dt,
+                        [&]() { return occlusion_rng.uniform(); });
+            } else {
+            detachment =
+                catch_bond_kinetics::decide_barbed_tip_capsule_penetration(
+                    actin["aa_barbed_tip_kill_penetration"][link.actin_i],
+                    actin["aa_barbed_tip_kill_penetration"][link.actin_j],
+                    aa_occlusion_rupture_penetration);
+            }
+            // Require the burial to PERSIST.  A tip that pokes in and bounces
+            // straight back out must not execute a crosslink whose natural
+            // lifetime is three orders of magnitude longer than the excursion.
+            if (aa_occlusion_rupture_rate > 0.0) {
+                // The hazard already spares transients; the dwell counter
+                // would only advance on a firing draw, which is not a
+                // dwell.  The two mechanisms are alternatives.
+                link.occlusion_dwell = 0;
+            } else if (detachment.am_overlap_occluded) {
+                if (link.occlusion_dwell <
+                        std::numeric_limits<RecoveryStep>::max()) {
+                    link.occlusion_dwell += 1;
+                }
+                if (static_cast<size_t>(link.occlusion_dwell) <=
+                        aa_occlusion_rupture_dwell_steps) {
+                    detachment.am_overlap_occluded = false;
+                    detachment.probability = 0.0;
+                }
+            } else {
+                link.occlusion_dwell = 0;
+            }
         }
         actn2_arm_kinetics::OpeningDecision arm_opening;
         const auto old_arm_state = link.arm_state;
@@ -1725,7 +1830,8 @@ void Sarcomere::_update_local_aa_links() {
         const bool overlap_occlusion = detachment.am_overlap_occluded;
         const bool collision_rupture = detachment.actn2_myosin_collision;
         const bool geometric_rupture =
-            contour_rupture || overlap_occlusion || collision_rupture;
+            contour_rupture || overlap_occlusion || collision_rupture ||
+            detachment.mature_connector_excluded;
         const bool arm_opens = arm_opening.opens_i || arm_opening.opens_j;
         const bool detaches = detachment.detaches();
         // Everything from here mutates shared, order-sensitive state: the
@@ -2171,15 +2277,6 @@ void Sarcomere::_update_local_aa_links() {
         if (aa_tip_scan_buckets.size() < n_slots) {
             aa_tip_scan_buckets.resize(n_slots);
         }
-        const size_t threads = static_cast<size_t>(omp_get_max_threads());
-        if (aa_tip_stamp_pool.size() < threads) {
-            aa_tip_stamp_pool.resize(threads);
-        }
-        for (auto& stamps : aa_tip_stamp_pool) {
-            if (stamps.size() != static_cast<size_t>(myosin.n)) {
-                stamps.assign(static_cast<size_t>(myosin.n), -1);
-            }
-        }
         }
         #pragma omp for schedule(dynamic, 8)
         for (long long index = 0; index < static_cast<long long>(n_slots);
@@ -2190,35 +2287,26 @@ void Sarcomere::_update_local_aa_links() {
             const auto& link = aa_links[slot];
             if (aa_arm_state_model &&
                 !actn2_arm_kinetics::is_bridge(link.arm_state)) continue;
-            auto& stamps = aa_tip_stamp_pool[
-                static_cast<size_t>(omp_get_thread_num())];
-            // The link index is globally unique and each thread owns its own
-            // stamp array, so it doubles as the visit token with no counter.
-            const long long token = index;
             const auto patch = compute_actn2_patch_geometry(
                 actin, link.actin_i, link.actin_j, link.s_i, link.s_j, box);
-            for (int pass = 0; pass < 2; ++pass) {
-                const auto& candidates = actin_neighbors_by_species[
-                    static_cast<size_t>(pass == 0 ? link.actin_i
-                                                  : link.actin_j)].second;
-                for (int m : candidates) {
-                    if (m < 0 || m >= myosin.n) continue;
-                    if (stamps[static_cast<size_t>(m)] == token) continue;
-                    stamps[static_cast<size_t>(m)] = token;
-                    if (!actn2_patch_may_contact_myosin_tip(
-                            patch, myosin, m, box, aa_zdisc_tip_onset,
-                            aa_zdisc_tip_transverse_cutoff)) continue;
-                    for (int end_sign : {-1, 1}) {
-                        auto contact = compute_zdisc_myosin_tip_contact(
-                            actin, myosin, link.actin_i, link.actin_j,
-                            link.s_i, link.s_j, m, end_sign, box,
-                            aa_zdisc_tip_onset, aa_zdisc_tip_stiffness,
-                            aa_zdisc_tip_force_max,
-                            aa_zdisc_tip_transverse_flat,
-                            aa_zdisc_tip_transverse_cutoff);
-                        if (!contact.applied) continue;
-                        bucket.push_back({slot, m, end_sign, contact});
-                    }
+            // A connector interior may contact a myosin absent from both
+            // endpoint actins' neighbor lists. Use a conservative segment
+            // sphere against every myosin before the exact contact query.
+            for (int m = 0; m < myosin.n; ++m) {
+                if (!actn2_patch_may_contact_myosin_tip(
+                        patch, myosin, m, box, aa_zdisc_tip_onset,
+                        aa_zdisc_tip_stop_gate_cutoff)) continue;
+                for (int end_sign : {-1, 1}) {
+                    auto contact = compute_zdisc_axial_stop_contact(
+                        actin, myosin, link.actin_i, link.actin_j,
+                        link.s_i, link.s_j, m, end_sign, box,
+                        aa_zdisc_tip_onset, aa_zdisc_tip_stop_stiffness,
+                        aa_zdisc_tip_stop_force_max,
+                        aa_zdisc_tip_stop_gate_radius,
+                        aa_zdisc_tip_stop_gate_cutoff,
+                        aa_zdisc_tip_stop_epsilon);
+                    if (!contact.applied) continue;
+                    bucket.push_back({slot, m, end_sign, contact});
                 }
             }
         }
@@ -2239,63 +2327,105 @@ void Sarcomere::_update_local_aa_links() {
     auto& aa_zdisc_tip_contact_count_feature =
         actin["aa_zdisc_tip_contact_count"];
     if (aa_zdisc_tip_contact) {
-        struct SelectedTipContact {
-            size_t slot = std::numeric_limits<size_t>::max();
-            int myosin_index = -1;
-            ZDiscMyosinTipContactResult contact;
+        // One energy budget per (unordered actin pair, myosin): redundant
+        // links on a pair contribute only the link with the greatest energy
+        // summed over both tips, ties going to the lower link id.  Every
+        // distinct pair contributes.  The scan is replayed in canonical link
+        // order, so selection and application order are deterministic.
+        struct PairMyosinSelection {
+            size_t bucket = 0;      // index into aa_tip_scan_buckets
+            size_t first_hit = 0;   // this myosin's hits are contiguous
+            size_t hit_count = 0;
+            double energy = 0.0;
+            std::uint64_t link_id = 0;
         };
-        std::vector<SelectedTipContact> selected(
-            static_cast<size_t>(2 * myosin.n));
-        // Replay the scan results in canonical link order.  Identical
-        // comparison sequence to the old serial loop, so the winner is the
-        // same even where the epsilon band makes the rule non-transitive.
+        struct PairMyosinKey {
+            std::uint64_t pair;
+            int myosin_index;
+            bool operator==(const PairMyosinKey& other) const {
+                return pair == other.pair && myosin_index == other.myosin_index;
+            }
+        };
+        struct PairMyosinHash {
+            size_t operator()(const PairMyosinKey& key) const {
+                return std::hash<std::uint64_t>{}(
+                    key.pair * 0x9e3779b97f4a7c15ULL ^
+                    static_cast<std::uint64_t>(key.myosin_index));
+            }
+        };
+        std::vector<PairMyosinSelection> selections;
+        std::unordered_map<PairMyosinKey, size_t, PairMyosinHash> selection_of;
         for (size_t index = 0; index < aa_active_link_slots.size(); ++index) {
-            for (const auto& hit : aa_tip_scan_buckets[index]) {
-                const auto& link = aa_links[hit.slot];
-                auto& best = selected[static_cast<size_t>(
-                    2 * hit.myosin_index + (hit.end_sign > 0 ? 1 : 0))];
-                if (best.myosin_index < 0 ||
-                    hit.contact.force > best.contact.force + 1e-12 ||
-                    (std::abs(hit.contact.force - best.contact.force) <= 1e-12 &&
-                     link.id < aa_links[best.slot].id)) {
-                    best = {hit.slot, hit.myosin_index, hit.contact};
+            const auto& hits = aa_tip_scan_buckets[index];
+            for (size_t begin = 0; begin < hits.size();) {
+                const int m = hits[begin].myosin_index;
+                size_t end = begin;
+                double energy = 0.0;
+                while (end < hits.size() && hits[end].myosin_index == m) {
+                    energy += hits[end].contact.energy;
+                    ++end;
                 }
+                const auto& link = aa_links[hits[begin].slot];
+                const PairMyosinSelection candidate{
+                    index, begin, end - begin, energy, link.id};
+                const PairMyosinKey key{
+                    _aa_pair_key(link.actin_i, link.actin_j), m};
+                const auto found = selection_of.find(key);
+                if (found == selection_of.end()) {
+                    selection_of.emplace(key, selections.size());
+                    selections.push_back(candidate);
+                } else {
+                    auto& best = selections[found->second];
+                    if (energy > best.energy + 1e-12 ||
+                        (std::abs(energy - best.energy) <= 1e-12 &&
+                         link.id < best.link_id)) {
+                        best = candidate;
+                    }
+                }
+                begin = end;
             }
         }
-        // One selected patch per tip provides one finite force budget even
-        // when several ACTN2 molecules occupy the same local Z-disc patch.
-        for (size_t tip_index = 0; tip_index < selected.size(); ++tip_index) {
-            const auto& best = selected[tip_index];
-            if (best.myosin_index < 0) continue;
-            const auto& link = aa_links[best.slot];
-            const auto& contact = best.contact;
-            local_forces[link.actin_i] += contact.force_on_actin_i;
-            local_forces[link.actin_j] += contact.force_on_actin_j;
-            local_myosin_forces[best.myosin_index] += contact.force_on_myosin;
-            local_torques[link.actin_i] += contact.torque_on_actin_i;
-            local_torques[link.actin_j] += contact.torque_on_actin_j;
-            local_myosin_torques[best.myosin_index] += contact.torque_on_myosin;
-            _tb_add(kTsActn2Contact, thread_id, link.actin_i,
-                    contact.torque_on_actin_i);
-            _tb_add(kTsActn2Contact, thread_id, link.actin_j,
-                    contact.torque_on_actin_j);
-            aa_zdisc_tip_force_feature[link.actin_i] += 0.5 * contact.force;
-            aa_zdisc_tip_force_feature[link.actin_j] += 0.5 * contact.force;
-            aa_zdisc_tip_contact_count_feature[link.actin_i] += 1.0;
-            aa_zdisc_tip_contact_count_feature[link.actin_j] += 1.0;
-            const bool plus = (tip_index % 2) == 1;
-            myosin[plus ? "aa_zdisc_tip_force_plus" :
-                           "aa_zdisc_tip_force_minus"][best.myosin_index] =
-                contact.force;
-            myosin[plus ? "aa_zdisc_tip_gap_plus" :
-                           "aa_zdisc_tip_gap_minus"][best.myosin_index] =
-                contact.axial_gap;
-            myosin[plus ? "aa_zdisc_tip_rho_plus" :
-                           "aa_zdisc_tip_rho_minus"][best.myosin_index] =
-                contact.transverse_distance;
-            myosin[plus ? "aa_zdisc_tip_gate_plus" :
-                           "aa_zdisc_tip_gate_minus"][best.myosin_index] =
-                contact.radial_gate;
+        for (const auto& selection : selections) {
+            const auto& hits = aa_tip_scan_buckets[selection.bucket];
+            for (size_t h = selection.first_hit;
+                 h < selection.first_hit + selection.hit_count; ++h) {
+                const auto& hit = hits[h];
+                const auto& link = aa_links[hit.slot];
+                const auto& contact = hit.contact;
+                local_forces[link.actin_i] += contact.force_on_actin_i;
+                local_forces[link.actin_j] += contact.force_on_actin_j;
+                local_myosin_forces[hit.myosin_index] += contact.force_on_myosin;
+                local_torques[link.actin_i] += contact.torque_on_actin_i;
+                local_torques[link.actin_j] += contact.torque_on_actin_j;
+                local_myosin_torques[hit.myosin_index] += contact.torque_on_myosin;
+                _tb_add(kTsActn2Contact, thread_id, link.actin_i,
+                        contact.torque_on_actin_i);
+                _tb_add(kTsActn2Contact, thread_id, link.actin_j,
+                        contact.torque_on_actin_j);
+                aa_zdisc_tip_force_feature[link.actin_i] +=
+                    contact.force_on_actin_i.norm();
+                aa_zdisc_tip_force_feature[link.actin_j] +=
+                    contact.force_on_actin_j.norm();
+                aa_zdisc_tip_contact_count_feature[link.actin_i] += 1.0;
+                aa_zdisc_tip_contact_count_feature[link.actin_j] += 1.0;
+                // Per tip: total axial force, and the deepest contact point.
+                const bool plus = hit.end_sign > 0;
+                myosin[plus ? "aa_zdisc_tip_force_plus" :
+                               "aa_zdisc_tip_force_minus"][hit.myosin_index] +=
+                    contact.axial_force;
+                auto& gap_feature = myosin[plus ? "aa_zdisc_tip_gap_plus" :
+                                                  "aa_zdisc_tip_gap_minus"];
+                const double deepest = gap_feature[hit.myosin_index];
+                if (std::isnan(deepest) || contact.deepest_gap < deepest) {
+                    gap_feature[hit.myosin_index] = contact.deepest_gap;
+                    myosin[plus ? "aa_zdisc_tip_rho_plus" :
+                                   "aa_zdisc_tip_rho_minus"][hit.myosin_index] =
+                        contact.deepest_rho;
+                    myosin[plus ? "aa_zdisc_tip_gate_plus" :
+                                   "aa_zdisc_tip_gate_minus"][hit.myosin_index] =
+                        contact.deepest_gate;
+                }
+            }
         }
     }
     stamp_aa_phase(kAaTipAndScatter);
