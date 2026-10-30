@@ -20,6 +20,12 @@
 #   --aa_zdisc_tip_contact_requires_link=true.  The myosin capsule rejects the
 #   Z-disc (an actin holding a live ACTN2 link), not a bare barbed tip.  Before
 #   this every production run shoved uncrosslinked actins at the 20 pN cap.
+# WEAK ACTN2 LINKS AT 75 pN/um (2026-10-29): the hph27 campaign set
+#   --aa_status1_radial_k=1000, making a weak link 3x stiffer than a mature one
+#   (k_aa / aa_stiffness_reference_links = 333 pN/um per link).  Not intended.
+#   75 is the fitted value (cpp/docs/ACCELERATED_DYNAMICS_FITTING.md) that runs
+#   used through 2026-10-05.  Checkpoints written with 1000 refuse to resume
+#   under 75; pass --aa_status1_radial_k=1000 to continue one unchanged.
 build_prod_cmd() {
   KILL=${KILL:-0.050}
   RATE=${RATE:-1}
@@ -92,7 +98,7 @@ build_prod_cmd() {
     --aa_status2_registry_off=0.040 --aa_status2_support_window=0.010
     --aa_register_saturation_error=0.05 --aa_prebundle_links_per_pair=3
     --aa_site_exclusion=0.0192 --aa_overlap_capture=0.10 --k_aa=1000
-    --kappa_aa=3 --aa_perpendicular_k=50 --aa_status1_radial_k=1000
+    --kappa_aa=3 --aa_perpendicular_k=50 --aa_status1_radial_k=75
     --aa_status1_site_diffusion=0.010 --aa_arm_state_model=false
     --aa_actn2_contact_radius=0.005 --aa_myosin_contact_epsilon=0.00428
     --aa_myosin_contact_force_cap=40 --aa_myosin_contact_shell_width=0.015

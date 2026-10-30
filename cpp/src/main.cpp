@@ -529,7 +529,7 @@ int main(int argc, char* argv[]){
             ("aa_site_exclusion", "Minimum contour-coordinate separation between local ACTN2 attachments", cxxopts::value<double>(aa_site_exclusion)->default_value("0.0192"))
             ("aa_overlap_capture", "Reference overlap used to calibrate overlap-extensive local ACTN2 association", cxxopts::value<double>(aa_overlap_capture)->default_value("0.10"))
             ("aa_perpendicular_k", "Local ACTN2 perpendicularity stiffness", cxxopts::value<double>(aa_perpendicular_k)->default_value("50"))
-            ("aa_status1_radial_k", "Per-molecule radial stiffness (pN/um) for weak/status-1 ACTN2 links; <=0 uses the locked per-link stiffness", cxxopts::value<double>(aa_status1_radial_k)->default_value("1000"))
+            ("aa_status1_radial_k", "Per-molecule radial stiffness (pN/um) for weak/status-1 ACTN2 links; <=0 uses the locked per-link stiffness", cxxopts::value<double>(aa_status1_radial_k)->default_value("75"))
             ("aa_status1_site_diffusion", "One-dimensional diffusion coefficient (um^2/s) of each status-1 ACTN2 binding domain along its actin barbed-end zone", cxxopts::value<double>(aa_status1_site_diffusion)->default_value("0.010"))
             ("aa_status2_locked_until_detach", "Keep stereospecific status-2 ACTN2 material sites locked until molecular detachment or contour rupture", cxxopts::value<bool>(aa_status2_locked_until_detach)->default_value("true")->implicit_value("true"))
             ("aa_status2_unlock_rate", "[UNUSED 2026-09-17: status-2 unlock path, never exercised] Zero-support mature-to-weak ACTN2 conformational rate (1/s); 0 disables this transition", cxxopts::value<double>(aa_status2_unlock_rate)->default_value("0"))
