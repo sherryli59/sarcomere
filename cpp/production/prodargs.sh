@@ -26,6 +26,21 @@
 #   75 is the fitted value (cpp/docs/ACCELERATED_DYNAMICS_FITTING.md) that runs
 #   used through 2026-10-05.  Checkpoints written with 1000 refuse to resume
 #   under 75; pass --aa_status1_radial_k=1000 to continue one unchanged.
+# POINTED-END CONTACT OFF (2026-10-30): --aa_double_overlap_contact=false.
+#   Built 2026-08-05 as a sandbox for double overlap (opposing thin-filament
+#   tips colliding end on); its own note found it inert at production overlap
+#   and "not suitable for production" (diagnostics/double_overlap_contact_v1_
+#   20260805), and it was switched on two days later with no recorded reason.
+#   Its lane gate keeps any antiparallel pair whose pointed ends line up within
+#   12 nm at ANY axial separation, and its signed gap reads two actins lying
+#   end to end with their barbed ends facing (no overlap at all, gap below
+#   -2 actin lengths) as tips that have already crossed by ~2 um, so it applies
+#   ~1e18 pN along the axis.  MEASURED in the hph27 trajectory (0-2 s): ~1 such
+#   pair per frame and the kernel firing about once per 5 steps, against one
+#   genuine pointed-tip touch in 407 frames.  Under the per-filament force cap
+#   that was a spurious push of up to 26 pN per firing.  NOT resume-guarded: a
+#   resume from an older checkpoint runs with it off while its /meta still
+#   records aa_double_overlap_contact_enabled=1.
 build_prod_cmd() {
   KILL=${KILL:-0.050}
   RATE=${RATE:-1}
@@ -123,7 +138,7 @@ build_prod_cmd() {
     --tau_rec=0 --max_aa_bonds_per_actin=4 --aa_neighbor_identity=true
     --aa_neighbor_slot_memory=0.02 --aa_status2_slot_memory=0.20
     --aa_association_max_direction_dot=-0.5 --aa_link_rupture_length=0.12
-    --aa_double_overlap_contact=true --aa_double_overlap_contact_diameter=0.012
+    --aa_double_overlap_contact=false --aa_double_overlap_contact_diameter=0.012
     --aa_double_overlap_contact_epsilon=0.00428 --aa_double_overlap_contact_force_cap=0
     --directional=true --max_myosin_bonds=24 --titin_mode=legacy_crosslinked
     --titin_k=0 --k_mm=0 --k_bundle_max=0
